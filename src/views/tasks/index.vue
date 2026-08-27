@@ -249,13 +249,13 @@ async function submit() {
           ? form.value.conversationIds
           : undefined,
       scheduledTime:
-        form.value.taskType !== "BATCH"
+        form.value.taskType === "SCHEDULED"
           ? form.value.scheduledTime
           : undefined,
       sampleSize: form.value.taskType === "SAMPLE" ? form.value.sampleSize : undefined,
       sampleSeed: form.value.taskType === "SAMPLE" ? form.value.sampleSeed || undefined : undefined,
       selectionFilter:
-        form.value.taskType === "SCHEDULED"
+        form.value.taskType !== "BATCH"
           ? {
               createdFrom: form.value.createdRange?.[0],
               createdTo: form.value.createdRange?.[1],
