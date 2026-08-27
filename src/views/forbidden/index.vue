@@ -1,0 +1,1 @@
+<template><main class="login-page"><section class="login-panel"><div class="login-card"><p class="eyebrow">ACCESS DENIED</p><h2>暂无访问权限</h2><p class="muted">当前 OpenSabre 账号没有访问该 IQC 功能的资源权限。</p><a-button type="primary" @click="$router.push('/dashboard')">返回工作台</a-button></div></section></main></template>
