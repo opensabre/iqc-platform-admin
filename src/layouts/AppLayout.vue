@@ -124,7 +124,8 @@ const pageTitle = computed(() => canonicalLabels[route.path] || (route.meta.titl
 
 async function logout() {
   try {
-    await fetch("/logout", { method: "DELETE", credentials: "include" });
+    // 退出业务由认证服务负责；经 gateway 的 auth 路由转发到 DELETE /logout。
+    await fetch("/api/auth/logout", { method: "DELETE", credentials: "include" });
   } finally {
     auth.clear();
     await router.push("/login");
