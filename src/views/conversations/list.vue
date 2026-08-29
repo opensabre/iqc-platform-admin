@@ -4,7 +4,7 @@ import { useRoute } from "vue-router";
 import { message } from "ant-design-vue";
 import { CheckOutlined, CopyOutlined } from "@ant-design/icons-vue";
 import { listConversations, type ConversationSummary } from "@/api/conversations";
-import { getCachedDictionaries, type DictionaryItem } from "@/api/dictionaries";
+import { dictionaryLabel, getCachedDictionaries, type DictionaryItem } from "@/api/dictionaries";
 import ConversationDetailDrawer from "@/components/ConversationDetailDrawer.vue";
 import { copyToClipboard } from "@/utils/clipboard";
 
@@ -22,6 +22,13 @@ const channelOptions = ref<DictionaryItem[]>([
 ]);
 const route = useRoute();
 const copiedValue = ref<string>(); let copyResetTimer: number | undefined;
+const conversationStatuses: DictionaryItem[] = [
+  { value: "IMPORTED", label: "已导入" },
+  { value: "IMPORTED_WITH_ERRORS", label: "导入有错误", tagType: "warning" },
+];
+
+function channelLabel(value?: string) { return dictionaryLabel(channelOptions.value, value); }
+function statusLabel(value?: string) { return dictionaryLabel(conversationStatuses, value); }
 
 async function copyText(value?: string) {
   if (!value) return;
@@ -93,12 +100,12 @@ onMounted(() => {
         <a-table-column title="会话名称" data-index="sourceFileName" :width="220" />
         <a-table-column title="员工" :width="140"><template #default="{ record }">{{ record.employeeName || record.employeeId || "-" }}</template></a-table-column>
         <a-table-column title="客户" :width="140"><template #default="{ record }">{{ record.customerName || record.customerExternalId || "-" }}</template></a-table-column>
-        <a-table-column title="渠道" data-index="channel" :width="90" />
+        <a-table-column title="渠道" data-index="channel" :width="90"><template #default="{ text }">{{ channelLabel(text) }}</template></a-table-column>
         <a-table-column title="业务编号" data-index="businessNo" :width="150" />
-        <a-table-column title="批次号" data-index="batchNo" :width="210"><template #default="{ text }"><a-space><span>{{ text || "单条接入" }}</span><a-tooltip v-if="text" :title="copiedValue === text ? '已复制' : '复制批次号'"><a-button type="link" size="small" class="copy-button" :aria-label="copiedValue === text ? '已复制批次号' : '复制批次号'" @click.stop="copyText(text)"><CheckOutlined v-if="copiedValue === text" class="copy-success"/><CopyOutlined v-else /></a-button></a-tooltip></a-space></template></a-table-column>
+        <a-table-column title="批次号" data-index="batchNo" :width="210"><template #default="{ text }">{{ text || "单条接入" }}</template></a-table-column>
         <a-table-column title="来源" data-index="sourceType" :width="90"><template #default="{ text }"><a-tag :color="text === 'API' ? 'purple' : 'blue'">{{ text || "FILE" }}</a-tag></template></a-table-column>
         <a-table-column title="消息" data-index="messageCount" :width="80" />
-        <a-table-column title="状态" data-index="status" :width="150" />
+        <a-table-column title="状态" data-index="status" :width="150"><template #default="{ text }"><a-tag :color="text === 'IMPORTED_WITH_ERRORS' ? 'warning' : 'success'">{{ statusLabel(text) }}</a-tag></template></a-table-column>
         <a-table-column title="创建时间" data-index="createdTime" :width="180" />
         <a-table-column title="操作" :width="100" fixed="right"><template #default="{ record }"><a-button type="link" @click="showDetail(record.id)">查看对话</a-button></template></a-table-column>
       </a-table>
