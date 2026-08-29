@@ -4,7 +4,7 @@ export interface QualityAgent { id: string; name: string; code: string; descript
 export interface AgentModelConfig { id: string; provider: string; model: string; endpoint: string; temperature: number; enabled: boolean; }
 export interface AgentMcpConfig { name: string; transport: string; endpoint: string; enabled: boolean; }
 export interface AgentSkillConfig { name: string; description: string; instructions: string; enabled: boolean; }
-export interface AgentRuntimeConfig { schemaVersion: "1.0"|"2.0"; systemPrompt: string; primaryModel?: string; models?: AgentModelConfig[]; mcpServers?: AgentMcpConfig[]; skills?: AgentSkillConfig[]; primaryModelProfileId?: string; fallbackModelProfileIds?: string[]; mcpServerIds?: string[]; skillIds?: string[]; }
+export interface AgentRuntimeConfig { schemaVersion: "1.0"|"2.0"; mode: "RULE_ONLY"|"RULE_THEN_LLM"|"AGENT_LLM"; systemPrompt: string; primaryModel?: string; models?: AgentModelConfig[]; mcpServers?: AgentMcpConfig[]; skills?: AgentSkillConfig[]; primaryModelProfileId?: string; fallbackModelProfileIds?: string[]; mcpServerIds?: string[]; skillIds?: string[]; }
 export interface QualityAgentVersion { id: string; agentId: string; versionNo: number; name: string; code: string; description?: string; configJson?: string; status: string; createdTime?: string; }
 export interface AgentVersionComparison { fromVersion: number; toVersion: number; changedFields: string[]; changedConfigPaths: string[]; }
 export interface AgentEffectReport { agentId: string; versionNo: number; taskCount: number; resultCount: number; averageScore: number; hitRate: number; highRiskRate: number; errorRate: number; }
