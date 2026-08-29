@@ -10,9 +10,11 @@ const routes: RouteRecordRaw[] = [
     redirect: "/dashboard",
     children: [
       { path: "dashboard", component: () => import("@/views/dashboard/index.vue"), meta: { title: "睿检总览", permission: "iqc:dashboard:view" } },
-      { path: "conversations", redirect: "/conversations/api" },
+      { path: "profile", component: () => import("@/views/profile/index.vue"), meta: { title: "个人中心" } },
+      { path: "conversations", redirect: "/conversations/list" },
       { path: "conversations/api", component: () => import("@/views/conversations/api.vue"), meta: { title: "接口对接", permission: "iqc:conversation:view" } },
       { path: "conversations/upload", component: () => import("@/views/conversations/index.vue"), meta: { title: "文本上传", permission: "iqc:conversation:view" } },
+      { path: "conversations/list", component: () => import("@/views/conversations/list.vue"), meta: { title: "会话列表", permission: "iqc:conversation:view" } },
       { path: "tasks", component: () => import("@/views/tasks/index.vue"), meta: { title: "质检任务", permission: "iqc:task:view" } },
       { path: "results", component: () => import("@/views/results/index.vue"), meta: { title: "质检结果", permission: "iqc:result:view" } },
       { path: "quality-operations", component: () => import("@/views/quality-operations/index.vue"), meta: { title: "质量运营", permission: "iqc:review:view" } },

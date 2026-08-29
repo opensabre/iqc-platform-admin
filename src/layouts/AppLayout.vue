@@ -32,6 +32,7 @@ const menuItems: MenuItem[] = [
   { key: "dashboard", path: "/dashboard", label: "睿检总览", icon: BarChartOutlined, permission: "iqc:dashboard:view" },
   { key: "conversations", label: "会话中心", icon: CommentOutlined, children: [
     { key: "conversations-api", path: "/conversations/api", label: "接口对接", permission: "iqc:conversation:view" },
+    { key: "conversations-list", path: "/conversations/list", label: "会话列表", permission: "iqc:conversation:view" },
     { key: "conversations-upload", path: "/conversations/upload", label: "文本上传", permission: "iqc:conversation:view" },
   ] },
   { key: "tasks", path: "/tasks", label: "质检任务", icon: OrderedListOutlined, permission: "iqc:task:view" },
@@ -57,7 +58,7 @@ const menuItems: MenuItem[] = [
 const iconMap: Record<string, unknown> = { audit: AuditOutlined, dashboard: BarChartOutlined, message: CommentOutlined, schedule: OrderedListOutlined, "file-search": CheckCircleOutlined, robot: ClusterOutlined, setting: SettingOutlined, book: FileTextOutlined, "file-text": FileTextOutlined };
 const routePaths = new Set(router.getRoutes().map((record) => `/${String(record.path).replace(/^\//, "")}`));
 const canonicalLabels: Record<string, string> = {
-  "/dashboard": "睿检总览", "/conversations/api": "接口对接", "/conversations/upload": "文本上传",
+  "/dashboard": "睿检总览", "/profile": "个人中心", "/conversations/api": "接口对接", "/conversations/list": "会话列表", "/conversations/upload": "文本上传",
   "/tasks": "质检任务", "/results": "质检结果", "/agents": "智能体列表", "/agent-models": "模型配置",
   "/agent-mcps": "MCP 管理", "/agent-skills": "Skill 管理", "/rules/library": "规则库", "/rules/composite": "组合规则",
   "/rules/sets": "规则集", "/rules/test-center": "测试中心", "/rules/approvals": "审批与发布",
@@ -138,6 +139,7 @@ async function logout() {
 }
 
 const displayName = computed(() => auth.user?.name || auth.user?.nickname || auth.user?.username || "质检管理员");
+const avatarText = computed(() => displayName.value.trim().slice(0, 1) || "检");
 </script>
 
 <template>
@@ -177,12 +179,17 @@ const displayName = computed(() => auth.user?.name || auth.user?.nickname || aut
           <a-button type="text" @click="router.push('/templates')">帮助与模板</a-button>
           <a-dropdown :trigger="['click']">
             <button class="user-menu" type="button">
-              <span class="avatar">检</span>
+              <img v-if="auth.user?.avatar" :src="auth.user.avatar" class="avatar avatar-image" alt="用户头像" />
+              <span v-else class="avatar">{{ avatarText }}</span>
               <span>{{ displayName }}</span>
               <ArrowDownOutlined />
             </button>
             <template #overlay>
-              <a-menu><a-menu-item key="logout" @click="logout">退出登录</a-menu-item></a-menu>
+              <a-menu>
+                <a-menu-item key="profile" @click="router.push('/profile')">个人中心</a-menu-item>
+                <a-menu-divider />
+                <a-menu-item key="logout" @click="logout">退出登录</a-menu-item>
+              </a-menu>
             </template>
           </a-dropdown>
         </div>

@@ -30,6 +30,7 @@ button, input { font: inherit; }
 .topbar-actions { display: flex; align-items: center; gap: 18px; }
 .user-menu { display: flex; align-items: center; gap: 9px; border: 0; color: #31534f; background: transparent; cursor: pointer; }
 .avatar { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: #126050; background: #c5eedc; font-size: 13px; font-weight: 700; }
+.avatar-image { display: block; object-fit: cover; }
 .page-container { padding: 12px 42px 44px; }
 .welcome-banner { display: flex; align-items: center; justify-content: space-between; min-height: 178px; overflow: hidden; padding: 28px 34px; border-radius: 18px; color: #e5f7f0; background: linear-gradient(110deg, #1a655a, #194942); }
 .welcome-banner .eyebrow { color: #9bd6c3; margin: 0 0 10px; }.welcome-banner h2 { margin: 0 0 8px; font-size: 27px; }.welcome-banner p:not(.eyebrow) { margin: 0; color: #b8d8cf; font-size: 13px; }

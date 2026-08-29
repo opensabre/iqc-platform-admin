@@ -7,6 +7,13 @@ export interface CurrentUser {
   name?: string;
   nickname?: string;
   avatar?: string;
+  mobile?: string;
+  description?: string;
+  gender?: string;
+  groupId?: string | number;
+  groupName?: string;
+  roleIds?: Array<string | number>;
+  createdTime?: string;
 }
 
 export function getCurrentUser() {
