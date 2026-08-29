@@ -10,3 +10,4 @@ export async function getResultDetail(id: string) { const { data } = await http.
 export async function exportResults(filters: ResultFilters = {}) { return http.get<Blob>("/iqc/results/export", { params: filters, responseType: "blob" }); }
 export async function getBatchResultSummary(taskId:string){const {data}=await http.get<BatchResultSummary>(`/iqc/tasks/${taskId}/result-summary`);return data;}
 export async function getConversationResultDetail(taskId:string,conversationId:string){const {data}=await http.get<ConversationResultDetail>(`/iqc/tasks/${taskId}/conversations/${conversationId}/result-detail`);return data;}
+export async function getConversationResults(conversationId:string){const {data}=await http.get<ConversationResultDetail>(`/iqc/conversations/${conversationId}/result-detail`);return data;}

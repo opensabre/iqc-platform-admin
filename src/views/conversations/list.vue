@@ -2,9 +2,11 @@
 import { onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import { message } from "ant-design-vue";
+import { CheckOutlined, CopyOutlined } from "@ant-design/icons-vue";
 import { listConversations, type ConversationSummary } from "@/api/conversations";
 import { getCachedDictionaries, type DictionaryItem } from "@/api/dictionaries";
 import ConversationDetailDrawer from "@/components/ConversationDetailDrawer.vue";
+import { copyToClipboard } from "@/utils/clipboard";
 
 const conversations = ref<ConversationSummary[]>([]);
 const loading = ref(false);
@@ -19,6 +21,17 @@ const channelOptions = ref<DictionaryItem[]>([
   { value: "WECHAT", label: "微信" }, { value: "APP", label: "App" }, { value: "OTHER", label: "其他" },
 ]);
 const route = useRoute();
+const copiedValue = ref<string>(); let copyResetTimer: number | undefined;
+
+async function copyText(value?: string) {
+  if (!value) return;
+  try {
+    await copyToClipboard(value);
+    copiedValue.value = value;
+    if (copyResetTimer) window.clearTimeout(copyResetTimer);
+    copyResetTimer = window.setTimeout(() => { copiedValue.value = undefined; }, 1600);
+  } catch { message.error("复制失败，请手动选择内容复制"); }
+}
 
 async function refreshConversations() {
   loading.value = true;
@@ -76,13 +89,13 @@ onMounted(() => {
         <a-form-item><a-space><a-button type="primary" @click="refreshConversations">查询</a-button><a-button @click="resetFilters">重置</a-button></a-space></a-form-item>
       </a-form>
       <a-table :loading="loading" :data-source="conversations" :pagination="false" row-key="id" size="middle" :scroll="{ x: 1320 }">
-        <a-table-column title="会话 ID" data-index="id" :width="230"><template #default="{ text }"><a-typography-text copyable :ellipsis="{ tooltip: text }">{{ text }}</a-typography-text></template></a-table-column>
+        <a-table-column title="会话 ID" data-index="id" :width="230"><template #default="{ text }"><a-space><a-typography-text :ellipsis="{ tooltip: text }">{{ text }}</a-typography-text><a-tooltip :title="copiedValue === text ? '已复制' : '复制会话 ID'"><a-button type="link" size="small" class="copy-button" :aria-label="copiedValue === text ? '已复制会话 ID' : '复制会话 ID'" @click.stop="copyText(text)"><CheckOutlined v-if="copiedValue === text" class="copy-success"/><CopyOutlined v-else /></a-button></a-tooltip></a-space></template></a-table-column>
         <a-table-column title="会话名称" data-index="sourceFileName" :width="220" />
         <a-table-column title="员工" :width="140"><template #default="{ record }">{{ record.employeeName || record.employeeId || "-" }}</template></a-table-column>
         <a-table-column title="客户" :width="140"><template #default="{ record }">{{ record.customerName || record.customerExternalId || "-" }}</template></a-table-column>
         <a-table-column title="渠道" data-index="channel" :width="90" />
         <a-table-column title="业务编号" data-index="businessNo" :width="150" />
-        <a-table-column title="批次号" data-index="batchNo" :width="210"><template #default="{ text }"><a-typography-text copyable>{{ text || "单条接入" }}</a-typography-text></template></a-table-column>
+        <a-table-column title="批次号" data-index="batchNo" :width="210"><template #default="{ text }"><a-space><span>{{ text || "单条接入" }}</span><a-tooltip v-if="text" :title="copiedValue === text ? '已复制' : '复制批次号'"><a-button type="link" size="small" class="copy-button" :aria-label="copiedValue === text ? '已复制批次号' : '复制批次号'" @click.stop="copyText(text)"><CheckOutlined v-if="copiedValue === text" class="copy-success"/><CopyOutlined v-else /></a-button></a-tooltip></a-space></template></a-table-column>
         <a-table-column title="来源" data-index="sourceType" :width="90"><template #default="{ text }"><a-tag :color="text === 'API' ? 'purple' : 'blue'">{{ text || "FILE" }}</a-tag></template></a-table-column>
         <a-table-column title="消息" data-index="messageCount" :width="80" />
         <a-table-column title="状态" data-index="status" :width="150" />
@@ -97,5 +110,5 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.conversation-page{display:flex;flex-direction:column;gap:18px}.page-intro{display:flex;justify-content:space-between;align-items:flex-start}.page-intro h2{margin:4px 0}.page-intro p{margin:0;color:#64748b}.section-kicker{font-size:12px;letter-spacing:.15em;color:#1677ff}.archive-filter{margin-bottom:16px;gap:8px}.pager{margin-top:16px;text-align:right}
+.conversation-page{display:flex;flex-direction:column;gap:18px}.page-intro{display:flex;justify-content:space-between;align-items:flex-start}.page-intro h2{margin:4px 0}.page-intro p{margin:0;color:#64748b}.section-kicker{font-size:12px;letter-spacing:.15em;color:#1677ff}.archive-filter{margin-bottom:16px;gap:8px}.pager{margin-top:16px;text-align:right}.copy-button{padding:0 4px}.copy-success{color:#52c41a}
 </style>
