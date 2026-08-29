@@ -163,8 +163,9 @@ onMounted(refresh);
   >
   <a-modal
     v-model:open="open"
+    wrap-class-name="iqc-rule-modal"
     title="创建规则集"
-    width="680"
+    width="900"
     :confirm-loading="saving"
     @ok="save"
     ><a-form layout="vertical"

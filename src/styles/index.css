@@ -45,6 +45,7 @@ button, input { font: inherit; }
 /* IQC 商务主题：以深蓝和石墨灰替代高饱和青绿色，绿色只保留给成功状态。 */
 :root { --iqc-navy-950: #182b42; --iqc-navy-800: #243f5f; --iqc-navy-700: #2f5f8f; --iqc-blue-100: #e8f0f8; --iqc-blue-200: #d5e3f0; --iqc-slate-900: #253447; --iqc-slate-600: #607086; --iqc-slate-400: #92a0b1; --iqc-canvas: #f5f7fa; --iqc-border: #e2e8f0; }
 body, .topbar, .login-panel { background: var(--iqc-canvas); }
+.iqc-rule-modal .ant-modal { width: min(900px, calc(100vw - 32px)) !important; max-width: calc(100vw - 32px); }
 .sidebar { color: #dce6f0; background: var(--iqc-navy-950); }
 .brand-mark { color: #fff; background: var(--iqc-navy-700); }
 .brand span, .workspace-label, .sidebar-footer { color: #9eb2c7; }

@@ -52,6 +52,14 @@ const riskLevels = ref<DictionaryItem[]>([
   { value: "MEDIUM", label: "中风险" },
   { value: "HIGH", label: "高风险" },
 ]);
+const ruleCategories = ref<DictionaryItem[]>([
+  { value: "SERVICE_QUALITY", label: "服务质量" },
+  { value: "COMPLIANCE", label: "合规审查" },
+  { value: "SALES", label: "销售规范" },
+  { value: "RISK_CONTROL", label: "风险控制" },
+  { value: "DATA_PRIVACY", label: "数据与隐私" },
+  { value: "CUSTOM", label: "自定义" },
+]);
 const targetRoles = ref<DictionaryItem[]>([
   { value: "all", label: "双方" },
   { value: "agent", label: "客服/销售" },
@@ -60,7 +68,7 @@ const targetRoles = ref<DictionaryItem[]>([
 const emptyForm = () => ({
   name: "",
   code: "",
-  category: "CUSTOM",
+  category: "SERVICE_QUALITY",
   ruleType: "CONTAINS",
   targetRole: "all",
   expression: "",
@@ -295,10 +303,12 @@ async function loadDictionaries() {
   try {
     const data = await getCachedDictionaries([
       "iqc_rule_type",
+      "iqc_rule_category",
       "iqc_risk_level",
       "iqc_target_role",
     ]);
     if (data.iqc_rule_type?.length) ruleTypes.value = data.iqc_rule_type;
+    if (data.iqc_rule_category?.length) ruleCategories.value = data.iqc_rule_category;
     if (data.iqc_risk_level?.length) riskLevels.value = data.iqc_risk_level;
     if (data.iqc_target_role?.length) targetRoles.value = data.iqc_target_role;
   } catch {
@@ -386,8 +396,9 @@ onMounted(() => {
   >
   <a-modal
     v-model:open="open"
+    wrap-class-name="iqc-rule-modal"
     :title="view === 'composite' ? '创建组合规则' : '创建规则'"
-    width="720"
+    width="900"
     :confirm-loading="saving"
     @ok="save"
     ><a-form layout="vertical"
@@ -400,8 +411,15 @@ onMounted(() => {
             ><a-input v-model:value="form.code" /></a-form-item></a-col></a-row
       ><a-row :gutter="16"
         ><a-col :span="8"
-          ><a-form-item label="分类"
-            ><a-input v-model:value="form.category" /></a-form-item></a-col
+          ><a-form-item label="分类" required
+            ><a-select v-model:value="form.category"
+              ><a-select-option
+                v-for="item in ruleCategories"
+                :key="item.value"
+                :value="item.value"
+                >{{ item.label }}</a-select-option
+              ></a-select
+            ></a-form-item></a-col
         ><a-col :span="8"
           ><a-form-item label="适用说话人"
             ><a-select v-model:value="form.targetRole"

@@ -5,6 +5,7 @@ import { useAuthStore } from "@/stores/auth";
 import { getUserMenus, type AuthorizedMenu } from "@/api/permissions";
 import {
   ArrowDownOutlined,
+  AuditOutlined,
   BarChartOutlined,
   CheckCircleOutlined,
   ClusterOutlined,
@@ -53,7 +54,7 @@ const menuItems: MenuItem[] = [
   { key: "settings", path: "/settings", label: "系统设置", icon: SettingOutlined, permission: "iqc:settings:view" },
   { key: "audit-logs", path: "/audit-logs", label: "操作日志", icon: FileTextOutlined, permission: "iqc:settings:view" },
 ];
-const iconMap: Record<string, unknown> = { dashboard: BarChartOutlined, message: CommentOutlined, schedule: OrderedListOutlined, "file-search": CheckCircleOutlined, robot: ClusterOutlined, setting: SettingOutlined, book: FileTextOutlined, "file-text": FileTextOutlined };
+const iconMap: Record<string, unknown> = { audit: AuditOutlined, dashboard: BarChartOutlined, message: CommentOutlined, schedule: OrderedListOutlined, "file-search": CheckCircleOutlined, robot: ClusterOutlined, setting: SettingOutlined, book: FileTextOutlined, "file-text": FileTextOutlined };
 const routePaths = new Set(router.getRoutes().map((record) => `/${String(record.path).replace(/^\//, "")}`));
 const canonicalLabels: Record<string, string> = {
   "/dashboard": "睿检总览", "/conversations/api": "接口对接", "/conversations/upload": "文本上传",
@@ -121,11 +122,15 @@ watch(() => route.path, () => {
 try { expandedKeys.value = JSON.parse(localStorage.getItem("iqc-menu-expanded") || "[]"); } catch { expandedKeys.value = []; }
 
 const pageTitle = computed(() => canonicalLabels[route.path] || (route.meta.title as string) || "睿检总览");
+const LOGOUT_SESSION_SETTLE_DELAY_MS = 400;
 
 async function logout() {
   try {
     // 退出业务由认证服务负责；经 gateway 的 auth 路由转发到 DELETE /logout。
     await fetch("/api/auth/logout", { method: "DELETE", credentials: "include" });
+    // Auth clears the shared gateway session asynchronously after the response is finalized.
+    // Wait for that cleanup before the login guard checks the session again.
+    await new Promise((resolve) => window.setTimeout(resolve, LOGOUT_SESSION_SETTLE_DELAY_MS));
   } finally {
     auth.clear();
     await router.push("/login");
@@ -170,13 +175,13 @@ const displayName = computed(() => auth.user?.name || auth.user?.nickname || aut
         </div>
         <div class="topbar-actions">
           <a-button type="text" @click="router.push('/templates')">帮助与模板</a-button>
-          <a-dropdown>
+          <a-dropdown :trigger="['click']">
             <button class="user-menu" type="button">
               <span class="avatar">检</span>
               <span>{{ displayName }}</span>
               <ArrowDownOutlined />
             </button>
-            <template #dropdown>
+            <template #overlay>
               <a-menu><a-menu-item key="logout" @click="logout">退出登录</a-menu-item></a-menu>
             </template>
           </a-dropdown>
