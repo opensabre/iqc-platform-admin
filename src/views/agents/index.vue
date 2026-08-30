@@ -2,14 +2,14 @@
 import { computed, onMounted, ref } from "vue";
 import { message } from "ant-design-vue";
 import { useRouter } from "vue-router";
-import { approveAgent, createAgent, createAgentVersion, disableAgent, listAgents, listMcpServers, listModelProfiles, listSkills, rejectAgent, submitAgent, type AgentRuntimeConfig, type IqcMcpServer, type IqcModelProfile, type IqcSkill, type QualityAgent } from "@/api/config";
+import { approveAgent, createAgent, createAgentVersion, disableAgent, listAgents, listMcpServers, listModelProfiles, listRuleSets, listSkills, rejectAgent, submitAgent, type AgentRuntimeConfig, type IqcMcpServer, type IqcModelProfile, type IqcSkill, type QualityAgent, type QualityRuleSet } from "@/api/config";
 import { usePermission } from "@/composables/permission";
 
 const defaults = (): AgentRuntimeConfig => ({ schemaVersion: "2.0", mode: "RULE_ONLY", systemPrompt: "你是专业的客服质检 Agent。严格依据已发布规则判断，输出可追溯的理由和证据。", primaryModelProfileId: "", fallbackModelProfileIds: [], mcpServerIds: [], skillIds: [] });
 type StepKey = "basic" | "model" | "capabilities" | "prompt" | "confirm";
 const router = useRouter();
 const { can } = usePermission();
-const agents = ref<QualityAgent[]>([]), models = ref<IqcModelProfile[]>([]), mcps = ref<IqcMcpServer[]>([]), skills = ref<IqcSkill[]>([]);
+const agents = ref<QualityAgent[]>([]), models = ref<IqcModelProfile[]>([]), mcps = ref<IqcMcpServer[]>([]), skills = ref<IqcSkill[]>([]), ruleSets = ref<QualityRuleSet[]>([]);
 const modalOpen = ref(false), saving = ref(false), assetsLoading = ref(false), legacy = ref(false), currentStep = ref(0);
 const selected = ref<QualityAgent>();
 const form = ref({ name: "", code: "", description: "" });
@@ -18,6 +18,7 @@ const primaryModel = computed(() => models.value.find(item => item.id === runtim
 const selectedFallbackModels = computed(() => models.value.filter(item => runtime.value.fallbackModelProfileIds?.includes(item.id)));
 const selectedMcps = computed(() => mcps.value.filter(item => runtime.value.mcpServerIds?.includes(item.id)));
 const selectedSkills = computed(() => skills.value.filter(item => runtime.value.skillIds?.includes(item.id)));
+const publishedRuleSets = computed(() => ruleSets.value.filter(item => item.status === "PUBLISHED"));
 const activeSteps = computed<{ key: StepKey; title: string; description: string }[]>(() => {
   const result = [{ key: "basic" as StepKey, title: "基本信息", description: "名称、用途与模式" }];
   if (runtime.value.mode !== "RULE_ONLY") result.push({ key: "model", title: "智能模型", description: "主模型与降级" });
@@ -34,15 +35,21 @@ async function refresh() { try { agents.value = await listAgents(); } catch { me
 async function loadAssets() {
   assetsLoading.value = true;
   try {
-    const [modelList, mcpList, skillList] = await Promise.all([listModelProfiles(), listMcpServers(), listSkills()]);
-    models.value = modelList.filter(item => item.status === "ENABLED"); mcps.value = mcpList.filter(item => item.status === "ENABLED"); skills.value = skillList.filter(item => item.status === "ENABLED");
-  } catch { message.error("关联资产加载失败，请检查模型、MCP、Skill 查看权限"); }
+    const [modelResult, mcpResult, skillResult, ruleSetResult] = await Promise.allSettled([listModelProfiles(), listMcpServers(), listSkills(), listRuleSets()]);
+    if (modelResult.status === "fulfilled") models.value = modelResult.value.filter(item => item.status === "ENABLED");
+    if (mcpResult.status === "fulfilled") mcps.value = mcpResult.value.filter(item => item.status === "ENABLED");
+    if (skillResult.status === "fulfilled") skills.value = skillResult.value.filter(item => item.status === "ENABLED");
+    if (ruleSetResult.status === "fulfilled") ruleSets.value = ruleSetResult.value;
+    if (modelResult.status === "rejected") message.error("模型配置加载失败，请检查模型查看权限");
+    else if (ruleSetResult.status === "rejected") message.warning("规则集加载失败；智能体模式仍可配置，普通规则模式暂不可保存");
+  } catch { message.error("关联资产加载失败"); }
   finally { assetsLoading.value = false; }
 }
 function createNew() { selected.value = undefined; legacy.value = false; currentStep.value = 0; form.value = { name: "", code: "", description: "" }; runtime.value = defaults(); modalOpen.value = true; void loadAssets(); }
 function edit(item: QualityAgent) { selected.value = item; legacy.value = false; currentStep.value = 0; form.value = { name: item.name, code: item.code, description: item.description || "" }; runtime.value = parseConfig(item.configJson); modalOpen.value = true; void loadAssets(); }
 function validateStep(step: StepKey) {
   if (step === "basic" && (!form.value.name.trim() || !form.value.code.trim())) { message.warning("请填写 Agent 名称和编码"); return false; }
+  if (step === "basic" && runtime.value.mode === "RULE_ONLY" && !runtime.value.ruleSetId) { message.warning("普通规则 Agent 必须选择已发布规则集"); return false; }
   if (step === "model" && !runtime.value.primaryModelProfileId) { message.warning("请选择一个已启用的主模型"); return false; }
   if (step === "prompt" && !runtime.value.systemPrompt?.trim()) { message.warning("请填写默认提示词"); return false; }
   return true;
@@ -74,7 +81,7 @@ onMounted(() => void refresh());
     <a-alert v-if="legacy" type="warning" show-icon message="旧版内嵌配置需要重新选择独立资产，历史版本保持不变。" style="margin-bottom:16px"/>
     <a-steps :current="currentStep" :items="activeSteps" size="small" class="agent-wizard-steps"/>
     <a-spin :spinning="assetsLoading"><div class="agent-wizard-body">
-      <a-form v-show="currentStepKey==='basic'" layout="vertical"><a-alert type="info" show-icon message="选择质检模式后，后续向导只展示该模式需要的配置。" style="margin-bottom:16px"/><a-row :gutter="16"><a-col :span="12"><a-form-item label="Agent 名称" required><a-input v-model:value="form.name" placeholder="例如：客服服务质量质检 Agent"/></a-form-item></a-col><a-col :span="12"><a-form-item label="唯一编码" required><a-input v-model:value="form.code" :disabled="Boolean(selected)" placeholder="例如：service_quality_agent"/></a-form-item></a-col></a-row><a-form-item label="质检模式" required><a-radio-group v-model:value="runtime.mode"><a-radio value="RULE_ONLY">普通规则</a-radio><a-radio value="RULE_THEN_LLM">规则 + 智能体</a-radio><a-radio value="AGENT_LLM">智能体</a-radio></a-radio-group><template #extra><span v-if="runtime.mode==='RULE_ONLY'">仅执行关键词、正则和结构化规则，无需配置模型。</span><span v-else-if="runtime.mode==='RULE_THEN_LLM'">本地规则命中后交给智能体复核，需要配置模型和行为设定。</span><span v-else>由智能体配合模型、提示词、Skill 和 MCP 能力进行质检。</span></template></a-form-item><a-form-item label="用途说明"><a-textarea v-model:value="form.description" :rows="4" placeholder="说明适用业务、质检目标和使用边界"/></a-form-item></a-form>
+      <a-form v-show="currentStepKey==='basic'" layout="vertical"><a-alert type="info" show-icon message="选择质检模式后，后续向导只展示该模式需要的配置。" style="margin-bottom:16px"/><a-row :gutter="16"><a-col :span="12"><a-form-item label="Agent 名称" required><a-input v-model:value="form.name" placeholder="例如：客服服务质量质检 Agent"/></a-form-item></a-col><a-col :span="12"><a-form-item label="唯一编码" required><a-input v-model:value="form.code" :disabled="Boolean(selected)" placeholder="例如：service_quality_agent"/></a-form-item></a-col></a-row><a-form-item label="质检模式" required><a-radio-group v-model:value="runtime.mode"><a-radio value="RULE_ONLY">普通规则</a-radio><a-radio value="RULE_THEN_LLM">规则 + 智能体</a-radio><a-radio value="AGENT_LLM">智能体</a-radio></a-radio-group><template #extra><span v-if="runtime.mode==='RULE_ONLY'">仅执行已发布规则集，不调用 LLM。</span><span v-else-if="runtime.mode==='RULE_THEN_LLM'">本地规则命中后交给智能体复核，需要配置模型和行为设定。</span><span v-else>由智能体配合模型、提示词、Skill 和 MCP 能力进行质检。</span></template></a-form-item><a-form-item v-if="runtime.mode==='RULE_ONLY'" label="规则集" required><a-select v-model:value="runtime.ruleSetId" show-search option-filter-prop="label" placeholder="选择已发布规则集"><a-select-option v-for="item in publishedRuleSets" :key="item.id" :value="item.id" :label="`${item.name} ${item.code}`">{{item.name}} · {{item.code}}</a-select-option></a-select><template #extra>普通规则 Agent 保存后默认使用该规则集；质检任务仍可临时覆盖。</template></a-form-item><a-form-item label="用途说明"><a-textarea v-model:value="form.description" :rows="4" placeholder="说明适用业务、质检目标和使用边界"/></a-form-item></a-form>
 
       <a-form v-show="currentStepKey==='model'" layout="vertical"><div class="wizard-heading"><div><h3>配置智能模型</h3><p>主模型负责执行质检，备用模型按选择顺序降级。</p></div><a-button type="link" @click="openAsset('/agent-models')">管理模型配置 ↗</a-button></div><a-empty v-if="!assetsLoading&&!models.length" description="暂无已启用模型"><a-button type="primary" @click="openAsset('/agent-models')">去创建并启用模型</a-button></a-empty><template v-else><a-form-item label="主模型" required><a-select v-model:value="runtime.primaryModelProfileId" show-search option-filter-prop="label" placeholder="选择已启用模型"><a-select-option v-for="item in models" :key="item.id" :value="item.id" :label="`${item.name} ${item.modelName}`">{{item.name}} · {{item.provider}} / {{item.modelName}}</a-select-option></a-select></a-form-item><a-form-item label="备用模型（按顺序降级）"><a-select v-model:value="runtime.fallbackModelProfileIds" mode="multiple" placeholder="可选"><a-select-option v-for="item in models.filter(x=>x.id!==runtime.primaryModelProfileId)" :key="item.id" :value="item.id">{{item.name}} · {{item.modelName}}</a-select-option></a-select><template #extra>主模型不可用时依次尝试，避免单一模型故障中断任务。</template></a-form-item></template></a-form>
 
@@ -82,7 +89,7 @@ onMounted(() => void refresh());
 
       <a-form v-show="currentStepKey==='prompt'" layout="vertical"><div class="wizard-heading"><div><h3>设置智能体行为</h3><p>定义智能体的身份、判断边界和输出要求。</p></div></div><a-form-item label="默认提示词" required><a-textarea v-model:value="runtime.systemPrompt" :rows="7" :maxlength="8000" show-count/></a-form-item></a-form>
 
-      <a-form v-show="currentStepKey==='confirm'" layout="vertical"><div class="wizard-heading"><div><h3>确认配置</h3><p>提交前检查当前质检模式需要的配置。</p></div></div><a-card size="small" title="配置摘要" class="wizard-summary"><a-descriptions :column="2" size="small"><a-descriptions-item label="名称">{{form.name}}</a-descriptions-item><a-descriptions-item label="质检模式">{{modeName}}</a-descriptions-item><template v-if="runtime.mode!=='RULE_ONLY'"><a-descriptions-item label="主模型">{{primaryModel?.name||'未选择'}}</a-descriptions-item><a-descriptions-item label="备用模型">{{selectedFallbackModels.map(x=>x.name).join('、')||'无'}}</a-descriptions-item></template><template v-if="runtime.mode==='AGENT_LLM'"><a-descriptions-item label="MCP">{{selectedMcps.map(x=>x.name).join('、')||'无'}}</a-descriptions-item><a-descriptions-item label="Skill">{{selectedSkills.map(x=>x.name).join('、')||'无'}}</a-descriptions-item></template></a-descriptions></a-card></a-form>
+      <a-form v-show="currentStepKey==='confirm'" layout="vertical"><div class="wizard-heading"><div><h3>确认配置</h3><p>提交前检查当前质检模式需要的配置。</p></div></div><a-card size="small" title="配置摘要" class="wizard-summary"><a-descriptions :column="2" size="small"><a-descriptions-item label="名称">{{form.name}}</a-descriptions-item><a-descriptions-item label="质检模式">{{modeName}}</a-descriptions-item><a-descriptions-item v-if="runtime.mode==='RULE_ONLY'" label="规则集">{{publishedRuleSets.find(x=>x.id===runtime.ruleSetId)?.name||'未选择'}}</a-descriptions-item><template v-if="runtime.mode!=='RULE_ONLY'"><a-descriptions-item label="主模型">{{primaryModel?.name||'未选择'}}</a-descriptions-item><a-descriptions-item label="备用模型">{{selectedFallbackModels.map(x=>x.name).join('、')||'无'}}</a-descriptions-item></template><template v-if="runtime.mode==='AGENT_LLM'"><a-descriptions-item label="MCP">{{selectedMcps.map(x=>x.name).join('、')||'无'}}</a-descriptions-item><a-descriptions-item label="Skill">{{selectedSkills.map(x=>x.name).join('、')||'无'}}</a-descriptions-item></template></a-descriptions></a-card></a-form>
     </div></a-spin>
     <template #footer><a-button @click="modalOpen=false">取消</a-button><a-button v-if="currentStep>0" @click="currentStep--">上一步</a-button><a-button v-if="currentStep<activeSteps.length-1" type="primary" @click="next">下一步</a-button><a-button v-else type="primary" :loading="saving" @click="save">{{selected?'创建草稿版本':'创建 Agent'}}</a-button></template>
   </a-modal>
