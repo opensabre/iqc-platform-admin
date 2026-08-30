@@ -31,12 +31,6 @@ function isAuthenticationPage(response: AxiosResponse) {
   return isApiRequest && isHtml && (isOauthPage || !responseUrl);
 }
 
-http.interceptors.request.use((config) => {
-  const token = localStorage.getItem("iqc-access-token");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
-  return config;
-});
-
 http.interceptors.response.use((response) => {
   if (isAuthenticationPage(response)) {
     redirectToLogin();
