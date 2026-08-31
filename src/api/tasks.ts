@@ -25,7 +25,9 @@ export interface ScheduledSelectionFilter { createdFrom?: string; createdTo?: st
 export interface CreateTaskRequest { name?: string; taskType: "BATCH" | "SCHEDULED" | "SAMPLE"; conversationId?: string; conversationIds?: string[]; selectionFilter?: ScheduledSelectionFilter; scheduledTime?: string; sampleSize?:number; sampleSeed?:string; agentId: string; ruleSetId?: string; ruleIds?: string[]; concurrencyLimit: number; }
 export interface PageResult<T> { records: T[]; current: number; size: number; total: number; }
 
-export async function listTasks(params: { current?: number; size?: number } = {}) {
+export interface TaskFilters { keyword?: string; status?: string; taskType?: string; }
+
+export async function listTasks(params: TaskFilters & { current?: number; size?: number } = {}) {
   const { data } = await http.get<PageResult<InspectionTask>>("/iqc/tasks", { params });
   return data;
 }

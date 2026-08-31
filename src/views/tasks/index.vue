@@ -59,6 +59,7 @@ const resultOpen = ref(false),
 const batchResult = ref<BatchResultSummary>();
 const conversationResult = ref<ConversationResultDetail>();
 const taskStatuses = ref<DictionaryItem[]>([]);
+const filters = ref({ keyword: "", status: undefined as string | undefined, taskType: undefined as string | undefined });
 let pollingTimer: number | undefined;
 const form = ref({
   name: "",
@@ -124,7 +125,7 @@ async function refresh() {
   try {
     const [taskPage, agentList, ruleList, ruleSetList, conversationPage] =
       await Promise.all([
-        listTasks({ current: page.value, size: pageSize.value }),
+        listTasks({ current: page.value, size: pageSize.value, ...filters.value }),
         listAgents(),
         listRules(),
         listRuleSets(),
@@ -155,6 +156,7 @@ async function poll() {
     const result = await listTasks({
       current: page.value,
       size: pageSize.value,
+      ...filters.value,
     });
     tasks.value = result.records;
     total.value = result.total;
@@ -166,6 +168,17 @@ async function changePage(current: number, size: number) {
   page.value = current;
   pageSize.value = size;
   await refresh();
+}
+async function search() {
+  page.value = 1;
+  await refresh();
+}
+async function resetFilters() {
+  filters.value = { keyword: "", status: undefined, taskType: undefined };
+  await search();
+}
+function taskTypeLabel(taskType?: string) {
+  return taskType === "SCHEDULED" ? "定时筛选" : taskType === "SAMPLE" ? "随机抽样" : "立即批量";
 }
 async function showDetail(id: string) {
   try {
@@ -378,6 +391,29 @@ onBeforeUnmount(() => {
       >新建任务</a-button
     >
   </section>
+  <a-card :bordered="false" class="task-filter-card">
+    <a-form layout="inline" @submit.prevent="search">
+      <a-form-item label="任务">
+        <a-input v-model:value="filters.keyword" allow-clear placeholder="任务名称或 ID" style="width: 220px" />
+      </a-form-item>
+      <a-form-item label="状态">
+        <a-select v-model:value="filters.status" allow-clear placeholder="全部状态" style="width: 140px">
+          <a-select-option v-for="item in taskStatuses" :key="item.value" :value="item.value">{{ item.label }}</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item label="任务类型">
+        <a-select v-model:value="filters.taskType" allow-clear placeholder="全部类型" style="width: 140px">
+          <a-select-option value="BATCH">立即批量</a-select-option>
+          <a-select-option value="SAMPLE">随机抽样</a-select-option>
+          <a-select-option value="SCHEDULED">定时筛选</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item>
+        <a-button type="primary" html-type="submit">查询</a-button>
+        <a-button style="margin-left: 8px" @click="resetFilters">重置</a-button>
+      </a-form-item>
+    </a-form>
+  </a-card>
   <a-card :bordered="false" class="tasks-card">
     <a-table
       :data-source="tasks"
@@ -386,6 +422,7 @@ onBeforeUnmount(() => {
       row-key="id"
     >
       <a-table-column key="name" title="任务名称" data-index="name" />
+      <a-table-column key="taskType" title="任务类型" :width="110"><template #default="{ record }">{{ taskTypeLabel(record.taskType) }}</template></a-table-column>
       <a-table-column key="conversations" title="会话数" :width="90"
         ><template #default="{ record }">{{
           conversationCount(record)
@@ -861,6 +898,9 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.task-filter-card {
+  margin-bottom: 16px;
+}
 .task-wizard-steps {
   margin: 4px 0 24px;
 }
