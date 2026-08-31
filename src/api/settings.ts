@@ -4,6 +4,7 @@ export interface IqcSettings {
   application: string;
   model: {
     enabled: boolean;
+    configurationSource: string;
     endpointConfigured: boolean;
     model: string;
     connectTimeoutMillis: number;

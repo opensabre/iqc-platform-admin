@@ -1,5 +1,53 @@
 import http from "@/api/http";
 
+export interface TaskAssetSnapshot {
+  id: string;
+  code: string;
+  name: string;
+  versionNo?: number;
+  provider?: string;
+  modelName?: string;
+  temperature?: number;
+  transport?: string;
+  endpoint?: string;
+}
+
+export interface TaskAgentConfigSnapshot {
+  schemaVersion?: string;
+  mode?: "RULE_ONLY" | "RULE_THEN_LLM" | "AGENT_LLM";
+  systemPrompt?: string;
+  assetSnapshots?: {
+    primaryModel?: TaskAssetSnapshot;
+    fallbackModels?: TaskAssetSnapshot[];
+    mcpServers?: TaskAssetSnapshot[];
+    skills?: TaskAssetSnapshot[];
+  };
+}
+
+export interface TaskAgentSnapshot {
+  id?: string;
+  name?: string;
+  code?: string;
+  description?: string;
+  versionNo?: number;
+  configJson?: string | TaskAgentConfigSnapshot;
+}
+
+export interface TaskRuleSnapshot {
+  id?: string;
+  name?: string;
+  code?: string;
+  versionNo?: number;
+  category?: string;
+  ruleType?: string;
+  targetRole?: string;
+  expression?: string;
+  description?: string;
+  deduction?: number;
+  riskLevel?: string;
+  veto?: boolean;
+}
+
 export interface InspectionTask {
   id: string;
   conversationId?: string;
@@ -12,6 +60,8 @@ export interface InspectionTask {
   agentId?: string;
   ruleSetId?: string;
   ruleIdsJson?: string;
+  agentSnapshotJson?: string;
+  ruleSnapshotJson?: string;
   status: string;
   totalMessages: number;
   processedMessages: number;

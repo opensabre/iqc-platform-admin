@@ -8,6 +8,9 @@ import {
   getTask,
   listTasks,
   runTask,
+  type TaskAgentConfigSnapshot,
+  type TaskAgentSnapshot,
+  type TaskRuleSnapshot,
   type InspectionTask,
 } from "@/api/tasks";
 import {
@@ -91,6 +94,49 @@ const selectedRules = computed(() =>
 const selectedRuleSet = computed(() =>
   ruleSets.value.find((item) => item.id === form.value.ruleSetId)
 );
+function parseSnapshot<T>(value?: string | T): T | undefined {
+  if (!value) return undefined;
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return undefined;
+  }
+}
+const detailAgent = computed(() =>
+  parseSnapshot<TaskAgentSnapshot>(detail.value?.agentSnapshotJson)
+);
+const detailAgentConfig = computed(() =>
+  parseSnapshot<TaskAgentConfigSnapshot>(detailAgent.value?.configJson)
+);
+const detailRuleSnapshot = computed(() =>
+  parseSnapshot<
+    TaskRuleSnapshot[] | {
+      ruleSetId?: string;
+      ruleSetVersion?: number;
+      aggregationMode?: string;
+      rules?: TaskRuleSnapshot[];
+    }
+  >(detail.value?.ruleSnapshotJson)
+);
+const detailRules = computed(() => {
+  const snapshot = detailRuleSnapshot.value;
+  return Array.isArray(snapshot) ? snapshot : snapshot?.rules || [];
+});
+const detailRuleSet = computed(() =>
+  Array.isArray(detailRuleSnapshot.value) ? undefined : detailRuleSnapshot.value
+);
+const modeLabels: Record<string, string> = {
+  RULE_ONLY: "普通规则",
+  RULE_THEN_LLM: "规则 + 智能体复核",
+  AGENT_LLM: "智能体质检",
+};
+function modeLabel(mode?: string) {
+  return mode ? modeLabels[mode] || mode : "旧版兼容模式";
+}
+function assetNames(items?: { name?: string; code?: string; versionNo?: number }[]) {
+  return items?.map((item) => `${item.name || item.code || "未命名"}${item.versionNo ? ` V${item.versionNo}` : ""}`).join("、") || "无";
+}
 const { can } = usePermission();
 const statusMap: Record<string, { label: string; color: string }> = {
   CREATED: { label: "待处理", color: "default" },
@@ -644,7 +690,7 @@ onBeforeUnmount(() => {
               v-for="agent in agents"
               :key="agent.id"
               :value="agent.id"
-              >{{ agent.name }}</a-select-option
+              >{{ agent.name }} · {{ agent.code }}</a-select-option
             ></a-select
           ><a-button
             type="link"
@@ -759,13 +805,14 @@ onBeforeUnmount(() => {
       ></template
     >
   </a-modal>
-  <a-drawer v-model:open="detailOpen" title="质检任务详情" width="560"
+  <a-drawer v-model:open="detailOpen" title="质检任务详情" width="min(820px, calc(100vw - 24px))"
     ><template v-if="detail"
+      ><a-divider orientation="left">任务概况</a-divider
       ><a-descriptions bordered :column="1"
         ><a-descriptions-item label="任务名称">{{
           detail.name
         }}</a-descriptions-item
-        ><a-descriptions-item label="任务类型">批量质检</a-descriptions-item
+        ><a-descriptions-item label="任务类型">{{ taskTypeLabel(detail.taskType) }}</a-descriptions-item
         ><a-descriptions-item label="状态"
           ><a-tag :color="statusMap[detail.status]?.color">{{
             statusMap[detail.status]?.label || detail.status
@@ -795,6 +842,45 @@ onBeforeUnmount(() => {
         ><a-descriptions-item label="创建时间">{{
           detail.createdTime || "—"
         }}</a-descriptions-item></a-descriptions
+      ><a-divider orientation="left">创建时 Agent 配置</a-divider
+      ><a-alert type="info" show-icon message="以下内容来自任务创建时的不可变快照，后续修改 Agent 不会影响这里。" class="snapshot-tip"/>
+      <a-descriptions bordered :column="1">
+        <a-descriptions-item label="Agent">{{ detailAgent?.name || "—" }}<span v-if="detailAgent?.code"> · {{ detailAgent.code }}</span></a-descriptions-item>
+        <a-descriptions-item label="Agent 版本">{{ detailAgent?.versionNo ? `V${detailAgent.versionNo}` : "—" }}</a-descriptions-item>
+        <a-descriptions-item label="质检模式"><a-tag color="blue">{{ modeLabel(detailAgentConfig?.mode) }}</a-tag></a-descriptions-item>
+        <a-descriptions-item v-if="detailAgent?.description" label="用途说明">{{ detailAgent.description }}</a-descriptions-item>
+        <a-descriptions-item v-if="detailAgentConfig?.assetSnapshots?.primaryModel" label="主模型">
+          {{ detailAgentConfig.assetSnapshots.primaryModel.name }} · {{ detailAgentConfig.assetSnapshots.primaryModel.provider }} / {{ detailAgentConfig.assetSnapshots.primaryModel.modelName }} · V{{ detailAgentConfig.assetSnapshots.primaryModel.versionNo || "—" }}
+        </a-descriptions-item>
+        <a-descriptions-item v-if="detailAgentConfig?.assetSnapshots?.fallbackModels?.length" label="备用模型">{{ assetNames(detailAgentConfig.assetSnapshots.fallbackModels) }}</a-descriptions-item>
+        <a-descriptions-item v-if="detailAgentConfig?.assetSnapshots?.mcpServers?.length" label="MCP">{{ assetNames(detailAgentConfig.assetSnapshots.mcpServers) }}</a-descriptions-item>
+        <a-descriptions-item v-if="detailAgentConfig?.assetSnapshots?.skills?.length" label="Skill">{{ assetNames(detailAgentConfig.assetSnapshots.skills) }}</a-descriptions-item>
+        <a-descriptions-item v-if="detailAgentConfig?.systemPrompt" label="系统提示词"><pre class="snapshot-text">{{ detailAgentConfig.systemPrompt }}</pre></a-descriptions-item>
+      </a-descriptions>
+      <a-divider orientation="left">创建时规则配置</a-divider>
+      <a-descriptions v-if="detailRuleSet" bordered :column="1" class="rule-set-summary">
+        <a-descriptions-item label="规则集">{{ detailRuleSet.ruleSetId || detail.ruleSetId || "—" }}</a-descriptions-item>
+        <a-descriptions-item label="规则集版本">{{ detailRuleSet.ruleSetVersion ? `V${detailRuleSet.ruleSetVersion}` : "—" }}</a-descriptions-item>
+        <a-descriptions-item label="聚合方式">{{ detailRuleSet.aggregationMode === "ALL" ? "全部规则命中" : "任一规则命中" }}</a-descriptions-item>
+      </a-descriptions>
+      <a-empty v-if="!detailRules.length" description="该历史任务没有可展示的规则快照"/>
+      <a-list v-else :data-source="detailRules" bordered class="snapshot-rule-list">
+        <template #renderItem="{ item }">
+          <a-list-item>
+            <a-list-item-meta :title="`${item.name || '未命名规则'} · ${item.code || '—'} · V${item.versionNo || '—'}`">
+              <template #description>
+                <a-space wrap>
+                  <a-tag>{{ item.ruleType || "—" }}</a-tag><a-tag v-if="item.category">{{ item.category }}</a-tag>
+                  <a-tag v-if="item.targetRole">对象：{{ item.targetRole }}</a-tag><a-tag v-if="item.riskLevel" color="orange">风险：{{ item.riskLevel }}</a-tag>
+                  <a-tag v-if="item.deduction !== undefined">扣分：{{ item.deduction }}</a-tag><a-tag v-if="item.veto" color="red">一票否决</a-tag>
+                </a-space>
+                <p v-if="item.description" class="rule-description">{{ item.description }}</p>
+                <pre v-if="item.expression" class="snapshot-text">{{ item.expression }}</pre>
+              </template>
+            </a-list-item-meta>
+          </a-list-item>
+        </template>
+      </a-list>
       ></template
     ></a-drawer
   >
@@ -931,5 +1017,21 @@ onBeforeUnmount(() => {
 .wizard-summary {
   margin-top: 18px;
   background: var(--iqc-canvas);
+}
+.snapshot-tip,
+.rule-set-summary {
+  margin-bottom: 16px;
+}
+.snapshot-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+.snapshot-rule-list {
+  margin-bottom: 16px;
+}
+.rule-description {
+  margin: 8px 0 0;
 }
 </style>
