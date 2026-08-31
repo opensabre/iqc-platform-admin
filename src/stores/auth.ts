@@ -2,6 +2,8 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 import { getCurrentUser, type CurrentUser } from "@/api/user";
 import { getUserPermissions, type AuthorizedMenu } from "@/api/permissions";
+import { getUserMenus } from "@/api/permissions";
+import { applyProductBrand, getProductProfile, type ProductProfile } from "@/api/product";
 
 export const useAuthStore = defineStore("iqc-auth", () => {
   const user = ref<CurrentUser | null>(null);
@@ -9,6 +11,7 @@ export const useAuthStore = defineStore("iqc-auth", () => {
   const permissions = ref<string[]>([]);
   const menus = ref<AuthorizedMenu[]>([]);
   const permissionsReady = ref(false);
+  const product = ref<ProductProfile | null>(null);
   let pending: Promise<boolean> | null = null;
   const authenticated = computed(() => Boolean(user.value?.id || user.value?.userId));
 
@@ -28,12 +31,16 @@ export const useAuthStore = defineStore("iqc-auth", () => {
           try {
             // Load the permission contract first so older organization services remain
             // compatible; the tree enriches the same authorization state when available.
-            permissions.value = await getUserPermissions(userId);
-            menus.value = [];
+            const [profile, productMenus] = await Promise.all([getProductProfile(), getUserMenus()]);
+            product.value = profile;
+            applyProductBrand(profile);
+            menus.value = productMenus;
+            permissions.value = await getUserPermissions(productMenus);
           } catch {
             // 权限服务异常时失败关闭，不能把未确认的操作入口展示给用户。
             permissions.value = [];
             menus.value = [];
+            product.value = null;
           } finally {
             permissionsReady.value = true;
           }
@@ -57,9 +64,10 @@ export const useAuthStore = defineStore("iqc-auth", () => {
     user.value = null;
     permissions.value = [];
     menus.value = [];
+    product.value = null;
     permissionsReady.value = false;
     localStorage.removeItem("iqc-access-token");
   }
 
-  return { user, loading, permissions, menus, permissionsReady, authenticated, ensureAuthenticated, clear };
+  return { user, loading, permissions, menus, product, permissionsReady, authenticated, ensureAuthenticated, clear };
 });

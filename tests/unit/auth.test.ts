@@ -3,16 +3,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAuthStore } from "@/stores/auth";
 import { usePermission } from "@/composables/permission";
 import { getCurrentUser } from "@/api/user";
-import { getUserPermissions } from "@/api/permissions";
+import { getUserMenus, getUserPermissions } from "@/api/permissions";
+import { getProductProfile } from "@/api/product";
 
 vi.mock("@/api/user", () => ({ getCurrentUser: vi.fn() }));
-vi.mock("@/api/permissions", () => ({ getUserPermissions: vi.fn() }));
+vi.mock("@/api/permissions", () => ({ getUserMenus: vi.fn(), getUserPermissions: vi.fn() }));
+vi.mock("@/api/product", () => ({
+  getProductProfile: vi.fn(),
+  applyProductBrand: vi.fn(),
+}));
 
 describe("IQC authentication and permission gate", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
     localStorage.clear();
+    vi.mocked(getProductProfile).mockResolvedValue({
+      id: "prod-iqc", code: "iqc", name: "智能质检平台", shortName: "睿检",
+      homePath: "/dashboard", enabled: true,
+    });
+    vi.mocked(getUserMenus).mockResolvedValue([]);
   });
 
   it("restores the authenticated user and fails closed until permissions load", async () => {

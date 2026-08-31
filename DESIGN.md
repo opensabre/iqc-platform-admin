@@ -3,7 +3,7 @@
 ## Source of truth
 
 - Status: Draft
-- Last refreshed: 2026-08-26
+- Last refreshed: 2026-08-31
 - Primary product surfaces: IQC 质检工作台、会话/任务/结果管理、Agent 配置
 - Evidence reviewed: `iqc-platform/PRD.md`、`opensabre-admin/` 现有 Vue 3 工程结构
 
@@ -27,7 +27,7 @@
 
 ## Information architecture
 
-- Primary navigation: 睿检总览、会话中心、质检任务、质检结果、智能体管理（智能体列表、模型、MCP、Skill）、规则中心、模板中心。
+- Primary navigation: 仅加载归属 `iqc` 的菜单与公共菜单；睿检总览、会话中心、质检任务、质检结果、智能体管理（智能体列表、模型、MCP、Skill）、规则中心、模板中心。
 - Core routes/screens: `/dashboard`、`/conversations`、`/tasks`、`/results`、`/agents`、`/agent-models`、`/agent-mcps`、`/agent-skills`、`/rules`、`/templates`。
 - Content hierarchy: 先看业务指标和任务状态，再进入列表，最后查看会话证据和改进建议。
 
@@ -36,6 +36,7 @@
 - 证据优先：结论必须能回到原始会话和命中片段。
 - 任务导向：突出待处理任务、风险和下一步行动。
 - 渐进披露：列表保持清晰，复杂配置和判断细节进入详情页。
+- 产品隔离：产品决定信息边界，角色决定授权边界；IQC 不再从全量菜单中搜索 IQC 子树。
 - 违规可解释：结果详情先展示未满足项和总扣分，再逐项展示规则名称、扣分点、风险、一票否决、证据、判断理由和改进建议；技术快照折叠到追溯区域。
 - Tradeoffs: 一期直接采用 Ant Design Vue，优先验证业务闭环；不引入 Element Plus，避免与既定 IQC 视觉基线产生双组件体系。
 
@@ -51,7 +52,7 @@
 ## Components
 
 - Existing components to reuse: Ant Design Vue、OpenSabre 的认证/权限服务和接口约定；不直接依赖 `opensabre-admin` 内部页面组件。
-- New/changed components: IQC 工作台布局、会话消息时间线、证据片段高亮、质检风险标签、结构化违规与扣分详情、Agent 四步创建/版本配置向导、质检任务四步创建向导。
+- New/changed components: IQC 工作台布局、会话消息时间线、证据片段高亮、质检风险标签、结构化违规与扣分详情、Agent 四步创建/版本配置向导、质检任务四步创建向导、登录后加载的产品品牌信息。
 - Agent 向导约束: 依次完成基本信息、大模型、MCP/Skill、提示词与确认；资产选择必须引用模型/MCP/Skill 管理中的已启用实体，并提供不中断当前表单的管理入口。
 - 任务向导约束: 依次完成任务信息、数据范围、质检方案、执行参数与确认；直接引用已导入会话、已发布 Agent 和已发布规则，批量与定时任务共享同一向导骨架。
 - Variants and states: loading、empty、error、running、success、failed、high-risk。
@@ -92,10 +93,11 @@
 - Design-token constraints: 复用 Ant Design Vue 基础交互，通过主题 token 集中维护 IQC 品牌变量。
 - Performance constraints: 质检结果和会话详情按路由懒加载；任务状态采用可控轮询。
 - Compatibility constraints: 通过 OAuth2 接入 OpenSabre，业务 API 与平台认证解耦。
+- Product constraints: 前端固定声明产品编码 `iqc`，从产品配置接口加载名称、描述、Logo 和主题；本地菜单仅作为开发故障提示，不得在生产环境绕过产品菜单配置。
 - Test/screenshot expectations: 完成核心页面后补充路由、权限和关键交互测试。
 
 ## Open questions
 
 - [ ] IQC 是否需要与 OpenSabre 使用同一域名下的 SSO，还是采用独立子域名？
 - [ ] 一线客服/销售是否需要移动端或窄屏适配？
-- [ ] IQC 是否需要独立品牌色和 Logo 资源？
+- [ ] 确认 IQC 正式 Logo、产品全称、简称和品牌描述文案。

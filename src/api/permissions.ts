@@ -1,4 +1,5 @@
 import http from "@/api/http";
+import { PRODUCT_CODE } from "@/api/product";
 
 export interface AuthorizedMenu {
   id?: string | number;
@@ -24,13 +25,13 @@ function collectPermissions(items: AuthorizedMenu[], result = new Set<string>())
   return result;
 }
 
-export async function getUserPermissions(userId: string) {
-  const menus = await getUserMenus(userId);
+export async function getUserPermissions(menus?: AuthorizedMenu[]) {
+  menus ||= await getUserMenus();
   return [...collectPermissions(menus)];
 }
 
 /** Loads the user's authorized menu tree; permissions are carried by menu descriptions. */
-export async function getUserMenus(userId: string) {
-  const { data } = await http.get<AuthorizedMenu[]>(`/org/menu/user/${userId}`);
+export async function getUserMenus() {
+  const { data } = await http.get<AuthorizedMenu[]>(`/org/menu/current`, { params: { productCode: PRODUCT_CODE } });
   return Array.isArray(data) ? data : [];
 }

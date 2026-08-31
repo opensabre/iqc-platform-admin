@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
-import { getUserMenus, type AuthorizedMenu } from "@/api/permissions";
+import { type AuthorizedMenu } from "@/api/permissions";
 import {
   ArrowDownOutlined,
   AuditOutlined,
@@ -19,13 +19,6 @@ import {
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
-const dynamicMenuLoaded = ref(false);
-onMounted(async () => {
-  const userId = auth.user?.userId || auth.user?.id;
-  if (!userId) return;
-  try { auth.menus = await getUserMenus(String(userId)); } catch { /* permission-only deployments use the local fallback menu */ }
-  finally { dynamicMenuLoaded.value = true; }
-});
 
 type MenuItem = { key: string; path?: string; label: string; icon?: unknown; permission?: string; children?: MenuItem[] };
 const menuItems: MenuItem[] = [
@@ -86,7 +79,7 @@ function fromAuthorized(item: AuthorizedMenu): MenuItem | null {
 }
 function dynamicMenuItems() {
   const iqcRoot = auth.menus.find((item) => item.href === "/iqc" || item.name === "IQC 质检平台");
-  const roots = iqcRoot?.children || auth.menus.filter((item) => item.href?.startsWith("/iqc/") || item.name?.includes("IQC"));
+  const roots = [...(iqcRoot?.children || []), ...auth.menus.filter((item) => item !== iqcRoot)];
   return roots.map(fromAuthorized).filter((item): item is MenuItem => Boolean(item));
 }
 function dedupeMenuItems(items: MenuItem[]) {
@@ -101,7 +94,7 @@ function dedupeMenuItems(items: MenuItem[]) {
 }
 const visibleMenuItems = computed(() => {
   const dynamic = dynamicMenuItems();
-  const source = dynamicMenuLoaded.value && dynamic.length ? dynamic : menuItems;
+  const source = dynamic.length ? dynamic : (import.meta.env.DEV ? menuItems : []);
   const uniqueSource = dedupeMenuItems(source);
   if (!auth.permissionsReady) return uniqueSource;
   return uniqueSource.map((item) => item.children
@@ -140,16 +133,20 @@ async function logout() {
 
 const displayName = computed(() => auth.user?.name || auth.user?.nickname || auth.user?.username || "质检管理员");
 const avatarText = computed(() => displayName.value.trim().slice(0, 1) || "检");
+const productName = computed(() => auth.product?.shortName || "睿检");
+const productDescription = computed(() => auth.product?.description || "SMART QA");
+const productLogo = computed(() => auth.product?.logoUrl);
 </script>
 
 <template>
   <div class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">睿</div>
+        <img v-if="productLogo" :src="productLogo" class="brand-mark brand-image" alt="产品 Logo" />
+        <div v-else class="brand-mark">{{ productName.slice(0, 1) }}</div>
         <div>
-          <strong>睿检</strong>
-          <span>SMART QA</span>
+          <strong>{{ productName }}</strong>
+          <span>{{ productDescription }}</span>
         </div>
       </div>
       <div class="workspace-label">质检工作台</div>
