@@ -467,6 +467,11 @@ onBeforeUnmount(() => {
       :pagination="false"
       row-key="id"
     >
+      <a-table-column key="id" title="任务 ID" :width="230">
+        <template #default="{ record }">
+          <a-typography-text :ellipsis="{ tooltip: record.id }">{{ record.id }}</a-typography-text>
+        </template>
+      </a-table-column>
       <a-table-column key="name" title="任务名称" data-index="name" />
       <a-table-column key="taskType" title="任务类型" :width="110"><template #default="{ record }">{{ taskTypeLabel(record.taskType) }}</template></a-table-column>
       <a-table-column key="conversations" title="会话数" :width="90"
