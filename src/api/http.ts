@@ -2,6 +2,7 @@ import axios, { type AxiosResponse } from "axios";
 
 const http = axios.create({
   baseURL: import.meta.env.VITE_APP_BASE_API || "/api",
+  headers: { Accept: "application/json" },
   timeout: 20_000,
   withCredentials: true,
 });
