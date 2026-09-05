@@ -113,6 +113,8 @@ const detailRuleSnapshot = computed(() =>
   parseSnapshot<
     TaskRuleSnapshot[] | {
       ruleSetId?: string;
+      ruleSetName?: string;
+      ruleSetCode?: string;
       ruleSetVersion?: number;
       aggregationMode?: string;
       rules?: TaskRuleSnapshot[];
@@ -125,6 +127,9 @@ const detailRules = computed(() => {
 });
 const detailRuleSet = computed(() =>
   Array.isArray(detailRuleSnapshot.value) ? undefined : detailRuleSnapshot.value
+);
+const currentDetailRuleSet = computed(() =>
+  ruleSets.value.find((item) => item.id === (detailRuleSet.value?.ruleSetId || detail.value?.ruleSetId))
 );
 const modeLabels: Record<string, string> = {
   RULE_ONLY: "普通规则",
@@ -864,7 +869,11 @@ onBeforeUnmount(() => {
       </a-descriptions>
       <a-divider orientation="left">创建时规则配置</a-divider>
       <a-descriptions v-if="detailRuleSet" bordered :column="1" class="rule-set-summary">
-        <a-descriptions-item label="规则集">{{ detailRuleSet.ruleSetId || detail.ruleSetId || "—" }}</a-descriptions-item>
+        <a-descriptions-item label="规则集">
+          {{ detailRuleSet.ruleSetName || currentDetailRuleSet?.name || "—" }}
+          <span v-if="detailRuleSet.ruleSetCode || currentDetailRuleSet?.code"> · {{ detailRuleSet.ruleSetCode || currentDetailRuleSet?.code }}</span>
+        </a-descriptions-item>
+        <a-descriptions-item label="规则集 ID">{{ detailRuleSet.ruleSetId || detail.ruleSetId || "—" }}</a-descriptions-item>
         <a-descriptions-item label="规则集版本">{{ detailRuleSet.ruleSetVersion ? `V${detailRuleSet.ruleSetVersion}` : "—" }}</a-descriptions-item>
         <a-descriptions-item label="聚合方式">{{ detailRuleSet.aggregationMode === "ALL" ? "全部规则命中" : "任一规则命中" }}</a-descriptions-item>
       </a-descriptions>
