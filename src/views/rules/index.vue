@@ -6,6 +6,7 @@ import {
   approveRule,
   createRule,
   createRuleVersion,
+  importDlsRules,
   listRuleVersions,
   listRules,
   rejectRule,
@@ -14,6 +15,7 @@ import {
   type QualityRule,
   type QualityRuleVersion,
   type RuleTestResult,
+  type DlsImportResult,
 } from "@/api/config";
 import { getCachedDictionaries, type DictionaryItem } from "@/api/dictionaries";
 import { usePermission } from "@/composables/permission";
@@ -30,23 +32,15 @@ const testContent = ref("");
 const testResult = ref<RuleTestResult>();
 const versionOpen = ref(false);
 const versionSaving = ref(false);
+const dlsFileInput = ref<HTMLInputElement>();
+const dlsFile = ref<File>();
+const dlsImportOpen = ref(false);
+const dlsImporting = ref(false);
+const dlsImportResult = ref<DlsImportResult>();
+const dlsCanImport = computed(() => (dlsImportResult.value?.validCount || 0) > 0);
 const versionRule = ref<QualityRule>();
 const versions = ref<QualityRuleVersion[]>([]);
-const ruleTypes = ref<DictionaryItem[]>([
-  { value: "CONTAINS", label: "包含任一内容" },
-  { value: "FORBIDDEN_CONTAINS", label: "禁止包含" },
-  { value: "REQUIRED_CONTAINS", label: "必须包含" },
-  { value: "REGEX", label: "正则匹配" },
-  { value: "FORBIDDEN_REGEX", label: "禁止匹配正则" },
-  { value: "REQUIRED_REGEX", label: "必须匹配正则" },
-  { value: "EQUALS", label: "完全等于" },
-  { value: "NOT_EQUALS", label: "不等于" },
-  { value: "STARTS_WITH", label: "开头匹配" },
-  { value: "ENDS_WITH", label: "结尾匹配" },
-  { value: "STRUCTURED", label: "结构化条件" },
-  { value: "COMPOSITE", label: "组合规则" },
-  { value: "LLM", label: "LLM 语义判断" },
-]);
+const ruleTypes = ref<DictionaryItem[]>([]);
 const riskLevels = ref<DictionaryItem[]>([
   { value: "LOW", label: "低风险" },
   { value: "MEDIUM", label: "中风险" },
@@ -152,6 +146,8 @@ const expressionHelp = computed(() => {
     return "Java 正则，例如：(保证|承诺).{0,8}(收益|回报)";
   if (["STRUCTURED", "COMPOSITE"].includes(form.value.ruleType))
     return 'JSON 示例：{"all":[{"field":"content","operator":"contains","value":"收益"},{"not":{"field":"content","operator":"contains","value":"风险"}}]}';
+  if (form.value.ruleType === "DLS")
+    return "DLS JSON 文档建议通过规则库的“导入 DLS”功能生成";
   return form.value.ruleType === "LLM"
     ? "描述判断标准、正反例、证据要求和输出约束"
     : "输入需要比较的文本";
@@ -192,6 +188,10 @@ async function reject(id: string) {
   }
 }
 function startCreate() {
+  if (!ruleTypes.value.length) {
+    message.error("规则类型字典尚未加载，无法创建规则");
+    return;
+  }
   form.value = emptyForm();
   if (view.value === "composite") {
     form.value.ruleType = "COMPOSITE";
@@ -307,13 +307,39 @@ async function loadDictionaries() {
       "iqc_risk_level",
       "iqc_target_role",
     ]);
-    if (data.iqc_rule_type?.length) ruleTypes.value = data.iqc_rule_type;
+    ruleTypes.value = data.iqc_rule_type || [];
+    if (!ruleTypes.value.length) message.error("后端未发布规则类型字典");
     if (data.iqc_rule_category?.length) ruleCategories.value = data.iqc_rule_category;
     if (data.iqc_risk_level?.length) riskLevels.value = data.iqc_risk_level;
     if (data.iqc_target_role?.length) targetRoles.value = data.iqc_target_role;
   } catch {
-    /* 保留本地完整类型。 */
+    ruleTypes.value = [];
+    message.error("规则类型字典加载失败");
   }
+}
+async function selectDlsFile(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  dlsFile.value = file; dlsImporting.value = true;
+  try {
+    dlsImportResult.value = await importDlsRules(file, true);
+    dlsImportOpen.value = true;
+  } catch {
+    message.error("DLS 文件预检失败");
+  } finally { dlsImporting.value = false; }
+}
+async function confirmDlsImport() {
+  if (!dlsFile.value) return;
+  dlsImporting.value = true;
+  try {
+    dlsImportResult.value = await importDlsRules(dlsFile.value, false);
+    message.success(`已创建 ${dlsImportResult.value.createdCount} 条 DLS 草稿规则`);
+    await refresh();
+  } catch {
+    message.error("DLS 规则导入失败");
+  } finally { dlsImporting.value = false; }
 }
 onMounted(() => {
   void refresh();
@@ -328,12 +354,13 @@ onMounted(() => {
       <h2>{{ pageCopy[0] }}</h2>
       <p>{{ pageCopy[1] }}</p>
     </div>
-    <a-button
-      v-if="can('iqc:rule:manage') && !['test', 'approval'].includes(view)"
-      type="primary"
-      @click="startCreate"
-      >{{ view === "composite" ? "创建组合规则" : "创建规则" }}</a-button
-    >
+    <a-space v-if="can('iqc:rule:manage') && !['test', 'approval'].includes(view)">
+      <template v-if="view === 'library'">
+        <input ref="dlsFileInput" type="file" accept=".xlsx" hidden @change="selectDlsFile" />
+        <a-button :loading="dlsImporting" @click="dlsFileInput?.click()">导入 DLS</a-button>
+      </template>
+      <a-button type="primary" @click="startCreate">{{ view === "composite" ? "创建组合规则" : "创建规则" }}</a-button>
+    </a-space>
   </section>
   <a-alert
     v-if="view === 'composite'"
@@ -394,6 +421,25 @@ onMounted(() => {
       ></a-table
     ></a-card
   >
+  <a-modal v-model:open="dlsImportOpen" title="DLS 导入预检" width="860" :confirm-loading="dlsImporting"
+    :ok-button-props="{ disabled: !dlsCanImport }"
+    ok-text="创建草稿" @ok="confirmDlsImport">
+    <a-alert type="info" show-icon style="margin-bottom: 16px"
+      :message="`${dlsImportResult?.fileName || ''}：${dlsImportResult?.validCount || 0} 个工作表通过，${dlsImportResult?.failedCount || 0} 个失败`"
+      description="测试词槽和测试规则默认排除；导入后仍需测试、提交审批和发布。" />
+    <a-table :data-source="dlsImportResult?.items || []" row-key="sheetName" :pagination="false" size="small">
+      <a-table-column title="工作表" data-index="sheetName" />
+      <a-table-column title="最终规则" data-index="ruleName" />
+      <a-table-column title="定义数" data-index="definitionCount" :width="80" />
+      <a-table-column title="状态" data-index="status" :width="90" />
+      <a-table-column title="诊断">
+        <template #default="{ record }">
+          <div>{{ record.message }}</div>
+          <div v-for="warning in record.warnings || []" :key="warning" style="color: #8c8c8c">{{ warning }}</div>
+        </template>
+      </a-table-column>
+    </a-table>
+  </a-modal>
   <a-modal
     v-model:open="open"
     wrap-class-name="iqc-rule-modal"
@@ -518,7 +564,7 @@ onMounted(() => {
         ><a-textarea
           v-model:value="form.expression"
           :rows="
-            ['COMPOSITE', 'STRUCTURED', 'LLM'].includes(form.ruleType) ? 8 : 4
+            ['COMPOSITE', 'STRUCTURED', 'DLS', 'LLM'].includes(form.ruleType) ? 8 : 4
           "
           :placeholder="expressionHelp" /></a-form-item
       ><a-row :gutter="16"

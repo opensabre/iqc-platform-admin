@@ -55,6 +55,12 @@ export const listRuleVersions = (id: string) => http.get<QualityRuleVersion[]>(`
 export const createRuleVersion = (id: string, data: Partial<QualityRule>) => http.post<QualityRuleVersion>(`/iqc/config/rules/${id}/versions`, data).then((response) => response.data);
 export interface RuleTestResult { matched: boolean; resultStatus: string; matchedText?: string; reason: string; }
 export const testRule = (id: string, content: string) => http.post<RuleTestResult>(`/iqc/config/rules/${id}/test`, { content }).then((response) => response.data);
+export interface DlsImportItem { sheetName:string; ruleName:string; ruleCode:string; status:"VALID"|"CREATED"|"SKIPPED"|"FAILED"; ruleId?:string; definitionCount:number; executableRuleCount:number; warnings:string[]; message:string; }
+export interface DlsImportResult { fileName:string; preview:boolean; sheetCount:number; createdCount:number; validCount:number; skippedCount:number; failedCount:number; items:DlsImportItem[]; }
+export const importDlsRules = (file:File, preview:boolean, excludeTests = true) => {
+  const data = new FormData(); data.append("file", file);
+  return http.post<DlsImportResult>("/iqc/config/rules/import-dls", data, { params:{ preview, excludeTests } }).then(response => response.data);
+};
 export const listRuleSets = () => http.get<QualityRuleSet[]>("/iqc/config/rule-sets").then((response) => response.data);
 export const createRuleSet = (data:QualityRuleSetRequest) => http.post<QualityRuleSet>("/iqc/config/rule-sets",data).then(response=>response.data);
 export const submitRuleSet = (id:string) => http.post<QualityRuleSet>(`/iqc/config/rule-sets/${id}/submit`).then(response=>response.data);
