@@ -354,12 +354,18 @@ onMounted(() => {
       <h2>{{ pageCopy[0] }}</h2>
       <p>{{ pageCopy[1] }}</p>
     </div>
-    <a-space v-if="can('iqc:rule:manage') && !['test', 'approval'].includes(view)">
-      <template v-if="view === 'library'">
+    <a-space
+      v-if="
+        !['test', 'approval'].includes(view) &&
+        (can('iqc:rule:manage') ||
+          (view === 'library' && can('iqc:rule:import')))
+      "
+    >
+      <template v-if="view === 'library' && can('iqc:rule:import')">
         <input ref="dlsFileInput" type="file" accept=".xlsx" hidden @change="selectDlsFile" />
         <a-button :loading="dlsImporting" @click="dlsFileInput?.click()">导入 DLS</a-button>
       </template>
-      <a-button type="primary" @click="startCreate">{{ view === "composite" ? "创建组合规则" : "创建规则" }}</a-button>
+      <a-button v-if="can('iqc:rule:manage')" type="primary" @click="startCreate">{{ view === "composite" ? "创建组合规则" : "创建规则" }}</a-button>
     </a-space>
   </section>
   <a-alert
