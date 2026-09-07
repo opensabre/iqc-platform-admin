@@ -3,7 +3,7 @@
 ## Source of truth
 
 - Status: Draft
-- Last refreshed: 2026-08-31
+- Last refreshed: 2026-09-07
 - Primary product surfaces: IQC 质检工作台、会话/任务/结果管理、Agent 配置
 - Evidence reviewed: `iqc-platform/PRD.md`、`opensabre-admin/` 现有 Vue 3 工程结构
 
@@ -27,7 +27,7 @@
 
 ## Information architecture
 
-- Primary navigation: 仅加载归属 `iqc` 的菜单与公共菜单；睿检总览、会话中心、质检任务、质检结果、智能体管理（智能体列表、模型、MCP、Skill）、规则中心、模板中心。
+- Primary navigation: 仅加载归属 `iqc` 的菜单与公共菜单；睿检总览、会话中心、质检任务、质检结果、智能体管理（智能体列表、模型、MCP、Skill）、规则中心、模板中心。规则中心分为规则库、会话规则、规则集、测试中心、审批与发布；不再把结构化规则作为独立一级菜单。
 - Core routes/screens: `/dashboard`、`/conversations`、`/tasks`、`/results`、`/agents`、`/agent-models`、`/agent-mcps`、`/agent-skills`、`/rules`、`/templates`。
 - Content hierarchy: 先看业务指标和任务状态，再进入列表，最后查看会话证据和改进建议。
 
@@ -52,7 +52,10 @@
 ## Components
 
 - Existing components to reuse: Ant Design Vue、OpenSabre 的认证/权限服务和接口约定；不直接依赖 `opensabre-admin` 内部页面组件。
-- New/changed components: IQC 工作台布局、会话消息时间线、证据片段高亮、质检风险标签、结构化违规与扣分详情、Agent 四步创建/版本配置向导、质检任务四步创建向导、登录后加载的产品品牌信息。
+- New/changed components: IQC 工作台布局、会话消息时间线、证据片段高亮、质检风险标签、结构化违规与扣分详情、Agent 四步创建/版本配置向导、质检任务四步创建向导、登录后加载的产品品牌信息、DLS 会话规则工作台。
+- 规则中心约束: 规则库承载关键词、正则、结构化和 LLM 等单消息规则；历史 `COMPOSITE` 在界面统一称为“结构化规则”。DLS 单独归入“会话规则”，其 SLOT、RULE 和 ENTRY 仅在当前 DLS 内复用，不进入规则库、不能跨 DLS 引用。
+- DLS 工作台约束: 默认展示 SLOT → RULE → ENTRY 的结构化编辑和引用关系，不直接把 JSON 作为主界面；支持 XLSX 导入与手工创建、引用诊断、反向引用、节点测试和完整会话测试。高级 JSON 只作为排障能力。
+- 结果层级约束: 顶层判定按“任务 → 会话 → 规则”组织，消息只承担证据定位；单消息规则可产生多条消息证据，DLS 可产生跨消息证据，单条顶层规则在一个会话中最多扣分一次。
 - Agent 向导约束: 依次完成基本信息、大模型、MCP/Skill、提示词与确认；资产选择必须引用模型/MCP/Skill 管理中的已启用实体，并提供不中断当前表单的管理入口。
 - 任务向导约束: 依次完成任务信息、数据范围、质检方案、执行参数与确认；直接引用已导入会话、已发布 Agent 和已发布规则，批量与定时任务共享同一向导骨架。
 - Variants and states: loading、empty、error、running、success、failed、high-risk。

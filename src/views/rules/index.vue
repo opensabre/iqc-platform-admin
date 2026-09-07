@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { message } from "ant-design-vue";
 import {
@@ -19,6 +19,7 @@ import {
 } from "@/api/config";
 import { getCachedDictionaries, type DictionaryItem } from "@/api/dictionaries";
 import { usePermission } from "@/composables/permission";
+import DlsDocumentEditor from "./DlsDocumentEditor.vue";
 
 const route = useRoute();
 const { can } = usePermission();
@@ -30,6 +31,7 @@ const testing = ref(false);
 const testRuleId = ref("");
 const testContent = ref("");
 const testResult = ref<RuleTestResult>();
+const testingDls = computed(() => rules.value.find((rule) => rule.id === testRuleId.value)?.ruleType === "DLS");
 const versionOpen = ref(false);
 const versionSaving = ref(false);
 const dlsFileInput = ref<HTMLInputElement>();
@@ -82,6 +84,7 @@ type ConditionRow = {
 const compositeMode = ref<"ALL" | "ANY">("ALL");
 const conditions = ref<ConditionRow[]>([]);
 const advancedComposite = ref(false);
+const advancedDls = ref(false);
 const fields = [
   { value: "content", label: "消息内容" },
   { value: "speakerRole", label: "说话人角色" },
@@ -106,25 +109,29 @@ const operators = [
   { value: "length_gt", label: "长度大于" },
   { value: "length_lt", label: "长度小于" },
 ];
+const ruleTypeLabel = (type: string) => type === "COMPOSITE" ? "结构化规则" : type === "DLS" ? "DLS 会话规则" : ruleTypes.value.find((item) => item.value === type)?.label || type;
+const selectableRuleTypes = computed(() => view.value === "dls"
+  ? ruleTypes.value.filter((item) => item.value === "DLS")
+  : ruleTypes.value.filter((item) => item.value !== "DLS"));
 const view = computed(() => String(route.meta.ruleView || "library"));
 const visibleRules = computed(() =>
   rules.value.filter((rule) =>
-    view.value === "composite"
-      ? rule.ruleType === "COMPOSITE"
+    view.value === "dls"
+      ? rule.ruleType === "DLS"
       : view.value === "approval"
       ? rule.status === "PENDING_APPROVAL"
       : view.value === "library"
-      ? rule.ruleType !== "COMPOSITE"
+      ? rule.ruleType !== "DLS"
       : true
   )
 );
 const pageCopy = computed(
   () =>
     ({
-      library: ["规则库", "集中管理确定性规则、结构化条件和 LLM 语义规则。"],
-      composite: [
-        "组合规则",
-        "使用 ALL、ANY、NOT 将多个条件递归组合为可复用规则。",
+      library: ["规则库", "集中管理关键词、正则、结构化和 LLM 等单消息规则。"],
+      dls: [
+        "会话规则",
+        "使用私有 SLOT、RULE 和 ENTRY 构建可解释的 DLS 会话规则。",
       ],
       test: ["规则测试中心", "用真实会话片段验证规则命中结果和证据。"],
       approval: [
@@ -147,7 +154,7 @@ const expressionHelp = computed(() => {
   if (["STRUCTURED", "COMPOSITE"].includes(form.value.ruleType))
     return 'JSON 示例：{"all":[{"field":"content","operator":"contains","value":"收益"},{"not":{"field":"content","operator":"contains","value":"风险"}}]}';
   if (form.value.ruleType === "DLS")
-    return "DLS JSON 文档建议通过规则库的“导入 DLS”功能生成";
+    return "DLS JSON 文档建议通过会话规则的可视化编辑器或导入功能生成";
   return form.value.ruleType === "LLM"
     ? "描述判断标准、正反例、证据要求和输出约束"
     : "输入需要比较的文本";
@@ -193,7 +200,12 @@ function startCreate() {
     return;
   }
   form.value = emptyForm();
-  if (view.value === "composite") {
+  if (view.value === "dls") {
+    form.value.ruleType = "DLS";
+    form.value.targetRole = "all";
+    form.value.expression = JSON.stringify({ languageVersion: "1.0", source: null, definitions: [], entryName: "", entryExpression: "" }, null, 2);
+    advancedDls.value = false;
+  } else if (form.value.ruleType === "COMPOSITE") {
     form.value.ruleType = "COMPOSITE";
     compositeMode.value = "ALL";
     conditions.value = [
@@ -230,6 +242,14 @@ function syncComposite() {
   });
   form.value.expression = JSON.stringify({ [key]: children }, null, 2);
 }
+watch(() => form.value.ruleType, (type) => {
+  if (type === "COMPOSITE" && !conditions.value.length) {
+    compositeMode.value = "ALL";
+    conditions.value = [{ field: "content", operator: "contains", value: "", negated: false }];
+    advancedComposite.value = false;
+    syncComposite();
+  }
+});
 async function save() {
   if (!form.value.name || !form.value.code || !form.value.expression)
     return void message.warning("请填写名称、编码和规则配置");
@@ -255,7 +275,12 @@ async function runTest() {
   if (!testContent.value.trim()) return void message.warning("请输入测试文本");
   testing.value = true;
   try {
-    testResult.value = await testRule(testRuleId.value, testContent.value);
+    const messages = testingDls.value ? testContent.value.split("\n").map((line, index) => {
+      const matched = line.match(/^\s*(agent|user|坐席|客服|客户)\s*[:：]\s*(.*)$/i);
+      const role = matched?.[1]?.toLowerCase();
+      return { sequenceNo:index + 1, speakerRole:role === "user" || role === "客户" ? "user" as const : "agent" as const, content:matched ? matched[2] : line };
+    }).filter((item) => item.content.trim()) : [];
+    testResult.value = await testRule(testRuleId.value, testContent.value, messages);
   } catch {
     message.error("规则测试失败");
   } finally {
@@ -361,19 +386,19 @@ onMounted(() => {
           (view === 'library' && can('iqc:rule:import')))
       "
     >
-      <template v-if="view === 'library' && can('iqc:rule:import')">
+      <template v-if="view === 'dls' && can('iqc:rule:import')">
         <input ref="dlsFileInput" type="file" accept=".xlsx" hidden @change="selectDlsFile" />
         <a-button :loading="dlsImporting" @click="dlsFileInput?.click()">导入 DLS</a-button>
       </template>
-      <a-button v-if="can('iqc:rule:manage')" type="primary" @click="startCreate">{{ view === "composite" ? "创建组合规则" : "创建规则" }}</a-button>
+      <a-button v-if="can('iqc:rule:manage')" type="primary" @click="startCreate">{{ view === "dls" ? "创建 DLS" : "创建规则" }}</a-button>
     </a-space>
   </section>
   <a-alert
-    v-if="view === 'composite'"
+    v-if="view === 'dls'"
     type="info"
     show-icon
-    message="组合表达式支持 all / any / not 递归结构"
-    description="叶子支持 contains、not_contains、contains_any、contains_all、regex、not_regex、equals、数值与长度比较。"
+    message="DLS 是会话级规则"
+    description="SLOT 和 RULE 只在当前 DLS 内复用；DLS 作为整体测试、审批、发布并加入规则集。"
     style="margin-bottom: 16px"
   />
   <a-card :bordered="false"
@@ -388,7 +413,7 @@ onMounted(() => {
         title="版本"
         data-index="versionNo"
         :width="70"
-      /><a-table-column title="类型" data-index="ruleType" /><a-table-column
+      /><a-table-column title="类型"><template #default="{ record }">{{ ruleTypeLabel(record.ruleType) }}</template></a-table-column><a-table-column
         title="表达式"
         data-index="expression"
         :ellipsis="true"
@@ -449,7 +474,7 @@ onMounted(() => {
   <a-modal
     v-model:open="open"
     wrap-class-name="iqc-rule-modal"
-    :title="view === 'composite' ? '创建组合规则' : '创建规则'"
+    :title="view === 'dls' ? '创建 DLS 会话规则' : '创建规则'"
     width="900"
     :confirm-loading="saving"
     @ok="save"
@@ -487,9 +512,9 @@ onMounted(() => {
           ><a-form-item label="规则类型"
             ><a-select
               v-model:value="form.ruleType"
-              :disabled="view === 'composite'"
+              :disabled="view === 'dls'"
               ><a-select-option
-                v-for="item in ruleTypes"
+                v-for="item in selectableRuleTypes"
                 :key="item.value"
                 :value="item.value"
                 >{{ item.label }}</a-select-option
@@ -497,7 +522,11 @@ onMounted(() => {
             ></a-form-item
           ></a-col
         ></a-row
-      ><template v-if="form.ruleType === 'COMPOSITE' && !advancedComposite"
+      ><template v-if="form.ruleType === 'DLS' && !advancedDls">
+        <DlsDocumentEditor v-model="form.expression" />
+        <a-button type="link" style="padding-left:0;margin-bottom:12px" @click="advancedDls = true">高级 JSON</a-button>
+      </template>
+      <template v-if="form.ruleType === 'COMPOSITE' && !advancedComposite"
         ><a-form-item label="组合关系"
           ><a-radio-group v-model:value="compositeMode" @change="syncComposite"
             ><a-radio-button value="ALL">全部满足</a-radio-button
@@ -563,7 +592,7 @@ onMounted(() => {
           ></a-space
         ></template
       ><a-form-item
-        v-if="form.ruleType !== 'COMPOSITE' || advancedComposite"
+        v-if="(form.ruleType !== 'COMPOSITE' || advancedComposite) && (form.ruleType !== 'DLS' || advancedDls)"
         label="规则配置"
         required
         :help="expressionHelp"
@@ -608,11 +637,11 @@ onMounted(() => {
     ok-text="运行测试"
     @ok="runTest"
     ><a-form layout="vertical"
-      ><a-form-item label="测试文本" required
+      ><a-form-item :label="testingDls ? '测试会话' : '测试文本'" required
         ><a-textarea
           v-model:value="testContent"
           :rows="6"
-          placeholder="输入一段真实会话文本" /></a-form-item></a-form
+          :placeholder="testingDls ? '每行一条消息，例如：\n客户：我要投诉\n坐席：请拨打客服电话' : '输入一段真实消息文本'" /></a-form-item></a-form
     ><a-alert
       v-if="testResult"
       :type="
@@ -629,7 +658,11 @@ onMounted(() => {
           : undefined
       "
       show-icon
-  /></a-modal>
+    />
+    <a-table v-if="testResult?.evidence?.length" :data-source="testResult.evidence" :pagination="false" size="small" style="margin-top:12px">
+      <a-table-column title="内部 RULE" data-index="definition" /><a-table-column title="消息序号" data-index="sequenceNo" :width="90" /><a-table-column title="命中文本" data-index="text" />
+    </a-table>
+  </a-modal>
   <a-modal
     v-model:open="versionOpen"
     :title="`规则版本：${versionRule?.name || ''}`"
@@ -653,10 +686,10 @@ onMounted(() => {
         title="风险"
         data-index="riskLevel" /></a-table
     ><a-divider /><a-form layout="vertical"
-      ><a-form-item label="新版本配置" required
-        ><a-textarea
-          v-model:value="versionForm.expression"
-          :rows="6" /></a-form-item
+      ><a-form-item label="新版本配置" required>
+        <DlsDocumentEditor v-if="versionForm.ruleType === 'DLS'" v-model="versionForm.expression" />
+        <a-textarea v-else v-model:value="versionForm.expression" :rows="6" />
+      </a-form-item
       ><a-row :gutter="16"
         ><a-col :span="12"
           ><a-form-item label="扣分"
