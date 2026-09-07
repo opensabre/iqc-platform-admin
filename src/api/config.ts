@@ -53,8 +53,10 @@ export const approveRule = (id: string) => http.post<QualityRule>(`/iqc/config/r
 export const rejectRule = (id: string) => http.post<QualityRule>(`/iqc/config/rules/${id}/reject`).then((response) => response.data);
 export const listRuleVersions = (id: string) => http.get<QualityRuleVersion[]>(`/iqc/config/rules/${id}/versions`).then((response) => response.data);
 export const createRuleVersion = (id: string, data: Partial<QualityRule>) => http.post<QualityRuleVersion>(`/iqc/config/rules/${id}/versions`, data).then((response) => response.data);
-export interface RuleTestResult { matched: boolean; resultStatus: string; matchedText?: string; reason: string; }
-export const testRule = (id: string, content: string) => http.post<RuleTestResult>(`/iqc/config/rules/${id}/test`, { content }).then((response) => response.data);
+export interface RuleTestMessage { id?:string; sequenceNo:number; speakerRole:"agent"|"user"; content:string; }
+export interface DlsTestEvidence { definition:string; messageId:string; sequenceNo:number; text:string; start:number; end:number; }
+export interface RuleTestResult { matched:boolean; resultStatus:string; matchedText?:string; reason:string; evidence?:DlsTestEvidence[]; }
+export const testRule = (id:string, content:string, messages:RuleTestMessage[] = []) => http.post<RuleTestResult>(`/iqc/config/rules/${id}/test`, { content, messages }).then((response) => response.data);
 export interface DlsImportItem { sheetName:string; ruleName:string; ruleCode:string; status:"VALID"|"CREATED"|"SKIPPED"|"FAILED"; ruleId?:string; definitionCount:number; executableRuleCount:number; warnings:string[]; message:string; }
 export interface DlsImportResult { fileName:string; preview:boolean; sheetCount:number; createdCount:number; validCount:number; skippedCount:number; failedCount:number; items:DlsImportItem[]; }
 export const importDlsRules = (file:File, preview:boolean, excludeTests = true) => {

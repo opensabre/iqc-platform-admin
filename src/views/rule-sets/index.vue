@@ -108,7 +108,7 @@ onMounted(refresh);
       <span class="section-kicker">RULE SET ORCHESTRATION</span>
       <h2>规则集</h2>
       <p>
-        将已发布原子规则和组合规则按顺序编排，作为智能体与质检任务的稳定输入。
+        将已发布的单消息规则和 DLS 会话规则按顺序编排，作为智能体与质检任务的稳定输入。
       </p>
     </div>
     <a-button v-if="can('iqc:rule:manage')" type="primary" @click="createNew"

@@ -39,7 +39,7 @@ const menuItems: MenuItem[] = [
   ] },
   { key: "rules", label: "规则中心", icon: SettingOutlined, children: [
     { key: "rules-library", path: "/rules/library", label: "规则库", permission: "iqc:rule:view" },
-    { key: "rules-composite", path: "/rules/composite", label: "组合规则", permission: "iqc:rule:view" },
+    { key: "rules-conversation", path: "/rules/conversation", label: "会话规则", permission: "iqc:rule:view" },
     { key: "rules-sets", path: "/rules/sets", label: "规则集", permission: "iqc:rule:view" },
     { key: "rules-test", path: "/rules/test-center", label: "测试中心", permission: "iqc:rule:test" },
     { key: "rules-approvals", path: "/rules/approvals", label: "审批与发布", permission: "iqc:rule:approve" },
@@ -53,7 +53,7 @@ const routePaths = new Set(router.getRoutes().map((record) => `/${String(record.
 const canonicalLabels: Record<string, string> = {
   "/dashboard": "睿检总览", "/profile": "个人中心", "/conversations/api": "接口对接", "/conversations/list": "会话列表", "/conversations/upload": "文本上传",
   "/tasks": "质检任务", "/results": "质检结果", "/agents": "智能体列表", "/agent-models": "模型配置",
-  "/agent-mcps": "MCP 管理", "/agent-skills": "Skill 管理", "/rules/library": "规则库", "/rules/composite": "组合规则",
+  "/agent-mcps": "MCP 管理", "/agent-skills": "Skill 管理", "/rules/library": "规则库", "/rules/conversation": "会话规则",
   "/rules/sets": "规则集", "/rules/test-center": "测试中心", "/rules/approvals": "审批与发布",
   "/templates": "模板中心", "/settings": "系统设置", "/audit-logs": "操作日志",
 };
