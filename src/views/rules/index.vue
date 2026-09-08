@@ -17,7 +17,7 @@ import {
   type RuleTestResult,
   type DlsImportResult,
 } from "@/api/config";
-import { getCachedDictionaries, type DictionaryItem } from "@/api/dictionaries";
+import { dictionaryLabel, getCachedDictionaries, type DictionaryItem } from "@/api/dictionaries";
 import { usePermission } from "@/composables/permission";
 import DlsDocumentEditor from "./DlsDocumentEditor.vue";
 
@@ -110,6 +110,7 @@ const operators = [
   { value: "length_lt", label: "长度小于" },
 ];
 const ruleTypeLabel = (type: string) => type === "COMPOSITE" ? "结构化规则" : type === "DLS" ? "DLS 会话规则" : ruleTypes.value.find((item) => item.value === type)?.label || type;
+const categoryLabel = (category?: string) => dictionaryLabel(ruleCategories.value, category);
 const selectableRuleTypes = computed(() => view.value === "dls"
   ? ruleTypes.value.filter((item) => item.value === "DLS")
   : ruleTypes.value.filter((item) => item.value !== "DLS"));
@@ -409,7 +410,7 @@ onMounted(() => {
       ><a-table-column title="名称" data-index="name" /><a-table-column
         title="编码"
         data-index="code"
-      /><a-table-column title="分类" data-index="category" /><a-table-column
+      /><a-table-column title="分类"><template #default="{ record }">{{ categoryLabel(record.category) }}</template></a-table-column><a-table-column
         title="版本"
         data-index="versionNo"
         :width="70"
