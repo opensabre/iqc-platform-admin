@@ -667,7 +667,7 @@ onMounted(() => {
   <a-modal
     v-model:open="versionOpen"
     :title="`规则版本：${versionRule?.name || ''}`"
-    width="800"
+    width="min(1200px, calc(100vw - 64px))"
     :confirm-loading="versionSaving"
     ok-text="创建并提交新版本"
     @ok="saveVersion"
