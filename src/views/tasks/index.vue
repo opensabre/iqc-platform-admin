@@ -301,6 +301,11 @@ function nextStep() {
 function openRelated(path: string) {
   window.open(router.resolve(path).href, "_blank", "noopener,noreferrer");
 }
+function openSnapshotRule(rule: TaskRuleSnapshot) {
+  if (!rule.id) return;
+  const path = rule.ruleType === "DLS" ? "/rules/conversation" : "/rules/library";
+  openRelated(`${path}?ruleId=${encodeURIComponent(rule.id)}`);
+}
 async function submit() {
   if (![1, 2].every(validateStep)) return;
   creating.value = true;
@@ -878,23 +883,30 @@ onBeforeUnmount(() => {
         <a-descriptions-item label="聚合方式">{{ detailRuleSet.aggregationMode === "ALL" ? "全部规则命中" : "任一规则命中" }}</a-descriptions-item>
       </a-descriptions>
       <a-empty v-if="!detailRules.length" description="该历史任务没有可展示的规则快照"/>
-      <a-list v-else :data-source="detailRules" bordered class="snapshot-rule-list">
-        <template #renderItem="{ item }">
-          <a-list-item>
-            <a-list-item-meta :title="`${item.name || '未命名规则'} · ${item.code || '—'} · V${item.versionNo || '—'}`">
-              <template #description>
-                <a-space wrap>
-                  <a-tag>{{ item.ruleType || "—" }}</a-tag><a-tag v-if="item.category">{{ item.category }}</a-tag>
-                  <a-tag v-if="item.targetRole">对象：{{ item.targetRole }}</a-tag><a-tag v-if="item.riskLevel" color="orange">风险：{{ item.riskLevel }}</a-tag>
-                  <a-tag v-if="item.deduction !== undefined">扣分：{{ item.deduction }}</a-tag><a-tag v-if="item.veto" color="red">一票否决</a-tag>
-                </a-space>
-                <p v-if="item.description" class="rule-description">{{ item.description }}</p>
-                <pre v-if="item.expression" class="snapshot-text">{{ item.expression }}</pre>
-              </template>
-            </a-list-item-meta>
-          </a-list-item>
-        </template>
-      </a-list>
+      <a-collapse v-else class="snapshot-rule-list">
+        <a-collapse-panel v-for="item in detailRules" :key="item.id">
+          <template #header>
+            <div class="snapshot-rule-header">
+              <strong>{{ item.name || "未命名规则" }}</strong>
+              <span>{{ item.code || "—" }} · V{{ item.versionNo || "—" }}</span>
+              <a-tag>{{ item.ruleType || "—" }}</a-tag>
+              <a-tag v-if="item.riskLevel" color="orange">{{ item.riskLevel }}</a-tag>
+            </div>
+          </template>
+          <template #extra>
+            <a-button v-if="item.id" type="link" size="small" @click.stop="openSnapshotRule(item)">查看规则 ↗</a-button>
+          </template>
+          <a-space wrap>
+            <a-tag v-if="item.category">{{ item.category }}</a-tag>
+            <a-tag v-if="item.targetRole">对象：{{ item.targetRole }}</a-tag>
+            <a-tag v-if="item.deduction !== undefined">扣分：{{ item.deduction }}</a-tag>
+            <a-tag v-if="item.veto" color="red">一票否决</a-tag>
+          </a-space>
+          <p v-if="item.description" class="rule-description">{{ item.description }}</p>
+          <pre v-if="item.expression" class="snapshot-text snapshot-expression">{{ item.expression }}</pre>
+          <a-empty v-else description="该规则快照没有配置内容" :image-style="{ height: '36px' }" />
+        </a-collapse-panel>
+      </a-collapse>
       ></template
     ></a-drawer
   >
@@ -1044,6 +1056,23 @@ onBeforeUnmount(() => {
 }
 .snapshot-rule-list {
   margin-bottom: 16px;
+}
+.snapshot-rule-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.snapshot-rule-header span {
+  color: var(--iqc-slate-600);
+}
+.snapshot-expression {
+  max-height: 360px;
+  margin-top: 12px;
+  padding: 12px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--iqc-canvas);
 }
 .rule-description {
   margin: 8px 0 0;

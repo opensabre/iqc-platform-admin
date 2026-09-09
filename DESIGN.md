@@ -3,7 +3,7 @@
 ## Source of truth
 
 - Status: Draft
-- Last refreshed: 2026-09-07
+- Last refreshed: 2026-09-09
 - Primary product surfaces: IQC 质检工作台、会话/任务/结果管理、Agent 配置
 - Evidence reviewed: `iqc-platform/PRD.md`、`opensabre-admin/` 现有 Vue 3 工程结构
 
@@ -58,6 +58,7 @@
 - 结果层级约束: 顶层判定按“任务 → 会话 → 规则”组织，消息只承担证据定位；单消息规则可产生多条消息证据，DLS 可产生跨消息证据，单条顶层规则在一个会话中最多扣分一次。
 - Agent 向导约束: 依次完成基本信息、大模型、MCP/Skill、提示词与确认；资产选择必须引用模型/MCP/Skill 管理中的已启用实体，并提供不中断当前表单的管理入口。
 - 任务向导约束: 依次完成任务信息、数据范围、质检方案、执行参数与确认；直接引用已导入会话、已发布 Agent 和已发布规则，批量与定时任务共享同一向导骨架。
+- 任务快照约束: 任务详情中的创建时规则配置默认只展示规则摘要，表达式等完整配置按规则折叠；每条规则提供回到规则库或会话规则版本详情的入口，避免把大段 JSON 作为主展示内容。
 - Variants and states: loading、empty、error、running、success、failed、high-risk。
 - Token/component ownership: IQC 前端维护业务组件和主题变量，平台通用能力由 OpenSabre 服务提供。
 
