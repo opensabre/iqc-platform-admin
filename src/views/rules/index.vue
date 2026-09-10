@@ -168,6 +168,13 @@ async function refresh() {
     message.error("规则加载失败");
   }
 }
+async function openRuleFromQuery() {
+  const ruleId = typeof route.query.ruleId === "string" ? route.query.ruleId : "";
+  if (!ruleId) return;
+  const rule = rules.value.find((item) => item.id === ruleId);
+  if (rule) await openVersions(rule);
+  else message.warning("未找到对应规则，可能已删除或无权查看");
+}
 async function submit(id: string) {
   try {
     await submitRule(id);
@@ -367,8 +374,9 @@ async function confirmDlsImport() {
     message.error("DLS 规则导入失败");
   } finally { dlsImporting.value = false; }
 }
-onMounted(() => {
-  void refresh();
+onMounted(async () => {
+  await refresh();
+  await openRuleFromQuery();
   void loadDictionaries();
 });
 </script>
@@ -669,6 +677,7 @@ onMounted(() => {
     :title="`规则版本：${versionRule?.name || ''}`"
     width="min(1200px, calc(100vw - 64px))"
     :confirm-loading="versionSaving"
+    :footer="can('iqc:rule:manage') ? undefined : null"
     ok-text="创建并提交新版本"
     @ok="saveVersion"
     ><a-table
@@ -686,7 +695,7 @@ onMounted(() => {
         data-index="deduction" /><a-table-column
         title="风险"
         data-index="riskLevel" /></a-table
-    ><a-divider /><a-form layout="vertical"
+    ><template v-if="can('iqc:rule:manage')"><a-divider /><a-form layout="vertical"
       ><a-form-item label="新版本配置" required>
         <DlsDocumentEditor v-if="versionForm.ruleType === 'DLS'" v-model="versionForm.expression" />
         <a-textarea v-else v-model:value="versionForm.expression" :rows="6" />
@@ -710,7 +719,7 @@ onMounted(() => {
             ></a-form-item
           ></a-col
         ></a-row
-      ></a-form
+      ></a-form></template
     ></a-modal
   >
 </template>
