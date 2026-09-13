@@ -1,4 +1,5 @@
 import http from "@/api/http";
+import type { LabelSelection } from "@/api/labels";
 
 export interface TaskAssetSnapshot {
   id: string;
@@ -14,7 +15,7 @@ export interface TaskAssetSnapshot {
 
 export interface TaskAgentConfigSnapshot {
   schemaVersion?: string;
-  mode?: "RULE_ONLY" | "RULE_THEN_LLM" | "AGENT_LLM";
+  mode?: "RULE_ONLY" | "RULE_THEN_LLM" | "LLM_THEN_RULE" | "AGENT_LLM";
   systemPrompt?: string;
   assetSnapshots?: {
     primaryModel?: TaskAssetSnapshot;
@@ -62,6 +63,12 @@ export interface InspectionTask {
   ruleIdsJson?: string;
   agentSnapshotJson?: string;
   ruleSnapshotJson?: string;
+  labelScopeSnapshotJson?: string;
+  runCount?: number;
+  confidenceThreshold?: number;
+  autoExpandEnabled?: boolean;
+  autoExpandPrompt?: string;
+  queuePriority?: number;
   status: string;
   totalMessages: number;
   processedMessages: number;
@@ -72,7 +79,8 @@ export interface InspectionTask {
 }
 
 export interface ScheduledSelectionFilter { createdFrom?: string; createdTo?: string; fileName?: string; status?: string; ownerGroupId?: string; limit?: number; employeeId?: string; customerExternalId?: string; channel?: string; businessNo?: string; }
-export interface CreateTaskRequest { name?: string; taskType: "BATCH" | "SCHEDULED" | "SAMPLE"; conversationId?: string; conversationIds?: string[]; selectionFilter?: ScheduledSelectionFilter; scheduledTime?: string; sampleSize?:number; sampleSeed?:string; agentId: string; ruleSetId?: string; ruleIds?: string[]; concurrencyLimit: number; }
+export interface LabelOptions { runCount?:number; confidenceThreshold?:number; autoExpandEnabled?:boolean; autoExpandPrompt?:string; }
+export interface CreateTaskRequest { name?: string; taskType: "BATCH" | "SCHEDULED" | "SAMPLE"; conversationId?: string; conversationIds?: string[]; selectionFilter?: ScheduledSelectionFilter; scheduledTime?: string; sampleSize?:number; sampleSeed?:string; agentId: string; ruleSetId?: string; ruleIds?: string[]; labelSelection?:LabelSelection; labelOptions?:LabelOptions; concurrencyLimit: number; }
 export interface PageResult<T> { records: T[]; current: number; size: number; total: number; }
 
 export interface TaskFilters { keyword?: string; status?: string; taskType?: string; }
@@ -96,4 +104,19 @@ export async function cancelTask(id: string) {
 export async function runTask(id: string) {
   const { data } = await http.post<InspectionTask>(`/iqc/tasks/${id}/run`);
   return data;
+}
+export async function pauseTask(id: string) {
+  const { data } = await http.post<InspectionTask>(`/iqc/tasks/${id}/pause`);
+  return data;
+}
+export async function resumeTask(id: string) {
+  const { data } = await http.post<InspectionTask>(`/iqc/tasks/${id}/resume`);
+  return data;
+}
+export async function changeTaskPriority(id:string, priority:number) {
+  const { data } = await http.put<InspectionTask>(`/iqc/tasks/${id}/priority`, { priority });
+  return data;
+}
+export async function deleteTask(id:string) {
+  await http.delete(`/iqc/tasks/${id}`);
 }

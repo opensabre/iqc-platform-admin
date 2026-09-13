@@ -12,6 +12,7 @@ import {
   CommentOutlined,
   FileTextOutlined,
   OrderedListOutlined,
+  TagsOutlined,
   SettingOutlined,
   DownOutlined,
 } from "@ant-design/icons-vue";
@@ -29,6 +30,11 @@ const menuItems: MenuItem[] = [
     { key: "conversations-upload", path: "/conversations/upload", label: "文本上传", permission: "iqc:conversation:view" },
   ] },
   { key: "tasks", path: "/tasks", label: "质检任务", icon: OrderedListOutlined, permission: "iqc:task:view" },
+  { key: "labels", label: "标签管理", icon: TagsOutlined, children: [
+    { key: "labels-tree", path: "/labels/tree", label: "标签树", permission: "iqc:label:view" },
+    { key: "labels-collections", path: "/labels/collections", label: "标签集合", permission: "iqc:label-collection:view" },
+    { key: "labels-candidates", path: "/labels/candidates", label: "候选标签", permission: "iqc:label-candidate:view" },
+  ] },
   { key: "results", path: "/results", label: "质检结果", icon: CheckCircleOutlined, permission: "iqc:result:view" },
   { key: "quality-operations", path: "/quality-operations", label: "质量运营", icon: CheckCircleOutlined, permission: "iqc:review:view" },
   { key: "agents", label: "智能体管理", icon: ClusterOutlined, children: [
@@ -52,7 +58,7 @@ const iconMap: Record<string, unknown> = { audit: AuditOutlined, dashboard: BarC
 const routePaths = new Set(router.getRoutes().map((record) => `/${String(record.path).replace(/^\//, "")}`));
 const canonicalLabels: Record<string, string> = {
   "/dashboard": "睿检总览", "/profile": "个人中心", "/conversations/api": "接口对接", "/conversations/list": "会话列表", "/conversations/upload": "文本上传",
-  "/tasks": "质检任务", "/results": "质检结果", "/agents": "智能体列表", "/agent-models": "模型配置",
+  "/tasks": "质检任务", "/labels/tree": "标签树", "/labels/collections": "标签集合", "/labels/candidates": "候选标签", "/results": "质检结果", "/agents": "智能体列表", "/agent-models": "模型配置",
   "/agent-mcps": "MCP 管理", "/agent-skills": "Skill 管理", "/rules/library": "规则库", "/rules/conversation": "会话规则",
   "/rules/sets": "规则集", "/rules/test-center": "测试中心", "/rules/approvals": "审批与发布",
   "/templates": "模板中心", "/settings": "系统设置", "/audit-logs": "操作日志",
