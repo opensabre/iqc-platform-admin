@@ -8,10 +8,15 @@ export interface HierarchicalEvidence { ruleResultId:string; messageId:string; s
 export interface ResultHierarchy { conversation:{id:string;resultStatus:string;score:number;riskLevel:string;deduction:number;reason:string;aggregationMode:string}; rules:HierarchicalRuleResult[]; evidenceByRuleResult:Record<string,HierarchicalEvidence[]>; }
 export interface ResultFilters { taskId?: string; agentId?: string; ownerId?: string; groupId?: string; status?: string; minScore?: number; maxScore?: number; speakerRole?: string; riskLevel?: string; }
 export interface ResultPage { records: InspectionResult[]; current: number; size: number; total: number; }
+export interface LabelResult { id:string; conversationId:string; sourceFileName?:string; labelId:string; labelName:string; labelCode?:string; labelPath?:string; labelVersionNo:number; valueCode?:string; valueJson?:string; confidence?:number; generationSource:string; sourceRuleResultId?:string; evidenceJson?:string; }
+export interface LabelInsightSummary { conversationCount:number; detectedConversationCount:number; detectionRate:number; labelDistribution:Record<string,number>; groupDistribution:Record<string,number>; }
 export async function listResults(filters: ResultFilters = {}, page: { current?: number; size?: number } = {}) { const { data } = await http.get<ResultPage>("/iqc/results", { params: { ...filters, ...page } }); return data; }
 export async function getResultDetail(id: string) { const { data } = await http.get(`/iqc/results/${id}`); return data; }
 export async function exportResults(filters: ResultFilters = {}) { return http.get<Blob>("/iqc/results/export", { params: filters, responseType: "blob" }); }
 export async function getBatchResultSummary(taskId:string){const {data}=await http.get<BatchResultSummary>(`/iqc/tasks/${taskId}/result-summary`);return data;}
+export async function getTaskLabelResults(taskId:string){const {data}=await http.get<LabelResult[]>(`/iqc/tasks/${taskId}/label-results`);return data;}
+export async function getTaskLabelInsights(taskId:string){const {data}=await http.get<LabelInsightSummary>(`/iqc/tasks/${taskId}/label-insights`);return data;}
+export async function exportTaskLabelResults(taskId:string){return http.get<Blob>(`/iqc/tasks/${taskId}/label-results/export`,{responseType:"blob"});}
 export async function getConversationResultDetail(taskId:string,conversationId:string){const {data}=await http.get<ConversationResultDetail>(`/iqc/tasks/${taskId}/conversations/${conversationId}/result-detail`);return data;}
 export function normalizeResultHierarchy(value: ResultHierarchy | string | undefined) {
   if (typeof value !== "string") return value;

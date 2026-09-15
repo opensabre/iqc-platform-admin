@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { message, Modal } from "ant-design-vue";
 import { useRouter } from "vue-router";
 import {
@@ -8,6 +8,10 @@ import {
   getTask,
   listTasks,
   runTask,
+  pauseTask,
+  resumeTask,
+  changeTaskPriority,
+  deleteTask,
   type TaskAgentConfigSnapshot,
   type TaskAgentSnapshot,
   type TaskRuleSnapshot,
@@ -30,10 +34,22 @@ import {
 import {
   getBatchResultSummary,
   getConversationResultDetail,
+  getTaskLabelResults,
+  getTaskLabelInsights,
+  exportTaskLabelResults,
   type BatchResultSummary,
   type ConversationResultDetail,
   type InspectionResult,
+  type LabelResult,
+  type LabelInsightSummary,
 } from "@/api/results";
+import {
+  getLabelTree,
+  listLabelCollections,
+  type LabelCollection,
+  type LabelTree,
+} from "@/api/labels";
+import LabelTreeSelector from "@/components/LabelTreeSelector.vue";
 
 const tasks = ref<InspectionTask[]>([]);
 const total = ref(0);
@@ -54,12 +70,16 @@ const agents = ref<QualityAgent[]>([]);
 const rules = ref<QualityRule[]>([]);
 const ruleSets = ref<QualityRuleSet[]>([]);
 const conversations = ref<ConversationSummary[]>([]);
+const labelTree = ref<LabelTree>({ categories: [], groups: [], labels: [] });
+const labelCollections = ref<LabelCollection[]>([]);
 const detailOpen = ref(false);
 const detail = ref<InspectionTask>();
 const resultOpen = ref(false),
   conversationResultOpen = ref(false),
   resultLoading = ref(false);
 const batchResult = ref<BatchResultSummary>();
+const labelResults = ref<LabelResult[]>([]);
+const labelInsights = ref<LabelInsightSummary>();
 const conversationResult = ref<ConversationResultDetail>();
 const taskStatuses = ref<DictionaryItem[]>([]);
 const filters = ref({ keyword: "", status: undefined as string | undefined, taskType: undefined as string | undefined });
@@ -83,6 +103,15 @@ const form = ref({
   agentId: "",
   ruleSetId: "",
   ruleIds: [] as string[],
+  schemeMode: "RULE" as "RULE" | "LABEL",
+  categoryIds: [] as string[],
+  groupIds: [] as string[],
+  labelIds: [] as string[],
+  collectionIds: [] as string[],
+  runCount: 1,
+  confidenceThreshold: 0.8,
+  autoExpandEnabled: false,
+  autoExpandPrompt: "",
   concurrencyLimit: 4,
 });
 const selectedAgent = computed(() =>
@@ -94,6 +123,18 @@ const selectedRules = computed(() =>
 const selectedRuleSet = computed(() =>
   ruleSets.value.find((item) => item.id === form.value.ruleSetId)
 );
+const labelSelectionKeys = computed({
+  get: () => [
+    ...form.value.categoryIds.map((id) => `CATEGORY:${id}`),
+    ...form.value.groupIds.map((id) => `GROUP:${id}`),
+    ...form.value.labelIds.map((id) => `LABEL:${id}`),
+  ],
+  set: (keys: string[]) => {
+    form.value.categoryIds = keys.filter((key) => key.startsWith("CATEGORY:")).map((key) => key.substring(9));
+    form.value.groupIds = keys.filter((key) => key.startsWith("GROUP:")).map((key) => key.substring(6));
+    form.value.labelIds = keys.filter((key) => key.startsWith("LABEL:")).map((key) => key.substring(6));
+  },
+});
 function parseSnapshot<T>(value?: string | T): T | undefined {
   if (!value) return undefined;
   if (typeof value !== "string") return value;
@@ -134,6 +175,7 @@ const currentDetailRuleSet = computed(() =>
 const modeLabels: Record<string, string> = {
   RULE_ONLY: "普通规则",
   RULE_THEN_LLM: "规则 + 智能体复核",
+  LLM_THEN_RULE: "智能提取 + 规则复核",
   AGENT_LLM: "智能体质检",
 };
 function modeLabel(mode?: string) {
@@ -149,6 +191,9 @@ const statusMap: Record<string, { label: string; color: string }> = {
   SCHEDULED: { label: "等待调度", color: "processing" },
   MATERIALIZING: { label: "正在选取会话", color: "processing" },
   RUNNING: { label: "质检中", color: "processing" },
+  PAUSE_REQUESTED: { label: "暂停中", color: "warning" },
+  PAUSED: { label: "已暂停", color: "warning" },
+  CANCEL_REQUESTED: { label: "取消中", color: "warning" },
   SUCCEEDED: { label: "已完成", color: "success" },
   PARTIAL_FAILED: { label: "部分失败", color: "warning" },
   FAILED: { label: "失败", color: "error" },
@@ -174,13 +219,15 @@ async function loadDictionaries() {
 async function refresh() {
   loading.value = true;
   try {
-    const [taskPage, agentList, ruleList, ruleSetList, conversationPage] =
+    const [taskPage, agentList, ruleList, ruleSetList, conversationPage, taxonomy, collections] =
       await Promise.all([
         listTasks({ current: page.value, size: pageSize.value, ...filters.value }),
         listAgents(),
         listRules(),
         listRuleSets(),
         listConversations({ current: 1, size: 100 }),
+        getLabelTree(),
+        listLabelCollections(),
       ]);
     tasks.value = taskPage.records;
     total.value = taskPage.total;
@@ -190,6 +237,8 @@ async function refresh() {
     conversations.value = conversationPage.records.filter(
       (item) => item.status === "IMPORTED"
     );
+    labelTree.value = taxonomy;
+    labelCollections.value = collections.filter((item) => item.status === "PUBLISHED");
   } catch {
     message.error("任务列表加载失败");
   } finally {
@@ -199,7 +248,7 @@ async function refresh() {
 async function poll() {
   if (
     !tasks.value.some((item) =>
-      ["SCHEDULED", "MATERIALIZING", "QUEUED", "RUNNING"].includes(item.status)
+      ["SCHEDULED", "MATERIALIZING", "QUEUED", "RUNNING", "PAUSE_REQUESTED", "CANCEL_REQUESTED"].includes(item.status)
     )
   )
     return;
@@ -263,6 +312,15 @@ function openCreate() {
     agentId: agents.value[0]?.id || "",
     ruleSetId: ruleSets.value[0]?.id || "",
     ruleIds: [],
+    schemeMode: "RULE",
+    categoryIds: [],
+    groupIds: [],
+    labelIds: [],
+    collectionIds: [],
+    runCount: 1,
+    confidenceThreshold: 0.8,
+    autoExpandEnabled: false,
+    autoExpandPrompt: "",
     concurrencyLimit: 4,
   };
   currentStep.value = 0;
@@ -289,8 +347,12 @@ function validateStep(step: number) {
     message.warning("请选择已发布 Agent");
     return false;
   }
-  if (step === 2 && !form.value.ruleSetId && !form.value.ruleIds.length) {
+  if (step === 2 && form.value.schemeMode === "RULE" && !form.value.ruleSetId && !form.value.ruleIds.length) {
     message.warning("请选择已发布规则集或至少一条规则");
+    return false;
+  }
+  if (step === 2 && form.value.schemeMode === "LABEL" && !form.value.categoryIds.length && !form.value.groupIds.length && !form.value.labelIds.length && !form.value.collectionIds.length) {
+    message.warning("请至少选择一个标签分类、标签组、标签或标签集合");
     return false;
   }
   return true;
@@ -339,8 +401,20 @@ async function submit() {
             }
           : undefined,
       agentId: form.value.agentId,
-      ruleSetId: form.value.ruleSetId || undefined,
-      ruleIds: form.value.ruleSetId ? undefined : form.value.ruleIds,
+      ruleSetId: form.value.schemeMode === "RULE" ? form.value.ruleSetId || undefined : undefined,
+      ruleIds: form.value.schemeMode === "RULE" ? (form.value.ruleSetId ? undefined : form.value.ruleIds) : undefined,
+      labelSelection: form.value.schemeMode === "LABEL" ? {
+        categoryIds: form.value.categoryIds,
+        groupIds: form.value.groupIds,
+        labelIds: form.value.labelIds,
+        collectionIds: form.value.collectionIds,
+      } : undefined,
+      labelOptions: form.value.schemeMode === "LABEL" ? {
+        runCount: form.value.runCount,
+        confidenceThreshold: form.value.confidenceThreshold,
+        autoExpandEnabled: form.value.autoExpandEnabled,
+        autoExpandPrompt: form.value.autoExpandEnabled ? form.value.autoExpandPrompt || undefined : undefined,
+      } : undefined,
       concurrencyLimit: form.value.concurrencyLimit,
     });
     message.success(
@@ -387,10 +461,29 @@ async function run(id: string) {
     message.error("任务执行失败");
   }
 }
+async function pause(id: string) {
+  try { await pauseTask(id); message.success("已提交暂停请求，将在当前处理单元结束后暂停"); await refresh(); }
+  catch { message.error("任务暂停失败"); }
+}
+async function resume(id: string) {
+  try { await resumeTask(id); message.success("任务已恢复执行"); await refresh(); }
+  catch { message.error("任务恢复失败"); }
+}
+async function reprioritize(task: InspectionTask, offset:number) {
+  try { await changeTaskPriority(task.id, (task.queuePriority || 0) + offset); message.success("任务优先级已调整"); await refresh(); }
+  catch { message.error("当前状态不能调整优先级"); }
+}
+function removeTask(task:InspectionTask) {
+  Modal.confirm({ title:"确认删除任务？", content:"仅逻辑删除任务入口，历史结果和审计记录仍会保留。", async onOk(){ await deleteTask(task.id); message.success("任务已删除"); await refresh(); } });
+}
 async function showResults(id: string) {
   resultLoading.value = true;
   try {
-    batchResult.value = await getBatchResultSummary(id);
+    [batchResult.value, labelResults.value, labelInsights.value] = await Promise.all([
+      getBatchResultSummary(id),
+      getTaskLabelResults(id),
+      getTaskLabelInsights(id),
+    ]);
     resultOpen.value = true;
   } catch {
     message.error("批次结果加载失败");
@@ -398,7 +491,12 @@ async function showResults(id: string) {
     resultLoading.value = false;
   }
 }
-async function showConversationResult(conversationId: string) {
+async function exportLabels(){
+  if(!batchResult.value)return;
+  try { const response=await exportTaskLabelResults(batchResult.value.taskId); const url=URL.createObjectURL(response.data); const link=document.createElement("a"); link.href=url; link.download="iqc-label-results.xlsx"; link.click(); URL.revokeObjectURL(url); }
+  catch { message.error("标签结果导出失败"); }
+}
+async function showConversationResult(conversationId: string, evidenceJson?: string) {
   if (!batchResult.value) return;
   resultLoading.value = true;
   try {
@@ -407,6 +505,12 @@ async function showConversationResult(conversationId: string) {
       conversationId
     );
     conversationResultOpen.value = true;
+    if (evidenceJson) {
+      try {
+        const messageId = JSON.parse(evidenceJson)?.[0]?.messageId;
+        if (messageId) await nextTick(() => document.getElementById(`evidence-message-${messageId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+      } catch { /* Evidence remains visible in the conversation even if an old payload is malformed. */ }
+    }
   } catch {
     message.error("会话质检明细加载失败");
   } finally {
@@ -518,6 +622,12 @@ onBeforeUnmount(() => {
         ><template #default="{ record }"
           ><a-button type="link" @click="showDetail(record.id)">详情</a-button
           ><a-button
+            v-if="['CREATED','SCHEDULED','QUEUED','PAUSED'].includes(record.status) && can('iqc:task:execute')"
+            type="link" @click="reprioritize(record, 1)">提权</a-button
+          ><a-button
+            v-if="['CREATED','SCHEDULED','QUEUED','PAUSED'].includes(record.status) && can('iqc:task:execute')"
+            type="link" @click="reprioritize(record, -1)">降权</a-button
+          ><a-button
             v-if="
               ['SUCCEEDED', 'PARTIAL_FAILED', 'FAILED'].includes(
                 record.status
@@ -539,14 +649,27 @@ onBeforeUnmount(() => {
                 : "执行"
             }}</a-button
           ><a-button
+            v-if="record.status === 'RUNNING' && can('iqc:task:execute')"
+            type="link"
+            @click="pause(record.id)"
+            >暂停</a-button
+          ><a-button
+            v-if="record.status === 'PAUSED' && can('iqc:task:execute')"
+            type="link"
+            @click="resume(record.id)"
+            >恢复</a-button
+          ><a-button
             v-if="
-              ['CREATED', 'QUEUED', 'RUNNING'].includes(record.status) &&
+              ['CREATED', 'QUEUED', 'RUNNING', 'PAUSE_REQUESTED', 'PAUSED'].includes(record.status) &&
               can('iqc:task:cancel')
             "
             type="link"
             danger
             @click="cancel(record.id)"
             >取消</a-button
+          ><a-button
+            v-if="['SUCCEEDED','PARTIAL_FAILED','FAILED','NO_DATA','CANCELLED'].includes(record.status) && can('iqc:task:delete')"
+            type="link" danger @click="removeTask(record)">删除</a-button
           ></template
         ></a-table-column
       >
@@ -699,6 +822,13 @@ onBeforeUnmount(() => {
             <p>任务只引用已发布的 Agent 和规则，确保执行版本稳定。</p>
           </div>
         </div>
+        <a-form-item label="方案入口">
+          <a-radio-group v-model:value="form.schemeMode">
+            <a-radio-button value="RULE">按规则质检</a-radio-button>
+            <a-radio-button value="LABEL">按业务标签质检</a-radio-button>
+          </a-radio-group>
+          <template #extra>标签会在任务创建时解析为固定的标签、绑定规则及版本快照。</template>
+        </a-form-item>
         <a-form-item label="质检 Agent" required
           ><a-select v-model:value="form.agentId" placeholder="选择已发布 Agent"
             ><a-select-option
@@ -721,6 +851,7 @@ onBeforeUnmount(() => {
           message="暂无已发布 Agent，请先创建并完成审批发布。"
           style="margin-bottom: 16px"
         />
+        <template v-if="form.schemeMode === 'RULE'">
         <a-form-item label="已发布规则集"
           ><a-select
             v-model:value="form.ruleSetId"
@@ -758,6 +889,16 @@ onBeforeUnmount(() => {
           show-icon
           message="暂无已发布规则，请先创建并发布规则。"
         />
+        </template>
+        <template v-else>
+          <a-alert type="info" show-icon message="标签是任务的业务目标；系统仍复用标签绑定的已发布规则执行检测，并额外沉淀标签命中结果。" style="margin-bottom:16px"/>
+          <a-form-item label="标签集合">
+            <a-select v-model:value="form.collectionIds" mode="multiple" allow-clear placeholder="选择已发布标签集合">
+              <a-select-option v-for="item in labelCollections" :key="item.id" :value="item.id">{{ item.name }} · V{{ item.versionNo }}</a-select-option>
+            </a-select>
+          </a-form-item>
+          <a-form-item label="标签范围"><LabelTreeSelector v-model="labelSelectionKeys" :taxonomy="labelTree" /><a-button type="link" class="related-link" @click="openRelated('/labels/tree')">管理标签 ↗</a-button></a-form-item>
+        </template>
       </a-form>
 
       <a-form v-show="currentStep === 3" layout="vertical">
@@ -776,6 +917,14 @@ onBeforeUnmount(() => {
             >限制同时处理的会话数，同一会话内消息仍按顺序执行。</template
           ></a-form-item
         >
+        <template v-if="form.schemeMode === 'LABEL'">
+          <a-row :gutter="12">
+            <a-col :span="12"><a-form-item label="重复运行次数"><a-input-number v-model:value="form.runCount" :min="1" :max="5" style="width:100%"/></a-form-item></a-col>
+            <a-col :span="12"><a-form-item label="置信度阈值"><a-input-number v-model:value="form.confidenceThreshold" :min="0" :max="1" :step="0.05" style="width:100%"/></a-form-item></a-col>
+          </a-row>
+          <a-form-item><a-checkbox v-model:checked="form.autoExpandEnabled">允许根据标签分类提示词生成候选标签</a-checkbox></a-form-item>
+          <a-form-item v-if="form.autoExpandEnabled" label="本次扩展提示"><a-textarea v-model:value="form.autoExpandPrompt" :maxlength="1000" show-count/></a-form-item>
+        </template>
         <a-card size="small" title="任务摘要" class="wizard-summary"
           ><a-descriptions :column="2" size="small"
             ><a-descriptions-item label="任务名称">{{
@@ -796,9 +945,9 @@ onBeforeUnmount(() => {
               selectedAgent?.name || "未选择"
             }}</a-descriptions-item
             ><a-descriptions-item label="规则方案">{{
-              selectedRuleSet?.name ||
-              selectedRules.map((item) => item.name).join("、") ||
-              "未选择"
+              form.schemeMode === "LABEL"
+                ? `标签入口（集合 ${form.collectionIds.length}、分类 ${form.categoryIds.length}、组 ${form.groupIds.length}、标签 ${form.labelIds.length}）`
+                : selectedRuleSet?.name || selectedRules.map((item) => item.name).join("、") || "未选择"
             }}</a-descriptions-item
             ><a-descriptions-item label="并发数">{{
               form.concurrencyLimit
@@ -916,7 +1065,7 @@ onBeforeUnmount(() => {
     width="min(900px, calc(100vw - 24px))"
     ><a-spin :spinning="resultLoading"
       ><template v-if="batchResult"
-        ><a-row :gutter="12" style="margin-bottom: 16px"
+        ><a-tabs default-active-key="inspection"><a-tab-pane key="inspection" tab="质检结论"><a-row :gutter="12" style="margin-bottom: 16px"
           ><a-col :span="6"
             ><a-statistic
               title="会话数"
@@ -962,7 +1111,17 @@ onBeforeUnmount(() => {
                 >查看明细</a-button
               ></template
             ></a-table-column
-          ></a-table
+          ></a-table></a-tab-pane><a-tab-pane key="labels" tab="洞察标签"
+        ><a-row v-if="labelInsights" :gutter="12" style="margin-bottom:12px"><a-col :span="8"><a-statistic title="已检出会话" :value="labelInsights.detectedConversationCount"/></a-col><a-col :span="8"><a-statistic title="检出率" :value="Number(labelInsights.detectionRate)*100" suffix="%" :precision="2"/></a-col><a-col :span="8"><a-button v-if="can('iqc:result:export')" @click="exportLabels">导出 XLSX</a-button></a-col></a-row>
+        ><a-table v-if="labelResults.length" :data-source="labelResults" row-key="id" :pagination="false" size="small">
+          <a-table-column title="会话 ID" data-index="conversationId" :ellipsis="true"/>
+          <a-table-column title="标签" :width="220"><template #default="{record}">{{ record.labelName }} <a-tag>V{{ record.labelVersionNo }}</a-tag></template></a-table-column>
+          <a-table-column title="标签值" :width="140"><template #default="{record}">{{ record.valueCode || '命中' }}</template></a-table-column>
+          <a-table-column title="来源" data-index="generationSource" :width="90"/>
+          <a-table-column title="置信度" :width="90"><template #default="{record}">{{ record.confidence ?? '—' }}</template></a-table-column>
+          <a-table-column title="证据" :width="90"><template #default="{record}"><a-button type="link" @click="showConversationResult(record.conversationId, record.evidenceJson)">定位</a-button></template></a-table-column>
+        </a-table>
+        <a-empty v-else description="该任务没有生成标签结果" :image-style="{height:'40px'}"/></a-tab-pane></a-tabs
         ></template
       ></a-spin
     ></a-drawer
@@ -979,7 +1138,7 @@ onBeforeUnmount(() => {
           v-for="item in conversationResult.messages"
           :key="item.id"
           :color="resultFor(item.id)?.resultStatus === 'HIT' ? 'red' : 'green'"
-          ><a-card size="small"
+            ><a-card :id="`evidence-message-${item.id}`" size="small"
             ><template #title
               >#{{ item.sequenceNo }} · {{ item.speakerRole }} ·
               {{ item.relativeTime }}</template
