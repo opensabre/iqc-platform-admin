@@ -197,7 +197,7 @@ const reviewExporting = ref(false);
 const reviewTaskFinished = computed(() => ["SUCCEEDED", "PARTIAL_FAILED", "FAILED", "CANCELLED"].includes(detail.value?.task?.status));
 function exportTaskReviews() {
   const taskId = detail.value?.task?.id;
-  if (!taskId || !schemeTask.value || !reviewTaskFinished.value || reviewExporting.value || !can("iqc:result:export") || !can("iqc:review:view")) return;
+  if (!taskId || !businessTask.value || !reviewTaskFinished.value || reviewExporting.value || !can("iqc:result:export") || !can("iqc:review:view")) return;
   Modal.confirm({
     title: "导出本任务人工复核 ZIP？",
     content: "覆盖清单包含全部会话；明细仅采用当前结果的最近已完成复核，新待处理轮次另行标明。无结果或未完成复核不会用机器分数补齐。最多 500 会话、50000 项、50 MiB 明细；任务须已结束。",
@@ -251,7 +251,7 @@ onMounted(() => {
     <section v-else-if="businessTask" class="section-block">
       <h3>机器质检项与独立评分</h3>
       <a-button v-if="schemeTask && can('iqc:result:export')" @click="exportBusinessCsv">导出本任务业务质检项 CSV</a-button>
-      <a-button v-if="schemeTask && can('iqc:result:export') && can('iqc:review:view')" :loading="reviewExporting" :disabled="reviewExporting || !reviewTaskFinished" title="任务结束后导出覆盖清单与已完成复核明细" @click="exportTaskReviews">导出本任务人工复核 ZIP</a-button>
+      <a-button v-if="businessTask && can('iqc:result:export') && can('iqc:review:view')" :loading="reviewExporting" :disabled="reviewExporting || !reviewTaskFinished" title="任务结束后导出覆盖清单与已完成复核明细" @click="exportTaskReviews">导出本任务人工复核 ZIP</a-button>
       <a-alert v-if="hierarchy?.conversation.resultStatus === 'PENDING' || !businessScoring" type="warning" show-icon message="存在未评估、错误或待复核的质检项，请先处理后确认结果。"/>
       <a-table :data-source="businessItems" :pagination="false" row-key="itemCode" size="small">
         <a-table-column title="质检项" data-index="name"/>
@@ -259,7 +259,7 @@ onMounted(() => {
         <a-table-column title="计分"><template #default="{record}">{{scoreContribution(record.itemCode)}}</template></a-table-column>
         <a-table-column title="匹配消息"><template #default="{record}"><a-space wrap><a-button v-for="id in record.matchedMessageIds" :key="id" type="link" size="small" @click="locateMessage(conversationMessages.find((item) => item.id === id)?.sequenceNo)">#{{conversationMessages.find((item) => item.id === id)?.sequenceNo ?? id}}</a-button><span v-if="!record.matchedMessageIds.length">无匹配证据</span></a-space></template></a-table-column>
       </a-table>
-      <BusinessReviewPanel v-if="schemeTask && hierarchy?.conversation.id" :key="hierarchy.conversation.id" :result-id="hierarchy.conversation.id" :task-status="detail.task?.status || ''" :items="businessItems" :messages="conversationMessages" @locate="locateMessage" />
+      <BusinessReviewPanel v-if="businessTask && hierarchy?.conversation.id" :key="hierarchy.conversation.id" :result-id="hierarchy.conversation.id" :task-status="detail.task?.status || ''" :items="businessItems" :messages="conversationMessages" @locate="locateMessage" />
     </section>
     <a-alert v-for="(item,index) in diagnostics" :key="`error-${index}`" type="error" show-icon :message="`${ruleTitle(item,index)}执行异常`" :description="item.reason" class="section-block"/>
     <RouteExecutionTrace v-if="hierarchy" :trace-json="hierarchy.conversation.executionTraceJson" />

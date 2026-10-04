@@ -53,3 +53,7 @@ PipelineReleaseEditor 提供顺序节点、发布规则/Agent/Finding引用、�
 此页面仅覆盖当前顺序/条件/级联协议；不代表并行DAG、丰富引擎、维度评分、标签/风险政策或金标评测门禁已完成。当前引擎无已校准置信度，选择CONFIDENCE会保留不确定融合。浏览器/角色登录、迁移与运行验收、部署尚未进行；未执行测试。
 
 本批最终npm run build成功（vue-tsc+Vite），未新增或运行测试。保留原始工作树修改，本批仅在独立工作树提交。未执行浏览器验收、数据库迁移或部署。
+
+## Pipeline业务复核
+
+结果页向Pipeline开放既有BusinessReviewPanel及任务人工复核ZIP，复用权限、轮次和原始/人工评分分列。原始机器CSV仍只对既有Scheme显示，Pipeline机器导出待接入。最终vue-tsc+Vite构建通过；未执行测试、浏览器联调或部署。
