@@ -259,7 +259,7 @@ onMounted(() => {
         <a-table-column title="计分"><template #default="{record}">{{scoreContribution(record.itemCode)}}</template></a-table-column>
         <a-table-column title="匹配消息"><template #default="{record}"><a-space wrap><a-button v-for="id in record.matchedMessageIds" :key="id" type="link" size="small" @click="locateMessage(conversationMessages.find((item) => item.id === id)?.sequenceNo)">#{{conversationMessages.find((item) => item.id === id)?.sequenceNo ?? id}}</a-button><span v-if="!record.matchedMessageIds.length">无匹配证据</span></a-space></template></a-table-column>
       </a-table>
-      <BusinessReviewPanel v-if="businessTask && hierarchy?.conversation.id" :key="hierarchy.conversation.id" :result-id="hierarchy.conversation.id" :task-status="detail.task?.status || ''" :items="businessItems" :messages="conversationMessages" @locate="locateMessage" />
+      <BusinessReviewPanel v-if="businessTask && businessItems.length && hierarchy?.conversation.id" :key="hierarchy.conversation.id" :result-id="hierarchy.conversation.id" :task-status="detail.task?.status || ''" :items="businessItems" :messages="conversationMessages" @locate="locateMessage" />
     </section>
     <a-alert v-for="(item,index) in diagnostics" :key="`error-${index}`" type="error" show-icon :message="`${ruleTitle(item,index)}执行异常`" :description="item.reason" class="section-block"/>
     <RouteExecutionTrace v-if="hierarchy" :trace-json="hierarchy.conversation.executionTraceJson" />
