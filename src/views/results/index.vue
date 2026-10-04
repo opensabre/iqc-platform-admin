@@ -5,6 +5,7 @@ import { message, Modal } from "ant-design-vue";
 import { CheckOutlined, CopyOutlined } from "@ant-design/icons-vue";
 import { exportResults, getResultDetail, getConversationResultDetail, getResultHierarchy, getBatchResultSummary, listResults, type InspectionResult, type ResultHierarchy, type BatchResultSummary, type BusinessItemResult, type BusinessScoringResult } from "@/api/results";
 import { exportSchemeResults, exportTaskBusinessReviews, exportTaskLabelResults } from "@/api/results";
+import RouteExecutionTrace from "@/components/RouteExecutionTrace.vue";
 import BusinessReviewPanel from "@/components/BusinessReviewPanel.vue";
 import ReviewTaskSelector from "@/components/ReviewTaskSelector.vue";
 import { businessConversationRow, groupResultsByTaskAndConversation, type TaskConversationResultSummary } from "./group-results";
@@ -257,6 +258,7 @@ onMounted(() => {
       <BusinessReviewPanel v-if="hierarchy?.conversation.id" :key="hierarchy.conversation.id" :result-id="hierarchy.conversation.id" :task-status="detail.task?.status || ''" :items="businessItems" :messages="conversationMessages" @locate="locateMessage" />
     </section>
     <a-alert v-for="(item,index) in diagnostics" :key="`error-${index}`" type="error" show-icon :message="`${ruleTitle(item,index)}执行异常`" :description="item.reason" class="section-block"/>
+    <RouteExecutionTrace v-if="hierarchy" :trace-json="hierarchy.conversation.executionTraceJson" />
     <section v-if="conversationMessages.length" class="section-block"><h3>会话消息明细（{{conversationMessages.length}} 条）</h3><a-list bordered size="small"><a-list-item v-for="item in conversationMessages" :id="messageAnchorId(item.sequenceNo)" :key="item.id" class="conversation-message" :class="{ 'message-highlight': highlightedSequenceNo === item.sequenceNo }"><a-list-item-meta :title="`消息 #${item.sequenceNo} · ${item.speakerRole || '未知角色'}`" :description="item.content || '—'"/><a-tag v-if="conversationResults.some((result) => result.messageId === item.id)" color="error">有质检结果</a-tag></a-list-item></a-list></section>
     <section v-else class="section-block"><h3>原始消息</h3><a-card size="small"><p class="message-content">{{detail.message?.content||'—'}}</p></a-card></section>
     <a-collapse v-if="routeContexts.length" ghost class="trace-collapse"><a-collapse-panel key="stages" header="查看逐项检测阶段（专家追溯）">
