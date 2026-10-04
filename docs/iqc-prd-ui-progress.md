@@ -57,3 +57,5 @@ PipelineReleaseEditor 提供顺序节点、发布规则/Agent/Finding引用、�
 ## Pipeline业务复核
 
 结果页向Pipeline开放既有BusinessReviewPanel及任务人工复核ZIP，复用权限、轮次和原始/人工评分分列。原始机器CSV仍只对既有Scheme显示，Pipeline机器导出待接入。最终vue-tsc+Vite构建通过；未执行测试、浏览器联调或部署。
+
+Pipeline原始机器业务CSV：既有导出按钮及接口对Pipeline开放，保持原始机器结果，与人工复核和政策重算分别导出/查看。最终vue-tsc+Vite通过；测试、浏览器联调与部署未进行。

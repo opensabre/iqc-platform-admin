@@ -158,7 +158,7 @@ function showRawConversation(conversationId?: string) { if (!conversationId) ret
 async function exportCsv() { try { const response = await exportResults(filters.value); const url = URL.createObjectURL(response.data); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "iqc-results.csv"; anchor.click(); URL.revokeObjectURL(url); } catch { message.error("结果导出失败"); } }
 function exportBusinessCsv() {
   const taskId = detail.value?.task?.id;
-  if (!taskId || !schemeTask.value || labelOnlyScheme.value || !can("iqc:result:export")) return;
+  if (!taskId || !businessTask.value || labelOnlyScheme.value || !can("iqc:result:export")) return;
   Modal.confirm({
     title: "导出该任务全部业务质检项？",
     content: "包含任务内所有会话，不受当前消息筛选影响。每行一个质检项；会话最终分不可按行求和，待确认分数留空。最多 50000 行。",
@@ -250,7 +250,7 @@ onMounted(() => {
     </section>
     <section v-else-if="businessTask" class="section-block">
       <h3>机器质检项与独立评分</h3>
-      <a-button v-if="schemeTask && can('iqc:result:export')" @click="exportBusinessCsv">导出本任务业务质检项 CSV</a-button>
+      <a-button v-if="businessTask && businessItems.length && can('iqc:result:export')" @click="exportBusinessCsv">导出本任务业务质检项 CSV</a-button>
       <a-button v-if="businessTask && can('iqc:result:export') && can('iqc:review:view')" :loading="reviewExporting" :disabled="reviewExporting || !reviewTaskFinished" title="任务结束后导出覆盖清单与已完成复核明细" @click="exportTaskReviews">导出本任务人工复核 ZIP</a-button>
       <a-alert v-if="hierarchy?.conversation.resultStatus === 'PENDING' || !businessScoring" type="warning" show-icon message="存在未评估、错误或待复核的质检项，请先处理后确认结果。"/>
       <a-table :data-source="businessItems" :pagination="false" row-key="itemCode" size="small">
