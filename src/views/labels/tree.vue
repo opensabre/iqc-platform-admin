@@ -35,6 +35,8 @@ const loading = ref(false),
 const kind = ref<"CATEGORY" | "GROUP" | "LABEL">("CATEGORY");
 const data = ref<LabelTree>({ categories: [], groups: [], labels: [] });
 const rules = ref<QualityRule[]>([]);
+const hitMappings = ref<Record<string, { valueCode: string; rawValue: string }>>({});
+const locatableTypes = new Set(["KEYWORD", "CONTAINS", "FORBIDDEN_CONTAINS", "REGEX", "FORBIDDEN_REGEX", "STARTS_WITH", "ENDS_WITH"]);
 const selected = ref<InsightLabel>();
 const selectedNode = ref<LabelCategory | LabelGroup | InsightLabel>();
 const selectedKind = ref<"CATEGORY" | "GROUP" | "LABEL">();
@@ -56,6 +58,60 @@ const form = ref({
 const publishedRules = computed(() =>
   rules.value.filter((v) => v.status === "PUBLISHED")
 );
+const locatableRules = computed(() => publishedRules.value.filter(rule => form.value.ruleIds.includes(rule.id) && locatableTypes.has(rule.ruleType.toUpperCase())));
+function mappedValue(ruleId: string) {
+  for (const value of form.value.values) {
+    if (!value.configJson) continue;
+    try {
+      const mapped = JSON.parse(value.configJson).onRuleHit?.[ruleId];
+      if (mapped !== undefined) return { valueCode: value.valueCode, rawValue: String(mapped) };
+    } catch { /* The backend reports invalid legacy config on save; do not erase it here. */ }
+  }
+  return { valueCode: "", rawValue: "" };
+}
+function resetHitMappings() {
+  hitMappings.value = Object.fromEntries(form.value.ruleIds.map(id => [id, mappedValue(id)]));
+}
+function parseMappedValue(type: LabelValueRequest["valueType"], raw: string): string | number | boolean {
+  if (type === "BOOLEAN") {
+    if (raw !== "true" && raw !== "false") throw new Error("请选择命中后的明确布尔值");
+    return raw === "true";
+  }
+  if (type === "FIXED") {
+    if (!raw.trim()) throw new Error("请填写命中后的固定值");
+    return raw.trim();
+  }
+  if (type === "DATE") {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw) || Number.isNaN(Date.parse(`${raw}T00:00:00Z`))
+        || new Date(`${raw}T00:00:00Z`).toISOString().slice(0, 10) !== raw) throw new Error("日期请使用真实的 YYYY-MM-DD 日期");
+    return raw;
+  }
+  const number = Number(raw);
+  if (!raw.trim() || !Number.isFinite(number) || number < 0 || (type === "PERCENTAGE" && number > 100)
+      || (type === "MONTH" && (number < 1 || number > 12 || !Number.isInteger(number)))
+      || (type === "DURATION_MONTHS" && !Number.isInteger(number))) throw new Error("命中值与标签值类型不匹配");
+  return number;
+}
+function applyHitMapping(ruleId: string) {
+  const draft = hitMappings.value[ruleId];
+  const selected = form.value.values.find(value => value.valueCode && value.valueCode === draft?.valueCode);
+  if (!selected) return void message.warning("请先选择已有标签值");
+  try {
+    const mapped = parseMappedValue(selected.valueType, draft.rawValue);
+    form.value.values = form.value.values.map(value => {
+      const config = value.configJson ? JSON.parse(value.configJson) : {};
+      if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("已有标签值配置无效，请先修正");
+      if (config.onRuleHit && (typeof config.onRuleHit !== "object" || Array.isArray(config.onRuleHit)))
+        throw new Error("已有命中值配置无效，请先修正");
+      const onRuleHit = { ...(config.onRuleHit || {}) };
+      delete onRuleHit[ruleId];
+      if (value.valueCode === selected.valueCode) onRuleHit[ruleId] = mapped;
+      if (Object.keys(onRuleHit).length) config.onRuleHit = onRuleHit; else delete config.onRuleHit;
+      return { ...value, configJson: Object.keys(config).length ? JSON.stringify(config) : undefined };
+    });
+    message.success("命中值映射已写入草稿；保存并发布标签后，再到方案中检查依赖。");
+  } catch (error) { message.error(error instanceof Error ? error.message : "命中值映射无效"); }
+}
 const treeData = computed(() =>
   data.value.categories.map((category) => ({
     key: `CATEGORY:${category.id}`,
@@ -105,6 +161,7 @@ function create(type: "CATEGORY" | "GROUP" | "LABEL") {
     ruleIds: [],
     values: [],
   };
+  hitMappings.value = {};
   open.value = true;
 }
 async function selectNode(keys: (string | number)[]) {
@@ -124,6 +181,7 @@ function editSelected() {
   form.value = { name:value.name, code:value.code, parentId:"", description:"description" in value ? value.description || "" : "", prompt:"prompt" in value ? value.prompt || "" : "", maxChildCount:"maxChildCount" in value ? value.maxChildCount : 0, allowAutoExpand:"allowAutoExpand" in value ? value.allowAutoExpand : false, targetRole:"targetRole" in value ? value.targetRole : "all", weight:"weight" in value ? value.weight : 1, ruleIds:selectedDetail.value?.bindings.map(v=>v.ruleId) || [], values:selectedDetail.value?.values.map(v=>({...v})) || [] };
   if (kind.value === "GROUP") form.value.parentId = (value as LabelGroup).categoryId;
   if (kind.value === "LABEL") form.value.parentId = (value as InsightLabel).groupId;
+  resetHitMappings();
   open.value = true;
 }
 function disableSelected() {
@@ -159,6 +217,11 @@ async function save() {
     } else {
       if (!form.value.parentId || !form.value.ruleIds.length)
         throw new Error("请选择标签群组和规则");
+      if (locatableRules.value.some(rule => {
+        const draft = hitMappings.value[rule.id];
+        const saved = mappedValue(rule.id);
+        return draft && (draft.valueCode !== saved.valueCode || draft.rawValue !== saved.rawValue);
+      })) throw new Error("命中值已修改但未确认，请先点击“确认命中值”再保存标签");
       const payload = {
         groupId: form.value.parentId,
         name: form.value.name,
@@ -358,6 +421,7 @@ onMounted(refresh);
             v-model:value="form.ruleIds"
             mode="multiple"
             option-filter-prop="label"
+            @change="resetHitMappings"
             ><a-select-option
               v-for="rule in publishedRules"
               :key="rule.id"
@@ -368,6 +432,17 @@ onMounted(refresh);
           ></a-form-item
         ><a-form-item label="标签值"
           ><LabelValueEditor v-model="form.values" /></a-form-item
+        ><a-form-item v-if="locatableRules.length" label="普通规则命中值映射（联合标签）">
+          <p>每条规则命中时，只给一个标签值写入明确的事实；未命中保持“未提及”，不会自动取反。映射与标签版本一起发布。</p>
+          <a-card v-for="rule in locatableRules" :key="rule.id" size="small" :title="`${rule.name} · ${rule.ruleType}`" style="margin-bottom: 8px">
+            <a-space wrap>
+              <a-select v-model:value="hitMappings[rule.id].valueCode" placeholder="选择标签值" style="width: 180px" :options="form.values.filter(value => value.valueCode).map(value => ({ label: `${value.valueCode} · ${value.valueType}`, value: value.valueCode }))" @change="hitMappings[rule.id].rawValue = ''" />
+              <a-select v-if="form.values.find(value => value.valueCode === hitMappings[rule.id]?.valueCode)?.valueType === 'BOOLEAN'" v-model:value="hitMappings[rule.id].rawValue" placeholder="明确真/假" style="width: 160px" :options="[{ label: '是 / true', value: 'true' }, { label: '否 / false', value: 'false' }]" />
+              <a-input v-else v-model:value="hitMappings[rule.id].rawValue" placeholder="命中后写入的值" style="width: 180px" />
+              <a-button @click="applyHitMapping(rule.id)">确认命中值</a-button>
+            </a-space>
+          </a-card>
+        </a-form-item
       ></template> </a-form
   ></a-modal>
 </template>

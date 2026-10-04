@@ -77,10 +77,15 @@ export interface InspectionTask {
   currentExecutionId?: string;
   createdTime?: string;
 }
+export interface TaskExecutionSummary {
+  id: string; attemptNo: number; status: string; processedMessages: number; failedMessages: number;
+  createdTime?: string; current: boolean;
+}
 
 export interface ScheduledSelectionFilter { createdFrom?: string; createdTo?: string; fileName?: string; status?: string; ownerGroupId?: string; limit?: number; employeeId?: string; customerExternalId?: string; channel?: string; businessNo?: string; }
 export interface LabelOptions { runCount?:number; confidenceThreshold?:number; autoExpandEnabled?:boolean; autoExpandPrompt?:string; }
-export interface CreateTaskRequest { name?: string; taskType: "BATCH" | "SCHEDULED" | "SAMPLE"; conversationId?: string; conversationIds?: string[]; selectionFilter?: ScheduledSelectionFilter; scheduledTime?: string; sampleSize?:number; sampleSeed?:string; agentId: string; ruleSetId?: string; ruleIds?: string[]; labelSelection?:LabelSelection; labelOptions?:LabelOptions; concurrencyLimit: number; }
+export type ExecutionMode = "RULE_ONLY" | "RULE_THEN_LLM" | "LLM_THEN_RULE" | "AGENT_LLM" | "INDEPENDENT";
+export interface CreateTaskRequest { name?: string; taskType: "BATCH" | "SCHEDULED" | "SAMPLE"; conversationId?: string; conversationIds?: string[]; selectionFilter?: ScheduledSelectionFilter; scheduledTime?: string; sampleSize?:number; sampleSeed?:string; agentId?: string; executionMode?: ExecutionMode; ruleSetId?: string; ruleIds?: string[]; labelSelection?:LabelSelection; labelOptions?:LabelOptions; concurrencyLimit: number; }
 export interface PageResult<T> { records: T[]; current: number; size: number; total: number; }
 
 export interface TaskFilters { keyword?: string; status?: string; taskType?: string; }
@@ -91,6 +96,10 @@ export async function listTasks(params: TaskFilters & { current?: number; size?:
 }
 export async function getTask(id: string) {
   const { data } = await http.get<InspectionTask>(`/iqc/tasks/${id}`);
+  return data;
+}
+export async function listTaskExecutions(id: string) {
+  const { data } = await http.get<TaskExecutionSummary[]>(`/iqc/tasks/${id}/executions`);
   return data;
 }
 export async function createTask(request: CreateTaskRequest) {
