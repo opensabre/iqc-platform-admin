@@ -38,6 +38,28 @@ function fused(v:unknown):boolean {
  // Reuse the typed fact validator for the fused envelope, without manufacturing a persisted fact.
  return finding({...raw[0],valueType:v.valueType,state:v.state,value:v.value,severity:v.severity,evidence:v.evidence,confidence:null,reason:v.explanation});
 }
+// Mirror InspectionScoring.Result invariants without inventing missing policy thresholds.
+function consistentScoring(s:PipelineTrace['scoring']):boolean {
+ let total=0, denominator=0;
+ for(const line of s.lines) {
+  const completed=line.status==='PASS'||line.status==='FAIL';
+  const expected=completed
+   ? (line.status===(s.mode==='DEDUCTION'?'FAIL':'PASS')?line.configuredPoints:0)
+   : line.status==='NOT_APPLICABLE'?0:null;
+  if(line.contribution!==expected||line.vetoTriggered&&line.status!=='FAIL'||s.mode==='POINTS'&&line.configuredPoints===0)return false;
+  total+=line.contribution??0;
+  if(completed)denominator+=line.configuredPoints;
+ }
+ if(s.vetoTriggered!==s.lines.some(line=>line.vetoTriggered))return false;
+ if(s.vetoTriggered) {
+  return s.conclusion==='UNQUALIFIED'&&(s.scoreStatus!=='FINAL'||s.finalScore===0);
+ }
+ if(s.scoreStatus!=='FINAL')return s.conclusion===s.scoreStatus;
+ if(!['QUALIFIED','UNQUALIFIED'].includes(s.conclusion)||s.finalScore==null)return false;
+ if(s.mode==='POINTS')return s.finalScore===Math.round(total*10000/denominator)/100;
+ // baseScore (1..100) and passingScore are not in the trace: validate only provable bounds.
+ return Number.isInteger(s.finalScore)&&s.finalScore>=Math.max(0,1-total)&&s.finalScore<=Math.max(0,100-total);
+}
 export function parsePipelineExecutionTrace(raw:string|null|undefined):PipelineParseResult {
  if(!raw)return{status:'OTHER'};
  try {
@@ -55,6 +77,7 @@ export function parsePipelineExecutionTrace(raw:string|null|undefined):PipelineP
   const c=trace.scoring.coverage;
   if(c.expected!==items.size||c.completed+c.notApplicable+c.pending!==c.expected||c.pending!==trace.items.filter(i=>['REVIEW_REQUIRED','ERROR','NOT_EVALUATED'].includes(i.status)).length||c.completed!==trace.items.filter(i=>['PASS','FAIL'].includes(i.status)).length||c.notApplicable!==trace.items.filter(i=>i.status==='NOT_APPLICABLE').length||(s.scoreStatus==='FINAL')!==(s.finalScore!=null))throw Error();
   if(s.scoreStatus!==(c.pending>0?'PENDING':c.completed===0?'NOT_APPLICABLE':'FINAL'))throw Error();
+  if(!consistentScoring(trace.scoring))throw Error();
   return{status:'AVAILABLE',trace};
  }catch{return{status:'INVALID',message:'流水线轨迹格式无效，无法可靠展示执行数据'};}
 }

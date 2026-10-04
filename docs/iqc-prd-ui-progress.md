@@ -59,3 +59,6 @@ PipelineReleaseEditor 提供顺序节点、发布规则/Agent/Finding引用、�
 结果页向Pipeline开放既有BusinessReviewPanel及任务人工复核ZIP，复用权限、轮次和原始/人工评分分列。原始机器CSV仍只对既有Scheme显示，Pipeline机器导出待接入。最终vue-tsc+Vite构建通过；未执行测试、浏览器联调或部署。
 
 Pipeline原始机器业务CSV：既有导出按钮及接口对Pipeline开放，保持原始机器结果，与人工复核和政策重算分别导出/查看。最终vue-tsc+Vite通过；测试、浏览器联调与部署未进行。
+# 开发者 B 校验集成（2026-10-04）
+
+提取 B `af909ad` 的 `pipeline-execution-trace.ts` 源码校验：贡献分、否决汇总、待定结论及分数边界。B 的 CSV/复核页面功能由 A 现有实现覆盖，保留 A 的空业务项目保护。此次未新增或运行测试；`npm run build` 的 vue-tsc 与 Vite 成功，仍有既有大包提示。B 的测试结果只属于 B 分支，不作为本分支运行证明。报表与候选样本交付尚待适配集成。
