@@ -4,7 +4,7 @@ const obj=(v:unknown):v is Record<string,unknown>=>typeof v==='object'&&v!==null
 const text=(v:unknown)=>typeof v==='string'&&v.length>0;
 const nullable=(v:unknown)=>v==null||typeof v==='string';
 const integer=(v:unknown)=>typeof v==='number'&&Number.isSafeInteger(v)&&v>0;
-function finding(v:unknown):v is TraceFinding {
+export function finding(v:unknown):v is TraceFinding {
  if(!obj(v)||!['id','code','category'].every(k=>text(v[k]))||!['KNOWN','UNKNOWN','CONFLICT','ERROR','NOT_EVALUATED'].includes(String(v.state))||!['BOOLEAN','STRING','NUMBER','ENUM','OBJECT'].includes(String(v.valueType))||!['NONE','LOW','MEDIUM','HIGH','CRITICAL'].includes(String(v.severity))||!nullable(v.reason)||!(v.confidence==null||typeof v.confidence==='number'&&v.confidence>=0&&v.confidence<=1)||!Array.isArray(v.evidence)||!v.evidence.every(e=>obj(e)&&text(e.id)&&text(e.reference)&&['CONVERSATION','RULE_MATCH','METRIC','KNOWLEDGE','BUSINESS_FIELD','EXTERNAL_RESULT'].includes(String(e.type)))||!obj(v.source))return false;
  const source=v.source;
  if(!['nodeId','engineType','engineVersion'].every(k=>text(source[k]))||!integer(source.runIndex)||!nullable(source.inputHash))return false;

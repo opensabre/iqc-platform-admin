@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import {computed} from 'vue';
+import PipelineExecutionTrace from './PipelineExecutionTrace.vue';
+import {parsePipelineExecutionTrace} from './pipeline-execution-trace';
 import {parseRouteExecutionTrace,traceJson,traceStateLabel} from './route-execution-trace';
 const props=defineProps<{traceJson?:string|null}>();
+const pipeline=computed(()=>parsePipelineExecutionTrace(props.traceJson));
 const parsed=computed(()=>parseRouteExecutionTrace(props.traceJson));
 const color=(s:string)=>['ERROR','CONFLICT','FAILED'].includes(s)?'error':['UNKNOWN','NOT_EVALUATED','SKIPPED'].includes(s)?'warning':'default';
 </script>
 <template>
-<section class="route-trace"><h3>原始节点执行轨迹</h3>
+<PipelineExecutionTrace v-if="pipeline.status==='AVAILABLE'" :trace="pipeline.trace"/>
+<a-alert v-else-if="pipeline.status==='INVALID'" type="warning" show-icon :message="pipeline.message"/>
+<section v-else class="route-trace"><h3>原始节点执行轨迹</h3>
 <a-alert v-if="parsed.status!=='AVAILABLE'" :type="parsed.status==='MISSING'?'info':'warning'" show-icon :message="parsed.message"/>
 <template v-else><p>各轮原始检测输出；跳过、未知与错误均不代表检测通过。评分和人工复核结果见对应区域。</p>
 <a-descriptions :column="1" size="small" bordered>
