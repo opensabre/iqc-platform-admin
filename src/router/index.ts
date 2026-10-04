@@ -34,6 +34,7 @@ const routes: RouteRecordRaw[] = [
       { path: "rules/test-center", component: () => import("@/views/rules/index.vue"), meta: { title: "测试中心", permission: "iqc:rule:test", ruleView: "test" } },
       { path: "rules/approvals", component: () => import("@/views/rules/index.vue"), meta: { title: "审批与发布", permission: "iqc:rule:approve", ruleView: "approval" } },
       { path: "templates", component: () => import("@/views/templates/index.vue"), meta: { title: "模板中心", permission: "iqc:template:view" } },
+      { path: "schemes", component: () => import("@/views/schemes/index.vue"), meta: { title: "业务方案（专家）", permission: "iqc:scheme:manage" } },
       { path: "settings", component: () => import("@/views/settings/index.vue"), meta: { title: "系统设置", permission: "iqc:settings:view" } },
       { path: "audit-logs", component: () => import("@/views/audit-logs/index.vue"), meta: { title: "操作日志", permission: "iqc:settings:view" } },
     ],

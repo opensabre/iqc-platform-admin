@@ -16,6 +16,7 @@ import {
   type TaskAgentSnapshot,
   type TaskRuleSnapshot,
   type InspectionTask,
+  type ExecutionMode,
 } from "@/api/tasks";
 import {
   listAgents,
@@ -50,6 +51,8 @@ import {
   type LabelTree,
 } from "@/api/labels";
 import LabelTreeSelector from "@/components/LabelTreeSelector.vue";
+import LabelValueReviewPanel from "@/components/LabelValueReviewPanel.vue";
+import { countConversationLabelStates, presentEffectiveLabel, presentLabel } from "./label-results";
 
 const tasks = ref<InspectionTask[]>([]);
 const total = ref(0);
@@ -79,6 +82,22 @@ const resultOpen = ref(false),
   resultLoading = ref(false);
 const batchResult = ref<BatchResultSummary>();
 const labelResults = ref<LabelResult[]>([]);
+const selectedLabelReview = ref<LabelResult>();
+const labelRows = computed(() => labelResults.value.map(result => ({ ...result, presentation: presentLabel(result) })));
+const resultTab = ref("inspection");
+const selectedLabelConversationId = ref<string>();
+const visibleLabelRows = computed(() => selectedLabelConversationId.value
+  ? labelRows.value.filter(row => row.conversationId === selectedLabelConversationId.value)
+  : labelRows.value);
+const conversationLabelCounts = computed(() => countConversationLabelStates(labelResults.value));
+function showConversationLabels(conversationId: string) {
+  selectedLabelConversationId.value = conversationId;
+  resultTab.value = "labels";
+}
+const labelStateCounts = computed(() => ["KNOWN", "UNKNOWN", "CONFLICT", "ERROR", "HIT"].map(state => ({
+  state, name: ({ KNOWN: "确定", UNKNOWN: "未知", CONFLICT: "冲突", ERROR: "错误", HIT: "兼容命中" } as Record<string, string>)[state],
+  count: labelRows.value.filter(row => row.presentation.state === state).length,
+})));
 const labelInsights = ref<LabelInsightSummary>();
 const conversationResult = ref<ConversationResultDetail>();
 const taskStatuses = ref<DictionaryItem[]>([]);
@@ -101,6 +120,7 @@ const form = ref({
   sampleSize: 100,
   sampleSeed: "",
   agentId: "",
+  executionMode: "RULE_ONLY" as ExecutionMode,
   ruleSetId: "",
   ruleIds: [] as string[],
   schemeMode: "RULE" as "RULE" | "LABEL",
@@ -159,6 +179,7 @@ const detailRuleSnapshot = computed(() =>
       ruleSetVersion?: number;
       aggregationMode?: string;
       rules?: TaskRuleSnapshot[];
+      executionStrategy?: { schemaVersion: string; mode: ExecutionMode };
     }
   >(detail.value?.ruleSnapshotJson)
 );
@@ -177,6 +198,7 @@ const modeLabels: Record<string, string> = {
   RULE_THEN_LLM: "规则 + 智能体复核",
   LLM_THEN_RULE: "智能提取 + 规则复核",
   AGENT_LLM: "智能体质检",
+  INDEPENDENT: "逐项独立执行（规则与 LLM）",
 };
 function modeLabel(mode?: string) {
   return mode ? modeLabels[mode] || mode : "旧版兼容模式";
@@ -222,7 +244,10 @@ async function refresh() {
     const [taskPage, agentList, ruleList, ruleSetList, conversationPage, taxonomy, collections] =
       await Promise.all([
         listTasks({ current: page.value, size: pageSize.value, ...filters.value }),
-        listAgents(),
+        listAgents().catch(() => {
+          message.warning("智能体列表不可用，仍可创建纯规则任务");
+          return [] as QualityAgent[];
+        }),
         listRules(),
         listRuleSets(),
         listConversations({ current: 1, size: 100 }),
@@ -310,6 +335,7 @@ function openCreate() {
     sampleSize: 100,
     sampleSeed: "",
     agentId: agents.value[0]?.id || "",
+    executionMode: "RULE_ONLY",
     ruleSetId: ruleSets.value[0]?.id || "",
     ruleIds: [],
     schemeMode: "RULE",
@@ -343,13 +369,25 @@ function validateStep(step: number) {
     message.warning("请选择计划执行时间");
     return false;
   }
-  if (step === 2 && !form.value.agentId) {
+  if (step === 2 && form.value.executionMode !== "RULE_ONLY" && !form.value.agentId) {
     message.warning("请选择已发布 Agent");
     return false;
   }
   if (step === 2 && form.value.schemeMode === "RULE" && !form.value.ruleSetId && !form.value.ruleIds.length) {
     message.warning("请选择已发布规则集或至少一条规则");
     return false;
+  }
+  if (step === 2 && form.value.schemeMode === "RULE") {
+    const ids = parseSnapshot<string[]>(selectedRuleSet.value?.ruleIdsJson) || form.value.ruleIds;
+    const selected = rules.value.filter(rule => ids.includes(rule.id));
+    if (form.value.executionMode === "RULE_ONLY" && selected.some(rule => rule.ruleType === "LLM")) {
+      message.warning("所选规则包含 LLM 检测，请选择逐项独立执行或调整规则");
+      return false;
+    }
+    if (form.value.executionMode === "AGENT_LLM" && selected.some(rule => rule.ruleType !== "LLM")) {
+      message.warning("纯 LLM 策略不能跳过普通规则，请选择逐项独立执行或调整规则");
+      return false;
+    }
   }
   if (step === 2 && form.value.schemeMode === "LABEL" && !form.value.categoryIds.length && !form.value.groupIds.length && !form.value.labelIds.length && !form.value.collectionIds.length) {
     message.warning("请至少选择一个标签分类、标签组、标签或标签集合");
@@ -400,7 +438,8 @@ async function submit() {
               limit: form.value.limit,
             }
           : undefined,
-      agentId: form.value.agentId,
+      agentId: form.value.executionMode === "RULE_ONLY" ? undefined : form.value.agentId,
+      executionMode: form.value.executionMode,
       ruleSetId: form.value.schemeMode === "RULE" ? form.value.ruleSetId || undefined : undefined,
       ruleIds: form.value.schemeMode === "RULE" ? (form.value.ruleSetId ? undefined : form.value.ruleIds) : undefined,
       labelSelection: form.value.schemeMode === "LABEL" ? {
@@ -423,8 +462,8 @@ async function submit() {
     );
     modalOpen.value = false;
     await refresh();
-  } catch {
-    message.error("任务创建失败，请检查会话、Agent 和规则");
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : "任务创建失败，请检查会话、执行策略和规则");
   } finally {
     creating.value = false;
   }
@@ -476,20 +515,48 @@ async function reprioritize(task: InspectionTask, offset:number) {
 function removeTask(task:InspectionTask) {
   Modal.confirm({ title:"确认删除任务？", content:"仅逻辑删除任务入口，历史结果和审计记录仍会保留。", async onOk(){ await deleteTask(task.id); message.success("任务已删除"); await refresh(); } });
 }
-async function showResults(id: string) {
+let resultRequest = 0;
+async function showResults(id: string, labelResultId?: string, openLabels = false) {
+  const request = ++resultRequest;
+  selectedLabelReview.value = undefined;
+  resultTab.value = openLabels ? "labels" : "inspection";
+  selectedLabelConversationId.value = undefined;
+  batchResult.value = undefined;
+  labelResults.value = [];
+  labelInsights.value = undefined;
   resultLoading.value = true;
   try {
-    [batchResult.value, labelResults.value, labelInsights.value] = await Promise.all([
+    const results = await Promise.all([
       getBatchResultSummary(id),
       getTaskLabelResults(id),
       getTaskLabelInsights(id),
     ]);
+    if (request !== resultRequest) return;
+    [batchResult.value, labelResults.value, labelInsights.value] = results;
     resultOpen.value = true;
+    if (labelResultId) {
+      resultTab.value = "labels";
+      const label = labelResults.value.find(row => row.id === labelResultId);
+      if (label && can("iqc:review:view")) selectedLabelReview.value = label;
+      else message.warning("该标签值已不属于当前任务结果，或当前账号没有复核查看权限");
+    }
   } catch {
-    message.error("批次结果加载失败");
+    if (request === resultRequest) message.error("批次结果加载失败");
   } finally {
-    resultLoading.value = false;
+    if (request === resultRequest) resultLoading.value = false;
   }
+}
+async function refreshReviewedLabels() {
+  if (!batchResult.value) return;
+  const taskId = batchResult.value.taskId;
+  try {
+    const [rows, insights] = await Promise.all([getTaskLabelResults(taskId), getTaskLabelInsights(taskId)]);
+    if (batchResult.value?.taskId !== taskId) return;
+    labelResults.value = rows;
+    labelInsights.value = insights;
+    const selected = selectedLabelReview.value;
+    if (selected) selectedLabelReview.value = rows.find(row => row.id === selected.id);
+  } catch { message.error("复核已保存，但标签统计刷新失败，请重新打开任务结果"); }
 }
 async function exportLabels(){
   if(!batchResult.value)return;
@@ -533,6 +600,15 @@ function annotations(result?: InspectionResult) {
 onMounted(() => {
   void refresh();
   void loadDictionaries();
+  const taskId = router.currentRoute.value.query.taskId;
+  if (typeof taskId === "string") {
+    if (router.currentRoute.value.query.view === "results") {
+      const labelId = router.currentRoute.value.query.labelResultId;
+      void showResults(taskId, typeof labelId === "string" ? labelId : undefined,
+        router.currentRoute.value.query.tab === "labels");
+    }
+    else void showDetail(taskId).catch(() => message.error("任务详情加载失败，请在列表中重试"));
+  }
   pollingTimer = window.setInterval(poll, 3000);
 });
 onBeforeUnmount(() => {
@@ -545,11 +621,10 @@ onBeforeUnmount(() => {
     <div>
       <span class="section-kicker">INSPECTION TASKS</span>
       <h2>质检任务</h2>
-      <p>批量选择会话和 Agent，跟踪批次执行进度与结果。</p>
+      <p>使用业务模板创建质检任务，跟踪执行进度、评分和证据；专家仍可使用自定义任务。</p>
     </div>
-    <a-button v-if="can('iqc:task:create')" type="primary" @click="openCreate"
-      >新建任务</a-button
-    >
+    <a-space><router-link v-if="can('iqc:template:view')" to="/templates"><a-button type="primary">使用业务模板</a-button></router-link>
+      <a-button v-if="can('iqc:task:create')" @click="openCreate">自定义任务（高级）</a-button></a-space>
   </section>
   <a-card :bordered="false" class="task-filter-card">
     <a-form layout="inline" @submit.prevent="search">
@@ -819,7 +894,7 @@ onBeforeUnmount(() => {
         <div class="wizard-heading">
           <div>
             <h3>配置质检方案</h3>
-            <p>任务只引用已发布的 Agent 和规则，确保执行版本稳定。</p>
+            <p>规则与执行策略在任务创建时冻结；纯规则任务无需 Agent。</p>
           </div>
         </div>
         <a-form-item label="方案入口">
@@ -829,7 +904,17 @@ onBeforeUnmount(() => {
           </a-radio-group>
           <template #extra>标签会在任务创建时解析为固定的标签、绑定规则及版本快照。</template>
         </a-form-item>
-        <a-form-item label="质检 Agent" required
+        <a-form-item label="任务执行策略" required>
+          <a-select v-model:value="form.executionMode">
+            <a-select-option value="RULE_ONLY">仅普通规则（无需 Agent）</a-select-option>
+            <a-select-option value="INDEPENDENT">逐项独立执行（规则与 LLM）</a-select-option>
+            <a-select-option value="AGENT_LLM">仅 LLM 规则</a-select-option>
+            <a-select-option value="RULE_THEN_LLM">规则初筛 → LLM 复核（专项兼容）</a-select-option>
+            <a-select-option value="LLM_THEN_RULE">LLM 候选 → 规则验证（专项兼容）</a-select-option>
+          </a-select>
+          <template #extra>综合检查请选择逐项独立执行；初筛路线可能跳过未命中候选的检查，不适合独立画像识别。</template>
+        </a-form-item>
+        <a-form-item v-if="form.executionMode !== 'RULE_ONLY'" label="LLM 智能体" required
           ><a-select v-model:value="form.agentId" placeholder="选择已发布 Agent"
             ><a-select-option
               v-for="agent in agents"
@@ -845,7 +930,7 @@ onBeforeUnmount(() => {
           ></a-form-item
         >
         <a-alert
-          v-if="!agents.length"
+          v-if="form.executionMode !== 'RULE_ONLY' && !agents.length"
           type="warning"
           show-icon
           message="暂无已发布 Agent，请先创建并完成审批发布。"
@@ -942,7 +1027,7 @@ onBeforeUnmount(() => {
               form.taskType === "BATCH" ? "创建后手动执行" : form.scheduledTime
             }}</a-descriptions-item
             ><a-descriptions-item label="Agent">{{
-              selectedAgent?.name || "未选择"
+              form.executionMode === 'RULE_ONLY' ? '无需 Agent' : selectedAgent?.name || "未选择"
             }}</a-descriptions-item
             ><a-descriptions-item label="规则方案">{{
               form.schemeMode === "LABEL"
@@ -1006,12 +1091,12 @@ onBeforeUnmount(() => {
         ><a-descriptions-item label="创建时间">{{
           detail.createdTime || "—"
         }}</a-descriptions-item></a-descriptions
-      ><a-divider orientation="left">创建时 Agent 配置</a-divider
+      ><a-divider orientation="left">创建时执行策略与 Agent 配置</a-divider
       ><a-alert type="info" show-icon message="以下内容来自任务创建时的不可变快照，后续修改 Agent 不会影响这里。" class="snapshot-tip"/>
       <a-descriptions bordered :column="1">
         <a-descriptions-item label="Agent">{{ detailAgent?.name || "—" }}<span v-if="detailAgent?.code"> · {{ detailAgent.code }}</span></a-descriptions-item>
         <a-descriptions-item label="Agent 版本">{{ detailAgent?.versionNo ? `V${detailAgent.versionNo}` : "—" }}</a-descriptions-item>
-        <a-descriptions-item label="质检模式"><a-tag color="blue">{{ modeLabel(detailAgentConfig?.mode) }}</a-tag></a-descriptions-item>
+        <a-descriptions-item label="任务执行策略"><a-tag color="blue">{{ modeLabel(detailRuleSet?.executionStrategy?.mode || detailAgentConfig?.mode) }}</a-tag></a-descriptions-item>
         <a-descriptions-item v-if="detailAgent?.description" label="用途说明">{{ detailAgent.description }}</a-descriptions-item>
         <a-descriptions-item v-if="detailAgentConfig?.assetSnapshots?.primaryModel" label="主模型">
           {{ detailAgentConfig.assetSnapshots.primaryModel.name }} · {{ detailAgentConfig.assetSnapshots.primaryModel.provider }} / {{ detailAgentConfig.assetSnapshots.primaryModel.modelName }} · V{{ detailAgentConfig.assetSnapshots.primaryModel.versionNo || "—" }}
@@ -1022,7 +1107,7 @@ onBeforeUnmount(() => {
         <a-descriptions-item v-if="detailAgentConfig?.systemPrompt" label="系统提示词"><pre class="snapshot-text">{{ detailAgentConfig.systemPrompt }}</pre></a-descriptions-item>
       </a-descriptions>
       <a-divider orientation="left">创建时规则配置</a-divider>
-      <a-descriptions v-if="detailRuleSet" bordered :column="1" class="rule-set-summary">
+      <a-descriptions v-if="detailRuleSet?.ruleSetId" bordered :column="1" class="rule-set-summary">
         <a-descriptions-item label="规则集">
           {{ detailRuleSet.ruleSetName || currentDetailRuleSet?.name || "—" }}
           <span v-if="detailRuleSet.ruleSetCode || currentDetailRuleSet?.code"> · {{ detailRuleSet.ruleSetCode || currentDetailRuleSet?.code }}</span>
@@ -1065,15 +1150,17 @@ onBeforeUnmount(() => {
     width="min(900px, calc(100vw - 24px))"
     ><a-spin :spinning="resultLoading"
       ><template v-if="batchResult"
-        ><a-tabs default-active-key="inspection"><a-tab-pane key="inspection" tab="质检结论"><a-row :gutter="12" style="margin-bottom: 16px"
+        ><a-tabs v-model:activeKey="resultTab"><a-tab-pane key="inspection" tab="质检结论"><a-row :gutter="12" style="margin-bottom: 16px"
           ><a-col :span="6"
             ><a-statistic
               title="会话数"
               :value="batchResult.conversationCount" /></a-col
           ><a-col :span="6"
             ><a-statistic
+              v-if="batchResult.averageScore != null"
               title="平均分"
-              :value="batchResult.averageScore" /></a-col
+              :precision="2"
+              :value="batchResult.averageScore" /><span v-else>平均分：待确认或不计分</span></a-col
           ><a-col :span="6"
             ><a-statistic title="命中数" :value="batchResult.hitCount" /></a-col
           ><a-col :span="6"
@@ -1103,7 +1190,13 @@ onBeforeUnmount(() => {
             title="高风险"
             data-index="highRiskCount"
             :width="80"
-          /><a-table-column title="操作" :width="90"
+          /><a-table-column title="标签摘要" :width="210"
+            ><template #default="{ record }"
+              ><a-button v-if="conversationLabelCounts.get(record.conversationId)" type="link" @click="showConversationLabels(record.conversationId)"
+                >{{ conversationLabelCounts.get(record.conversationId)?.KNOWN || 0 }} 确定 · {{ conversationLabelCounts.get(record.conversationId)?.UNKNOWN || 0 }} 未知 · {{ conversationLabelCounts.get(record.conversationId)?.CONFLICT || 0 }} 冲突 · {{ conversationLabelCounts.get(record.conversationId)?.ERROR || 0 }} 错误<span v-if="conversationLabelCounts.get(record.conversationId)?.HIT"> · {{ conversationLabelCounts.get(record.conversationId)?.HIT }} 兼容命中</span></a-button
+              ><span v-else>未返回标签值</span
+            ></template
+          ></a-table-column><a-table-column title="操作" :width="90"
             ><template #default="{ record }"
               ><a-button
                 type="link"
@@ -1112,20 +1205,54 @@ onBeforeUnmount(() => {
               ></template
             ></a-table-column
           ></a-table></a-tab-pane><a-tab-pane key="labels" tab="洞察标签"
-        ><a-row v-if="labelInsights" :gutter="12" style="margin-bottom:12px"><a-col :span="8"><a-statistic title="已检出会话" :value="labelInsights.detectedConversationCount"/></a-col><a-col :span="8"><a-statistic title="检出率" :value="Number(labelInsights.detectionRate)*100" suffix="%" :precision="2"/></a-col><a-col :span="8"><a-button v-if="can('iqc:result:export')" @click="exportLabels">导出 XLSX</a-button></a-col></a-row>
-        ><a-table v-if="labelResults.length" :data-source="labelResults" row-key="id" :pagination="false" size="small">
+        ><a-alert type="info" show-icon message="标签独立于评分。确定结果包括明确否认（否）；未知不等于否，冲突或错误不代表已确定。确定结果率以已生成质检结果的会话为分母，兼容任务沿用命中口径。" style="margin-bottom:12px"/>
+        <a-row v-if="labelInsights" :gutter="12" style="margin-bottom:12px"><a-col :span="8"><a-statistic title="机器确定会话" :value="labelInsights.detectedConversationCount"/></a-col><a-col :span="8"><a-statistic title="机器确定结果率" :value="Number(labelInsights.detectionRate)*100" suffix="%" :precision="2"/></a-col><a-col :span="8"><a-button v-if="can('iqc:result:export')" @click="exportLabels">导出 XLSX</a-button></a-col></a-row>
+        <p v-if="labelInsights?.reviewed">人工有效口径：确定结果会话 {{ labelInsights.reviewed.detectedConversationCount }} / 已生成结果会话 {{ labelInsights.conversationCount }}（{{ (Number(labelInsights.reviewed.detectionRate)*100).toFixed(2) }}%）；已人工修订 {{ labelInsights.reviewed.correctedValueCount }} 条，待复核 {{ labelInsights.reviewed.pendingReviewCount }} 条。未修订的值沿用机器结果，评分不受影响。</p>
+        <p v-if="labelRows.length">已返回标签值记录：<a-tag v-for="item in labelStateCounts" :key="item.state">{{ item.name }} {{ item.count }}</a-tag></p>
+        <p v-if="selectedLabelConversationId">当前仅显示会话 {{ selectedLabelConversationId }} 的标签值。<a-button type="link" @click="selectedLabelConversationId = undefined">查看全部会话</a-button></p>
+        <p v-if="labelInsights?.coverageValueCount">新版标签值状态率（已生成 {{ labelInsights.coverageValueCount }} 条为分母；不含兼容命中与未产出的值）：
+          未知 {{ ((labelInsights.coverageStatusCounts?.UNKNOWN || 0) / labelInsights.coverageValueCount * 100).toFixed(1) }}% ·
+          冲突 {{ ((labelInsights.coverageStatusCounts?.CONFLICT || 0) / labelInsights.coverageValueCount * 100).toFixed(1) }}% ·
+          识别失败 {{ ((labelInsights.coverageStatusCounts?.ERROR || 0) / labelInsights.coverageValueCount * 100).toFixed(1) }}%
+        </p>
+        <p v-if="labelInsights?.reviewed?.coverageValueCount">人工有效口径下的新版标签值状态率（已生成 {{ labelInsights.reviewed.coverageValueCount }} 条为分母；未修订沿用机器值）：
+          未知 {{ ((labelInsights.reviewed.coverageStatusCounts?.UNKNOWN || 0) / labelInsights.reviewed.coverageValueCount * 100).toFixed(1) }}% ·
+          冲突 {{ ((labelInsights.reviewed.coverageStatusCounts?.CONFLICT || 0) / labelInsights.reviewed.coverageValueCount * 100).toFixed(1) }}% ·
+          识别失败 {{ ((labelInsights.reviewed.coverageStatusCounts?.ERROR || 0) / labelInsights.reviewed.coverageValueCount * 100).toFixed(1) }}%
+        </p>
+        <a-table v-if="visibleLabelRows.length" :data-source="visibleLabelRows" row-key="id" :pagination="false" size="small" :scroll="{x:1000}">
           <a-table-column title="会话 ID" data-index="conversationId" :ellipsis="true"/>
           <a-table-column title="标签" :width="220"><template #default="{record}">{{ record.labelName }} <a-tag>V{{ record.labelVersionNo }}</a-tag></template></a-table-column>
-          <a-table-column title="标签值" :width="140"><template #default="{record}">{{ record.valueCode || '命中' }}</template></a-table-column>
+          <a-table-column title="机器状态" :width="120"><template #default="{record}"><a-tag :color="record.presentation.color">{{ record.presentation.title }}</a-tag></template></a-table-column>
+          <a-table-column title="机器识别值" :width="160"><template #default="{record}"><div>{{ record.presentation.value }}</div><small v-if="record.valueCode">值编码：{{ record.valueCode }}</small></template></a-table-column>
+          <a-table-column title="人工有效值" :width="190"><template #default="{record}">{{ presentEffectiveLabel(record) }}</template></a-table-column>
+          <a-table-column title="候选与依据" :width="320"><template #default="{record}">
+            <div v-for="(reason, index) in record.presentation.reasons" :key="index">{{ reason }}</div>
+            <details v-if="record.presentation.candidates.length"><summary>查看 {{ record.presentation.candidates.length }} 个候选及证据</summary>
+              <p>识别主体：{{ record.presentation.subject }}</p>
+              <div v-for="(candidate, index) in record.presentation.candidates" :key="index" style="margin-bottom:12px">
+                <div>候选 {{ index + 1 }}：{{ candidate.value }}</div>
+                <div v-for="(quote, quoteIndex) in candidate.evidence" :key="quoteIndex" style="white-space:pre-wrap;overflow-wrap:anywhere">
+                  “{{ quote.text }}”<a-button type="link" @click="showConversationResult(record.conversationId, JSON.stringify([{messageId:quote.messageId}]))">定位原文</a-button>
+                </div>
+                <small style="overflow-wrap:anywhere">来源结果：{{ candidate.source }}</small>
+              </div>
+            </details>
+          </template></a-table-column>
           <a-table-column title="来源" data-index="generationSource" :width="90"/>
           <a-table-column title="置信度" :width="90"><template #default="{record}">{{ record.confidence ?? '—' }}</template></a-table-column>
-          <a-table-column title="证据" :width="90"><template #default="{record}"><a-button type="link" @click="showConversationResult(record.conversationId, record.evidenceJson)">定位</a-button></template></a-table-column>
+          <a-table-column title="会话" :width="90"><template #default="{record}"><a-button type="link" @click="showConversationResult(record.conversationId, record.evidenceJson)">查看会话</a-button></template></a-table-column>
+          <a-table-column title="人工复核" :width="90"><template #default="{record}"><a-button v-if="can('iqc:review:view') && record.presentation.valid && record.presentation.state !== 'HIT'" type="link" @click="selectedLabelReview = record">查看/复核</a-button><span v-else>—</span></template></a-table-column>
         </a-table>
-        <a-empty v-else description="该任务没有生成标签结果" :image-style="{height:'40px'}"/></a-tab-pane></a-tabs
+        <a-empty v-else :description="selectedLabelConversationId ? '该会话未返回标签值' : '该任务没有生成标签结果'" :image-style="{height:'40px'}"/></a-tab-pane></a-tabs
         ></template
       ></a-spin
     ></a-drawer
   >
+  <a-modal :open="!!selectedLabelReview" title="标签值人工复核" :footer="null" width="min(780px, calc(100vw - 24px))" @cancel="selectedLabelReview = undefined">
+    <LabelValueReviewPanel v-if="selectedLabelReview && batchResult" :label="selectedLabelReview" :task-id="batchResult.taskId" :task-status="batchResult.status"
+      @locate="id => showConversationResult(selectedLabelReview!.conversationId, JSON.stringify([{messageId:id}]))" @changed="refreshReviewedLabels" />
+  </a-modal>
   <a-drawer
     v-model:open="conversationResultOpen"
     :title="`会话质检明细：${
@@ -1147,7 +1274,8 @@ onBeforeUnmount(() => {
             <template v-if="resultFor(item.id)"
               ><a-space wrap
                 ><a-tag>{{ resultFor(item.id)?.resultStatus }}</a-tag
-                ><a-tag color="blue">{{ resultFor(item.id)?.score }}分</a-tag
+                ><a-tag v-if="resultFor(item.id)?.score != null" color="blue">{{ resultFor(item.id)?.score }}分</a-tag
+                ><a-tag v-else>检测证据，不单独计分</a-tag
                 ><a-tag v-if="resultFor(item.id)?.riskLevel" color="orange">{{
                   resultFor(item.id)?.riskLevel
                 }}</a-tag></a-space

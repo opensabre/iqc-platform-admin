@@ -1,21 +1,30 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { ref } from "vue";
 import { message } from "ant-design-vue";
 import { decideReview, getQualityReport, listFeedbacks, listReviews, listSamples, type QualityReport, type QualitySample, type ResultFeedback, type ResultReview } from "@/api/quality";
 import { usePermission } from "@/composables/permission";
-const active=ref("reviews"), loading=ref(false), reviews=ref<ResultReview[]>([]), feedbacks=ref<ResultFeedback[]>([]), samples=ref<QualitySample[]>([]);
+import BusinessReviewQueue from "@/components/BusinessReviewQueue.vue";
+import LabelReviewQueue from "@/components/LabelReviewQueue.vue";
+import BusinessQualityReport from "@/components/BusinessQualityReport.vue";
+const businessReport = ref<InstanceType<typeof BusinessQualityReport>>();
+const queue = ref<InstanceType<typeof BusinessReviewQueue>>();
+const labelQueue = ref<InstanceType<typeof LabelReviewQueue>>();
+const active=ref("business"), loading=ref(false), reviews=ref<ResultReview[]>([]), feedbacks=ref<ResultFeedback[]>([]), samples=ref<QualitySample[]>([]);
 const report=ref<QualityReport>();
 const decisionOpen=ref(false), selected=ref<ResultReview>(), form=ref({decision:"APPROVED",finalStatus:"HIT",finalScore:100,finalRiskLevel:"LOW",comment:""});
 const {can}=usePermission();
-async function refresh(){loading.value=true;try{[reviews.value,feedbacks.value,samples.value,report.value]=await Promise.all([listReviews(),listFeedbacks(),listSamples(),getQualityReport()]);}catch{message.error("质量运营数据加载失败");}finally{loading.value=false;}}
+async function refresh(){if(active.value==='business-report'){await businessReport.value?.refresh();return;}if(active.value==='business'){await queue.value?.refresh();return;}if(active.value==='labels'){await labelQueue.value?.refresh();return;}loading.value=true;try{[reviews.value,feedbacks.value,samples.value,report.value]=await Promise.all([listReviews(),listFeedbacks(),listSamples(),getQualityReport()]);}catch{message.error("质量运营数据加载失败");}finally{loading.value=false;}}
 function openDecision(row:ResultReview){selected.value=row;form.value={decision:"APPROVED",finalStatus:row.originalStatus,finalScore:row.originalScore??100,finalRiskLevel:row.originalRiskLevel||"LOW",comment:""};decisionOpen.value=true;}
 async function saveDecision(){if(!selected.value)return;try{await decideReview(selected.value.id,form.value);message.success("复核结论已保存");decisionOpen.value=false;await refresh();}catch{message.error("复核处理失败");}}
-onMounted(refresh);
 </script>
 <template>
+  <a-alert v-if="['reviews','feedback','samples'].includes(active)" type="info" show-icon message="此页签及下方统计仅包含旧消息结果；业务质检项和标签值请切换对应待办。" style="margin-bottom:16px" />
   <section class="page-intro"><div><span class="section-kicker">QUALITY OPERATIONS</span><h2>质量运营</h2><p>集中处理人工复核、误判漏判反馈和标准样本沉淀。</p></div><a-button @click="refresh">刷新</a-button></section>
-  <a-row v-if="report" :gutter="16" style="margin-bottom: 16px"><a-col :xs="12" :md="6"><a-card><a-statistic title="待复核" :value="report.pendingReviewCount" /></a-card></a-col><a-col :xs="12" :md="6"><a-card><a-statistic title="复核修正率" :value="report.reviewCorrectionRate" suffix="%" /></a-card></a-col><a-col :xs="12" :md="6"><a-card><a-statistic title="确认误判 / 漏判" :value="`${report.falsePositiveCount} / ${report.falseNegativeCount}`" /></a-card></a-col><a-col :xs="12" :md="6"><a-card><a-statistic title="标准样本" :value="report.sampleCount" /></a-card></a-col></a-row>
-  <a-card :bordered="false"><a-tabs v-model:active-key="active">
+  <a-row v-if="report && ['reviews','feedback','samples'].includes(active)" :gutter="16" style="margin-bottom: 16px"><a-col :xs="12" :md="6"><a-card><a-statistic title="待复核" :value="report.pendingReviewCount" /></a-card></a-col><a-col :xs="12" :md="6"><a-card><a-statistic title="复核修正率" :value="report.reviewCorrectionRate" suffix="%" /></a-card></a-col><a-col :xs="12" :md="6"><a-card><a-statistic title="确认误判 / 漏判" :value="`${report.falsePositiveCount} / ${report.falseNegativeCount}`" /></a-card></a-col><a-col :xs="12" :md="6"><a-card><a-statistic title="标准样本" :value="report.sampleCount" /></a-card></a-col></a-row>
+  <a-card :bordered="false"><a-tabs v-model:active-key="active" @change="refresh">
+    <a-tab-pane key="business" tab="业务复核待办"><BusinessReviewQueue ref="queue" /></a-tab-pane>
+    <a-tab-pane key="labels" tab="标签复核待办"><LabelReviewQueue ref="labelQueue" /></a-tab-pane>
+    <a-tab-pane v-if="can('iqc:report:view')" key="business-report" tab="业务评分统计"><BusinessQualityReport ref="businessReport" /></a-tab-pane>
     <a-tab-pane key="reviews" tab="人工复核"><a-table :data-source="reviews" :loading="loading" row-key="id"><a-table-column title="结果" data-index="resultId"/><a-table-column title="原状态" data-index="originalStatus"/><a-table-column title="原分数" data-index="originalScore"/><a-table-column title="复核状态" data-index="status"><template #default="{text}"><a-tag :color="text==='PENDING'?'orange':text==='CORRECTED'?'blue':'green'">{{text}}</a-tag></template></a-table-column><a-table-column title="复核人" data-index="reviewerId"/><a-table-column title="操作"><template #default="{record}"><a-button v-if="record.status==='PENDING'&&can('iqc:review:decide')" type="link" @click="openDecision(record)">处理</a-button></template></a-table-column></a-table></a-tab-pane>
     <a-tab-pane key="feedback" tab="误判/漏判"><a-table :data-source="feedbacks" :loading="loading" row-key="id"><a-table-column title="结果" data-index="resultId"/><a-table-column title="标注" data-index="feedbackType"/><a-table-column title="说明" data-index="comment"/><a-table-column title="状态" data-index="status"/><a-table-column title="时间" data-index="createdTime"/></a-table></a-tab-pane>
     <a-tab-pane key="samples" tab="样本库"><a-table :data-source="samples" :loading="loading" row-key="id"><a-table-column title="名称" data-index="name"/><a-table-column title="类型" data-index="sampleType"/><a-table-column title="内容快照" data-index="contentSnapshot" ellipsis/><a-table-column title="状态" data-index="status"/><a-table-column title="时间" data-index="createdTime"/></a-table></a-tab-pane>
