@@ -50,6 +50,7 @@ const menuItems: MenuItem[] = [
     { key: "rules-test", path: "/rules/test-center", label: "测试中心", permission: "iqc:rule:test" },
     { key: "rules-approvals", path: "/rules/approvals", label: "审批与发布", permission: "iqc:rule:approve" },
   ] },
+  { key: "pipelines", path: "/pipelines", label: "检测流水线", icon: ClusterOutlined, permission: "iqc:pipeline:view" },
   { key: "findings", path: "/findings", label: "事实语义目录", icon: FileTextOutlined, permission: "iqc:finding:view" },
   { key: "templates", path: "/templates", label: "模板中心", icon: FileTextOutlined, permission: "iqc:template:view" },
   { key: "settings", path: "/settings", label: "系统设置", icon: SettingOutlined, permission: "iqc:settings:view" },
@@ -59,7 +60,7 @@ const iconMap: Record<string, unknown> = { audit: AuditOutlined, dashboard: BarC
 const routePaths = new Set(router.getRoutes().map((record) => `/${String(record.path).replace(/^\//, "")}`));
 const canonicalLabels: Record<string, string> = {
   "/dashboard": "睿检总览", "/profile": "个人中心", "/conversations/api": "接口对接", "/conversations/list": "会话列表", "/conversations/upload": "文本上传",
-  "/findings": "事实语义目录", "/tasks": "质检任务", "/labels/tree": "标签树", "/labels/collections": "标签集合", "/labels/candidates": "候选标签", "/results": "质检结果", "/agents": "智能体列表", "/agent-models": "模型配置",
+  "/pipelines": "检测流水线", "/findings": "事实语义目录", "/tasks": "质检任务", "/labels/tree": "标签树", "/labels/collections": "标签集合", "/labels/candidates": "候选标签", "/results": "质检结果", "/agents": "智能体列表", "/agent-models": "模型配置",
   "/agent-mcps": "MCP 管理", "/agent-skills": "Skill 管理", "/rules/library": "规则库", "/rules/conversation": "会话规则",
   "/rules/sets": "规则集", "/rules/test-center": "测试中心", "/rules/approvals": "审批与发布",
   "/templates": "模板中心", "/settings": "系统设置", "/audit-logs": "操作日志",
