@@ -24,8 +24,8 @@ export interface ConversationImportResult {
   messages: ConversationMessageDraft[];
   errors: ConversationParseError[];
 }
-export interface ConversationMetadata { employeeId?: string; employeeName?: string; employeeGroupId?: string; customerExternalId?: string; customerName?: string; customerContactMasked?: string; channel?: string; startedTime?: string; endedTime?: string; businessType?: string; businessNo?: string; tags?: string[]; }
-export interface ConversationSummary extends ConversationMetadata { id: string; batchNo?: string; sourceType?: string; externalId?: string; sourceFileName: string; messageCount: number; errorCount: number; status: string; tagsJson?: string; createdTime?: string; }
+export interface ConversationMetadata { employeeId?: string; employeeName?: string; employeeGroupId?: string; employeeDepartmentId?: string; asrStatus?: string; customerLevel?: string; complaint?: boolean; businessFields?: Record<string, string | number | boolean | null>; customerExternalId?: string; customerName?: string; customerContactMasked?: string; channel?: string; startedTime?: string; endedTime?: string; businessType?: string; businessNo?: string; tags?: string[]; }
+export interface ConversationSummary extends ConversationMetadata { id: string; batchNo?: string; sourceType?: string; externalId?: string; sourceFileName: string; messageCount: number; errorCount: number; status: string; tagsJson?: string; businessFieldsJson?: string; createdTime?: string; }
 export interface ConversationPage { records: ConversationSummary[]; current: number; size: number; total: number; }
 export interface ConversationMessage { id: string; sequenceNo: number; speakerRole: string; relativeTime: string; content: string; }
 export interface ConversationDetail { conversation: ConversationSummary; messages: ConversationMessage[]; }

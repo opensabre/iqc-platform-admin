@@ -11,13 +11,30 @@ const latestBatch = ref<{ batchNo: string; totalCount: number; successCount: num
 const pendingFiles = ref<File[]>([]);
 const zipFile = ref<File>();
 const metadata = ref<ConversationMetadata>({ channel: "WEB" });
+const complaintChoice=ref<'UNSPECIFIED'|'YES'|'NO'>('UNSPECIFIED'),businessFieldsText=ref('');
 const channelOptions = ref<DictionaryItem[]>([
   { value: "WEB", label: "网页" }, { value: "PHONE", label: "电话" },
   { value: "WECHAT", label: "微信" }, { value: "APP", label: "App" }, { value: "OTHER", label: "其他" },
 ]);
 const businessTypeOptions = ref<DictionaryItem[]>([]);
 
-function importMetadata(): ConversationMetadata { return { ...metadata.value }; }
+function importMetadata(): ConversationMetadata {
+  const value:ConversationMetadata={...metadata.value};
+  for(const key of ['startedTime','endedTime'] as const){const raw=value[key]?.trim();if(!raw){delete value[key];continue;}const date=new Date(`${raw}Z`);if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?$/.test(raw)||!Number.isFinite(date.getTime())||date.toISOString().slice(0,19)!==raw.slice(0,19))throw Error('会话时间请填写有效本地 ISO 时间，例如 2026-10-05T10:00:00');value[key]=raw;}
+  const ordered=(time:string)=>`${time.slice(0,19)}.${(time.split('.')[1]||'').padEnd(9,'0')}`;
+  if(value.startedTime&&value.endedTime&&ordered(value.endedTime)<ordered(value.startedTime))throw Error('结束时间不能早于开始时间');
+  for(const key of ['employeeDepartmentId','asrStatus','customerLevel'] as const){const raw=value[key]?.trim();if(raw)value[key]=raw;else delete value[key];}
+  if(complaintChoice.value!=='UNSPECIFIED')value.complaint=complaintChoice.value==='YES';else delete value.complaint;
+  if(businessFieldsText.value.trim()){
+    let fields:unknown;try{fields=JSON.parse(businessFieldsText.value);}catch{throw Error('自定义业务字段必须是合法 JSON 对象');}
+    if(!fields||Array.isArray(fields)||typeof fields!=='object')throw Error('自定义业务字段必须是 JSON 对象');
+    const entries=Object.entries(fields);if(entries.length>64)throw Error('自定义业务字段最多64项');
+    for(const [key,item] of entries){if(!/^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(key))throw Error('业务字段键须以字母开头，仅包含字母、数字、下划线，最长64字');if(item!==null&&!['string','number','boolean'].includes(typeof item))throw Error('业务字段值仅允许字符串、数值、布尔值或 null');if(typeof item==='string'&&item.length>4096)throw Error('业务字段字符串最长4096字');if(typeof item==='number'&&!Number.isFinite(item))throw Error('业务字段数值必须有限');}
+    if(new TextEncoder().encode(JSON.stringify(fields)).length>65536)throw Error('自定义业务字段 JSON 最多65536字节');
+    value.businessFields=fields as NonNullable<ConversationMetadata['businessFields']>;
+  }else delete value.businessFields;
+  return value;
+}
 
 async function handleBatchUpload(info: UploadChangeParam<UploadFile>) {
   const files = (info.fileList || []).flatMap((item) => item.originFileObj ? [item.originFileObj as unknown as File] : []);
@@ -67,9 +84,12 @@ onMounted(() => { void loadDictionaries(); });
         <a-card v-if="can('iqc:conversation:upload')" title="文本批量入库" :bordered="false">
           <a-alert type="info" show-icon message="以下归属信息会应用到本次选择的全部会话文件" description="员工 ID 引用 OpenSabre 用户；客户 ID 使用 CRM 等上游系统编号。" class="metadata-tip" />
           <a-form layout="vertical" class="metadata-form">
-            <a-row :gutter="12"><a-col :xs="24" :md="8"><a-form-item label="沟通员工 ID"><a-input v-model:value="metadata.employeeId" placeholder="OpenSabre 用户 ID" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="员工姓名快照"><a-input v-model:value="metadata.employeeName" placeholder="例如：张三" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="员工部门 ID"><a-input v-model:value="metadata.employeeGroupId" placeholder="组织部门 ID" /></a-form-item></a-col></a-row>
+            <a-row :gutter="12"><a-col :xs="24" :md="8"><a-form-item label="沟通员工 ID"><a-input v-model:value="metadata.employeeId" placeholder="OpenSabre 用户 ID" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="员工姓名快照"><a-input v-model:value="metadata.employeeName" placeholder="例如：张三" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="员工组织 / 团队 ID"><a-input v-model:value="metadata.employeeGroupId" placeholder="组织或团队 ID（employeeGroupId）" /></a-form-item></a-col></a-row>
             <a-row :gutter="12"><a-col :xs="24" :md="8"><a-form-item label="客户外部 ID"><a-input v-model:value="metadata.customerExternalId" placeholder="CRM 客户编号" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="客户名称"><a-input v-model:value="metadata.customerName" placeholder="客户显示名" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="脱敏联系方式"><a-input v-model:value="metadata.customerContactMasked" placeholder="138****1234" /></a-form-item></a-col></a-row>
             <a-row :gutter="12"><a-col :xs="24" :md="8"><a-form-item label="渠道"><a-select v-model:value="metadata.channel" allow-clear placeholder="选择渠道"><a-select-option v-for="item in channelOptions" :key="item.value" :value="item.value">{{ item.label }}</a-select-option></a-select></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="业务类型"><a-select v-model:value="metadata.businessType" allow-clear show-search placeholder="选择业务类型"><a-select-option v-for="item in businessTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</a-select-option></a-select></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="业务编号"><a-input v-model:value="metadata.businessNo" placeholder="订单或工单编号" /></a-form-item></a-col></a-row>
+            <a-row :gutter="12"><a-col :xs="24" :md="8"><a-form-item label="员工部门 ID"><a-input v-model:value="metadata.employeeDepartmentId" :maxlength="64" placeholder="独立部门 ID（employeeDepartmentId）" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="真实转写状态（可选）"><a-input v-model:value="metadata.asrStatus" :maxlength="32" placeholder="仅填写上游真实状态；未知留空" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="客户等级（可选）"><a-input v-model:value="metadata.customerLevel" :maxlength="64" placeholder="上游客户等级；未知留空" /></a-form-item></a-col></a-row>
+            <a-row :gutter="12"><a-col :xs="24" :md="8"><a-form-item label="是否投诉"><a-select v-model:value="complaintChoice" :options="[{value:'UNSPECIFIED',label:'未提供'},{value:'YES',label:'是'},{value:'NO',label:'否'}]" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="会话开始时间（Asia/Shanghai 本地 ISO）"><a-input v-model:value="metadata.startedTime" placeholder="2026-10-05T10:00:00" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="会话结束时间（Asia/Shanghai 本地 ISO）"><a-input v-model:value="metadata.endedTime" placeholder="2026-10-05T10:15:00" /></a-form-item></a-col></a-row>
+            <a-form-item label="自定义业务字段（可选 JSON 对象）"><a-textarea v-model:value="businessFieldsText" :rows="3" placeholder='{"orderAmount":199.5,"priorityCustomer":true,"region":"华东"}' /><small>最多64个标量字段；未知值可用 null。不会自动推断转写状态、客户等级或投诉事实。</small></a-form-item>
           </a-form>
           <a-tabs>
             <a-tab-pane key="files" tab="多个 TXT">
