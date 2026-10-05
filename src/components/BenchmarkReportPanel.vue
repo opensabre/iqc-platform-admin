@@ -10,8 +10,8 @@ const {can}=usePermission(),router=useRouter();
 const pair=shallowRef<BenchmarkPair>(),report=shallowRef<BenchmarkReport>(),error=ref(''),loading=ref(false),reportBusy=ref(false);
 const leftRounds=ref<TaskExecutionSummary[]>([]),rightRounds=ref<TaskExecutionSummary[]>([]),leftId=ref<string>(),rightId=ref<string>();
 let generation=0,reportGeneration=0;
-const labels:Record<string,string>={precision:'精确率',recall:'召回率',f1:'F1',coverage:'事实覆盖率',scoreMae:'评分 MAE',highRiskRecall:'高风险召回率',regressionPassRate:'回归通过率',p95Ms:'P95 毫秒'};
-function metrics(r:EvaluationReport):Record<string,number|null>{return {precision:r.findingMetrics.aggregate.precision,recall:r.findingMetrics.aggregate.recall,f1:r.findingMetrics.aggregate.f1,coverage:r.findingMetrics.aggregate.coverage,scoreMae:r.businessMetrics.meanAbsoluteScoreError??null,highRiskRecall:r.businessMetrics.highRiskRecall??null,regressionPassRate:r.regressionMetrics?.passRate??null,p95Ms:r.latencyMetrics.p95Ms};}
+const labels:Record<string,string>={precision:'精确率',recall:'召回率',f1:'F1',coverage:'事实覆盖率',scoreMae:'评分 MAE',highRiskRecall:'高风险召回率',regressionPassRate:'回归通过率',p95Ms:'P95 毫秒',structuredSuccessRate:'结构化输出成功率'};
+function metrics(r:EvaluationReport):Record<string,number|null>{return {precision:r.findingMetrics.aggregate.precision,recall:r.findingMetrics.aggregate.recall,f1:r.findingMetrics.aggregate.f1,coverage:r.findingMetrics.aggregate.coverage,scoreMae:r.businessMetrics.meanAbsoluteScoreError??null,highRiskRecall:r.businessMetrics.highRiskRecall??null,regressionPassRate:r.regressionMetrics?.passRate??null,p95Ms:r.latencyMetrics.p95Ms,structuredSuccessRate:r.structuredMetrics?.successRate??null};}
 const comparisons=computed(()=>{const r=report.value;if(!r)return [];const baseline=metrics(r.baseline),candidate=metrics(r.candidate);return Object.entries(r.deltas).map(([key,value])=>({key,label:labels[key]||key,value,baseline:baseline[key]??null,candidate:candidate[key]??null}));});
 const number=(value:number|null)=>value==null?'未定义':Number(value).toFixed(6);
 async function refresh(){
