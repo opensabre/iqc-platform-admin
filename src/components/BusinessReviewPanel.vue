@@ -4,7 +4,7 @@ import { message, Modal } from "ant-design-vue";
 import { usePermission } from "@/composables/permission";
 import type { BusinessItemResult, BusinessScoringResult } from "@/api/results";
 import { exportBusinessReview } from "@/api/results";
-import { listBusinessReviews, requestBusinessReview, decideBusinessReview,
+import { createBusinessCandidate, type BusinessCandidateRequest, listBusinessReviews, requestBusinessReview, decideBusinessReview,
   type BusinessReview, type BusinessReviewProjection, type BusinessReviewRequest, type BusinessReviewVerdict } from "@/api/quality";
 
 const props = defineProps<{ resultId: string; taskStatus: string; readOnly?: boolean; items: BusinessItemResult[];
@@ -16,7 +16,7 @@ const requestComment = ref(""), comment = ref(""), itemCode = ref<string>(), fin
 const evidence = ref<string[]>([]);
 type Command = { kind: "REQUEST"; id: string; payload: BusinessReviewRequest } | { kind: "DECIDE"; id: string; payload: BusinessReviewVerdict };
 const command = ref<Command>();
-let generation = 0;
+let generation = 0, candidateEpoch = 0;
 const exporting = ref(false);
 function downloadReview(review: BusinessReview) {
   if (exporting.value || !can("iqc:result:export") || !can("iqc:review:view") || review.status !== "COMPLETED") return;
@@ -34,6 +34,38 @@ function downloadReview(review: BusinessReview) {
         } finally { URL.revokeObjectURL(url); }
       } catch { message.error("复核导出失败，请核对权限、原始结果及复核快照后重试。"); }
       finally { exporting.value = false; }
+    }
+  });
+}
+const candidateType = ref<BusinessCandidateRequest["sampleType"]>();
+const candidateBusy = ref(false), candidateError = ref("");
+const candidateCommand = ref<{ resultId: string; body: BusinessCandidateRequest }>();
+const candidateOptions = [
+  { value: "POSITIVE", label: "正向样本" }, { value: "NEGATIVE", label: "负向样本" },
+  { value: "FALSE_POSITIVE", label: "误判回归候选" }, { value: "FALSE_NEGATIVE", label: "漏判回归候选" }
+];
+async function submitCandidate() {
+  if (!candidateCommand.value || candidateBusy.value || !can("iqc:sample:manage")) return;
+  const command = candidateCommand.value, ticket = candidateEpoch; candidateBusy.value = true; candidateError.value = "";
+  try {
+    await createBusinessCandidate(command.resultId, command.body);
+    if (ticket !== candidateEpoch || command.resultId !== props.resultId) return;
+    candidateCommand.value = undefined; candidateType.value = undefined;
+    message.success("完整会话及本轮裁决已保存为候选，等待数据集审核。");
+  } catch {
+    if (ticket === candidateEpoch && command.resultId === props.resultId) candidateError.value = "候选提交未确认，请重试原提交；若会话已变化，请重新执行并复核。";
+  } finally { if (ticket === candidateEpoch && command.resultId === props.resultId) candidateBusy.value = false; }
+}
+function captureCandidate(review: BusinessReview) {
+  if (!candidateType.value || candidateCommand.value || candidateBusy.value || loading.value || !loaded.value || damaged.value
+      || !can("iqc:sample:manage") || review.status !== "COMPLETED") return;
+  const resultId = props.resultId, sampleType = candidateType.value, ticket = candidateEpoch;
+  Modal.confirm({ title: `从第 ${review.reviewRevision} 轮沉淀会话候选？`,
+    content: "保存完整会话、该轮人工结论与证据引用。候选需经数据集审核后才能成为金标；会话必须仍与原执行输入一致。",
+    async onOk() {
+      if (ticket !== candidateEpoch || resultId !== props.resultId || candidateCommand.value || candidateBusy.value || damaged.value) return;
+      candidateCommand.value = { resultId, body: { reviewId: review.id, requestId: crypto.randomUUID(), sampleType, tagsJson: '["business-review"]' } };
+      await submitCandidate();
     }
   });
 }
@@ -74,8 +106,9 @@ async function refresh() {
   finally { if (ticket === generation) loading.value = false; }
 }
 watch(() => props.resultId, () => {
-  generation++; history.value = []; loaded.value = false; command.value = undefined;
+  generation++; candidateEpoch++; history.value = []; loaded.value = false; command.value = undefined;
   requestComment.value = ""; comment.value = ""; itemCode.value = undefined; finalStatus.value = undefined; evidence.value = [];
+  candidateCommand.value = undefined; candidateBusy.value = false; candidateError.value = ""; candidateType.value = undefined;
   void refresh();
 }, { immediate: true });
 
@@ -154,6 +187,12 @@ async function decide(rejected: boolean) {
             <p>裁决原因：{{ row.review.status === 'PENDING' ? '—' : row.review.reviewComment }}</p>
             <template v-if="row.projection">
               <a-button v-if="can('iqc:result:export')" :loading="exporting" :disabled="exporting || loading || !loaded" @click="downloadReview(row.review)">导出本轮人工复核 CSV</a-button>
+              <a-space v-if="can('iqc:sample:manage')" wrap>
+                <a-select v-model:value="candidateType" :options="candidateOptions" placeholder="选择候选类型" :disabled="candidateBusy || !!candidateCommand" style="width:180px" />
+                <a-button :disabled="!candidateType || candidateBusy || !!candidateCommand" @click="captureCandidate(row.review)">从本轮沉淀会话候选</a-button>
+              </a-space>
+              <a-alert v-if="candidateError && candidateCommand?.body.reviewId === row.review.id" type="warning" :message="candidateError" />
+              <a-button v-if="candidateCommand?.body.reviewId === row.review.id" :loading="candidateBusy" @click="submitCandidate">重试候选原提交</a-button>
               <p>机器分数：{{ score(row.projection.original.scoring) }} → 本轮人工复核分数：{{ score(row.projection.reviewed.scoring) }}</p>
               <p>本轮有效项目结论：未裁决项目沿用机器或前轮结果。</p>
               <ul>

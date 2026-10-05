@@ -102,3 +102,7 @@ export const listBusinessReviewQueue = (params: { status: string; taskId?: strin
   http.get<PageResult<BusinessReviewQueueItem>>("/iqc/quality-operations/reviews", {
     params: { ...params, targetType: "BUSINESS", view: "QUEUE" }
   }).then(r => r.data);
+
+export interface BusinessCandidateRequest { reviewId: string; requestId: string; sampleType: "POSITIVE" | "NEGATIVE" | "FALSE_POSITIVE" | "FALSE_NEGATIVE"; name?: string; tagsJson?: string; }
+export const createBusinessCandidate = (resultId: string, data: BusinessCandidateRequest) =>
+  http.post<QualitySample>(`/iqc/quality-operations/results/${resultId}/samples`, { ...data, targetType: "BUSINESS" }).then(r => r.data);
