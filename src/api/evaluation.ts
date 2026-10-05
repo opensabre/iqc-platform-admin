@@ -26,3 +26,13 @@ export const freezeDataset=(id:string,expectedRevision:number)=>http.post<Datase
 export const setDatasetAvailability=(id:string,enabled:boolean)=>http.post<Dataset>(`${datasets}/${encodeURIComponent(id)}/availability`,{enabled}).then(r=>r.data);
 export const listDatasetVersions=(id:string,current=1,size=20)=>http.get<PageResult<DatasetVersion>>(`${datasets}/${encodeURIComponent(id)}/versions`,{params:{current,size}}).then(r=>r.data);
 export const getDatasetVersion=(id:string,no:number)=>http.get<DatasetVersion>(`${datasets}/${encodeURIComponent(id)}/versions/${no}`).then(r=>r.data);
+
+export interface EvaluationTaskRequest {datasetId:string;datasetVersion:number;pipelineId:string;pipelineVersion?:number;draftRevision?:number;name?:string;concurrency:number;requestId:string}
+export interface EvaluationResult {id:string;taskId:string;executionId:string;datasetId:string;datasetVersion:number;sampleId:string;sampleVersion:number;conversationId:string;status:string;durationMs:number;actualJson?:string;actualHash:string;goldHash:string;datasetHash:string}
+export interface FindingSummary {counts:Record<string,number>;precision:number|null;recall:number|null;f1:number|null;coverage:number|null;valueAccuracy:number|null;stateAccuracy:number|null;evidenceAccuracy:number|null}
+export interface EvaluationReport {taskId:string;executionId:string;datasetHash:string;expectedSamples:number;availableSamples:number;successfulSamples:number;complete:boolean;missingSampleIds:string[];sourceExecutionIds:Record<string,string>;findingMetrics:{aggregate:FindingSummary;byCode:Record<string,FindingSummary>;unlabelledOutputs:number};businessMetrics:Record<string,number|null>;latencyMetrics:{scope:string;measuredSamples:number;p50Ms:number|null;p95Ms:number|null;p99Ms:number|null;executionFailureRate:number|null};regressionMetrics?:{scope:string;expectedSamples:number;passedSamples:number;passRate:number|null;failedSampleIds:string[]}}
+const evaluationTasks='/iqc/evaluation/tasks';
+export const createEvaluationTask=(body:EvaluationTaskRequest)=>http.post<import('./tasks').InspectionTask>(evaluationTasks,body).then(r=>r.data);
+export const listEvaluationResults=(id:string,executionId?:string,current=1)=>http.get<PageResult<EvaluationResult>>(`${evaluationTasks}/${encodeURIComponent(id)}/results`,{params:{executionId,current,size:20}}).then(r=>r.data);
+export const getEvaluationResult=(id:string,resultId:string)=>http.get<EvaluationResult>(`${evaluationTasks}/${encodeURIComponent(id)}/results/${encodeURIComponent(resultId)}`).then(r=>r.data);
+export const getEvaluationReport=(id:string,executionId?:string)=>http.get<EvaluationReport>(`${evaluationTasks}/${encodeURIComponent(id)}/report`,{params:{executionId}}).then(r=>r.data);

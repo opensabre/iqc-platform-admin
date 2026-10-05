@@ -56,7 +56,7 @@ export interface InspectionTask {
   selectionFilterJson?: string;
   scheduledTime?: string;
   name: string;
-  taskType: "BATCH" | "SCHEDULED" | "SAMPLE";
+  taskType: "BATCH" | "SCHEDULED" | "SAMPLE" | "PIPELINE" | "PIPELINE_TRIAL" | "PIPELINE_EVALUATION";
   concurrencyLimit: number;
   agentId?: string;
   ruleSetId?: string;

@@ -303,6 +303,9 @@ async function resetFilters() {
   await search();
 }
 function taskTypeLabel(taskType?: string) {
+  if(taskType === "PIPELINE_EVALUATION") return "固定数据集评测";
+  if(taskType === "PIPELINE_TRIAL") return "流水线试跑";
+  if(taskType === "PIPELINE") return "流水线质检";
   return taskType === "SCHEDULED" ? "定时筛选" : taskType === "SAMPLE" ? "随机抽样" : "立即批量";
 }
 async function showDetail(id: string) {
@@ -517,6 +520,9 @@ function removeTask(task:InspectionTask) {
 }
 let resultRequest = 0;
 async function showResults(id: string, labelResultId?: string, openLabels = false) {
+  let task = tasks.value.find(row => row.id === id);
+  if (!task) { try { task = await getTask(id); } catch { message.error("任务加载失败"); return; } }
+  if (task?.taskType === "PIPELINE_EVALUATION") { await router.push({path:"/evaluation/tasks",query:{taskId:id}}); return; }
   const request = ++resultRequest;
   selectedLabelReview.value = undefined;
   resultTab.value = openLabels ? "labels" : "inspection";
@@ -706,7 +712,7 @@ onBeforeUnmount(() => {
             v-if="
               ['SUCCEEDED', 'PARTIAL_FAILED', 'FAILED'].includes(
                 record.status
-              ) && can('iqc:result:view')
+              ) && (record.taskType === 'PIPELINE_EVALUATION' ? can('iqc:evaluation:report:view') : can('iqc:result:view'))
             "
             type="link"
             @click="showResults(record.id)"
