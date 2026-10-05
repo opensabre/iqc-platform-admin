@@ -1,0 +1,15 @@
+<script setup lang="ts">
+import type {SelectorCondition} from '@/api/selectors';
+const props=defineProps<{modelValue:SelectorCondition;disabled?:boolean;depth?:number}>();
+const emit=defineEmits<{(e:'update:modelValue',v:SelectorCondition):void}>();
+const fields=['id','employeeId','employeeGroupId','channel','businessType','businessNo','sourceType','externalId','fileName','status','asrStatus','customerLevel','complaint','durationSeconds','messageCount','errorCount','startedTime','endedTime','createdTime','tags','riskLevel'];
+const operators=['EQ','NE','GT','GE','LT','LE','IN','NOT_IN','EXISTS','CONTAINS'];
+function update(patch:object){emit('update:modelValue',{...props.modelValue,...patch} as SelectorCondition);}
+function children(next:SelectorCondition[]){if('junction' in props.modelValue)update({children:next});}
+function child(index:number,v:SelectorCondition){if('junction' in props.modelValue)children(props.modelValue.children.map((c,i)=>i===index?v:c));}
+function add(group=false){if('junction' in props.modelValue)children([...props.modelValue.children,group?{junction:'AND',children:[]}:{field:'channel',operator:'EQ',value:''}]);}
+function remove(index:number){if('junction' in props.modelValue)children(props.modelValue.children.filter((_,i)=>i!==index));}
+function value(raw:string){try{update({value:JSON.parse(raw)});}catch{update({value:raw});}}
+</script>
+<template><fieldset :disabled="disabled" class="condition"><template v-if="'junction' in modelValue"><a-space><a-select :value="modelValue.junction" :disabled="disabled" :options="[{value:'AND',label:'全部满足 AND'},{value:'OR',label:'任一满足 OR'}]" style="width:160px" @change="(v: string)=>update({junction:v})"/><a-button :disabled="disabled" @click="add(false)">添加条件</a-button><a-button :disabled="disabled||(depth||0)>=7" @click="add(true)">添加条件组</a-button></a-space><div v-for="(item,index) in modelValue.children" :key="index"><SelectorConditionEditor :model-value="item" :disabled="disabled" :depth="(depth||0)+1" @update:model-value="v=>child(index,v)"/><a-button size="small" danger :disabled="disabled" @click="remove(index)">删除</a-button></div><p v-if="!modelValue.children.length">空条件组不参与筛选。</p></template><template v-else><a-space wrap><a-select :value="modelValue.field" show-search :disabled="disabled" style="width:180px" :options="fields.map(value=>({value,label:value}))" @change="(v: string)=>update({field:v})"/><a-input :value="modelValue.field" :disabled="disabled" placeholder="或 business:KEY / label:ID:CODE" style="width:240px" @update:value="(v: string)=>update({field:v})"/><a-select :value="modelValue.operator" :disabled="disabled" :options="operators.map(value=>({value,label:value}))" style="width:110px" @change="(v: string)=>update({operator:v})"/><a-input v-if="modelValue.operator!=='EXISTS'" :value="typeof modelValue.value==='string'?modelValue.value:JSON.stringify(modelValue.value)" :disabled="disabled" placeholder='文本或 JSON 数组、数值、布尔值' style="width:240px" @update:value="value"/></a-space></template></fieldset></template>
+<style scoped>.condition{border:1px solid #ddd;padding:10px;margin:8px 0}.condition>div{padding-left:12px}</style>
