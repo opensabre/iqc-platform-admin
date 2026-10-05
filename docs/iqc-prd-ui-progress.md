@@ -62,3 +62,9 @@ Pipeline原始机器业务CSV：既有导出按钮及接口对Pipeline开放，�
 # 开发者 B 校验集成（2026-10-04）
 
 提取 B `af909ad` 的 `pipeline-execution-trace.ts` 源码校验：贡献分、否决汇总、待定结论及分数边界。B 的 CSV/复核页面功能由 A 现有实现覆盖，保留 A 的空业务项目保护。此次未新增或运行测试；`npm run build` 的 vue-tsc 与 Vite 成功，仍有既有大包提示。B 的测试结果只属于 B 分支，不作为本分支运行证明。报表与候选样本交付尚待适配集成。
+
+## 2026-10-05 I4 Selector 资产管理与任务引用
+
+沿用检测流水线入口和SelectorEditor，新增可复用SelectorAssetLibrary：分页目录、草稿创建/按修订更新、启停、不可变发布/历史、精确版本预览与选择。正式任务增加已发布Selector资产方式，只提交selectorId/versionNo，与内联定义/显式IDs互斥；原请求重试保持第一次提交内容不变。readonly/disabled与资源按钮分别控制，异步目录/历史/预览有代次保护，发布确认复核当前修订。
+
+资产导入比较JSON数字token与JavaScript往返十进制语义；不能往返的配置使用原始JSON编辑/预览，API用互斥definitionJson字符串精确解析，避免只改名称也损失抽样比例/条件数值。不增加依赖、路由或另一套条件编辑器。配套后端DDL V1.1.43、权限V20261004_13。构建结果以交接为准；没有新增或运行测试、浏览器/角色/模型验收、迁移或部署。Cron/预算及完整PRD继续。

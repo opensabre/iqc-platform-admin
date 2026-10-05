@@ -1,5 +1,5 @@
 import http from '@/api/http';
-import type {SelectorDefinition} from './selectors';
+import type {SelectorDefinition,SelectorAssetReference} from './selectors';
 import type {InspectionTask} from './tasks';
 export interface PublicationGatePolicy {schemaVersion:'iqc-publication-gate-v1';minimumRiskRecall:number;minimumOverallF1:number;minimumRegressionPass:number;minimumStructuredSuccess:number;maximumP95Ms:number;minimumSamples:number}
 export interface GateExecutionEvidence {taskId:string;executionId:string}
@@ -10,7 +10,7 @@ export interface AssetReference {id:string;versionNo:number}
 export interface PipelineNode {nodeId:string;type:'RULE'|'DLS'|'LLM';name:string;version:string;dependsOn:string[];inputMapping:Record<string,string>;config:{ruleReference?:AssetReference;findingReference?:AssetReference;agentReference?:AssetReference;inputScope:'MESSAGE'|'CONVERSATION';phase:'DIRECT'|'REVIEW'|'VERIFY';[key:string]:unknown};condition:{pointer:string;operator:'EXISTS'|'EQUALS'|'NOT_EQUALS'|'GREATER_OR_EQUAL'|'LESS_OR_EQUAL';value:unknown}|null;timeoutMs:number;retries:number;onError:'FAIL_PIPELINE'|'CONTINUE'|'MARK_REVIEW'|'FALLBACK';fallbackNodeId:string|null;outputSchema:Record<string,unknown>|null;enabled:boolean}
 export interface PipelineRelease {publicationGate?:PublicationGatePolicy;schemaVersion:'iqc-pipeline-release-v1';pipeline:{schemaVersion:'iqc-pipeline-v1';nodes:PipelineNode[]};fusion:{id:string;version:number;method:'PRIORITY'|'CONFIDENCE'|'VOTING'|'OVERRIDE';nodePriority:Record<string,number>;overrideNodeByCode:Record<string,string>;confidenceCalibrationId:string|null;calibratedNodeIds:string[]};scoring:{version:'iqc-score-v2';mode:'DEDUCTION'|'POINTS';baseScore:number;passingScore:number;items:Array<{itemCode:string;points:number;veto:boolean}>};items:Array<{itemCode:string;findingCode:string;hitMeaning:'VIOLATION'|'COMPLIANCE';appliesWhenFindingCode?:string|null}>}
 export interface PipelineAsset {id:string;code:string;name:string;draftRevision:number;draftConfigJson:string;activePublishedVersion:number|null;status:string}
-export interface PipelineTaskRequest {name:string;conversationIds?:string[];selector?:SelectorDefinition;requestId:string;expectedRevision?:number;versionNo?:number;concurrency?:number}
+export interface PipelineTaskRequest {name:string;conversationIds?:string[];selector?:SelectorDefinition;selectorAsset?:SelectorAssetReference;requestId:string;expectedRevision?:number;versionNo?:number;concurrency?:number}
 const path=(id:string)=>`/iqc/pipelines/${encodeURIComponent(id)}`;
 export async function getPipeline(id:string) {const {data}=await http.get<PipelineAsset>(path(id));return data;}
 export async function createPipeline(code:string,name:string,release:PipelineRelease) {const {data}=await http.post<PipelineAsset>('/iqc/pipelines',{code,name,release});return data;}
