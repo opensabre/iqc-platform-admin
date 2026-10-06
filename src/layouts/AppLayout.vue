@@ -29,6 +29,7 @@ const menuItems: MenuItem[] = [
     { key: "conversations-list", path: "/conversations/list", label: "会话列表", permission: "iqc:conversation:view" },
     { key: "conversations-upload", path: "/conversations/upload", label: "文本上传", permission: "iqc:conversation:view" },
   ] },
+  { key: "event-subscriptions", path: "/tasks/subscriptions", label: "事件订阅", icon: OrderedListOutlined, permission: "iqc:subscription:view" },
   { key: "periodic-schedules", path: "/tasks/schedules", label: "周期调度", icon: OrderedListOutlined, permission: "iqc:schedule:view" },
   { key: "tasks", path: "/tasks", label: "质检任务", icon: OrderedListOutlined, permission: "iqc:task:view" },
   { key: "labels", label: "标签管理", icon: TagsOutlined, children: [
@@ -62,6 +63,7 @@ const menuItems: MenuItem[] = [
 const iconMap: Record<string, unknown> = { audit: AuditOutlined, dashboard: BarChartOutlined, message: CommentOutlined, schedule: OrderedListOutlined, "file-search": CheckCircleOutlined, robot: ClusterOutlined, setting: SettingOutlined, book: FileTextOutlined, "file-text": FileTextOutlined };
 const routePaths = new Set(router.getRoutes().map((record) => `/${String(record.path).replace(/^\//, "")}`));
 const canonicalLabels: Record<string, string> = {
+  "/tasks/subscriptions": "事件订阅",
   "/tasks/schedules": "周期调度",
   "/evaluation/tasks": "固定数据集评测",
   "/evaluation/datasets": "评测数据集",
