@@ -208,6 +208,9 @@ function assetNames(items?: { name?: string; code?: string; versionNo?: number }
 }
 const { can } = usePermission();
 const statusMap: Record<string, { label: string; color: string }> = {
+  WAITING_INPUT: { label: "等待输入", color: "processing" },
+  TRIGGER_EXPIRED: { label: "触发已过期", color: "default" },
+  TRIGGER_CONFLICT: { label: "触发内容冲突", color: "error" },
   CREATED: { label: "待处理", color: "default" },
   QUEUED: { label: "排队中", color: "processing" },
   SCHEDULED: { label: "等待调度", color: "processing" },
@@ -222,6 +225,14 @@ const statusMap: Record<string, { label: string; color: string }> = {
   NO_DATA: { label: "无匹配数据", color: "default" },
   CANCELLED: { label: "已取消", color: "default" },
 };
+const statusOptions = computed(() => {
+  const options = [...taskStatuses.value];
+  for (const [value, presentation] of Object.entries(statusMap)) {
+    if (!options.some(item => item.value === value)) options.push({ value, label: presentation.label });
+  }
+  return options;
+});
+function triggerSourceLabel(value?: string) { return value === 'API' ? 'API 接入' : value === 'EVENT' ? '事件接入' : value || '—'; }
 function statusLabel(status: string) {
   return (
     taskStatuses.value.find((item) => item.value === status)?.label ||
@@ -273,7 +284,7 @@ async function refresh() {
 async function poll() {
   if (
     !tasks.value.some((item) =>
-      ["SCHEDULED", "MATERIALIZING", "QUEUED", "RUNNING", "PAUSE_REQUESTED", "CANCEL_REQUESTED"].includes(item.status)
+      ["WAITING_INPUT", "SCHEDULED", "MATERIALIZING", "QUEUED", "RUNNING", "PAUSE_REQUESTED", "CANCEL_REQUESTED"].includes(item.status)
     )
   )
     return;
@@ -639,7 +650,7 @@ onBeforeUnmount(() => {
       </a-form-item>
       <a-form-item label="状态">
         <a-select v-model:value="filters.status" allow-clear placeholder="全部状态" style="width: 140px">
-          <a-select-option v-for="item in taskStatuses" :key="item.value" :value="item.value">{{ item.label }}</a-select-option>
+          <a-select-option v-for="item in statusOptions" :key="item.value" :value="item.value">{{ item.label }}</a-select-option>
         </a-select>
       </a-form-item>
       <a-form-item label="任务类型">
@@ -681,6 +692,15 @@ onBeforeUnmount(() => {
           }}</a-tag></template
         ></a-table-column
       >
+      <a-table-column key="trigger" title="接入事件" :width="230">
+        <template #default="{ record }"><template v-if="record.triggerSource || record.triggerEventId">
+          <div>{{ triggerSourceLabel(record.triggerSource) }}</div>
+          <a-typography-text :ellipsis="{ tooltip: record.triggerEventId }">{{ record.triggerEventId || '—' }}</a-typography-text>
+          <div v-if="record.triggerError"><a-typography-text type="warning" :ellipsis="{ tooltip: record.triggerError }">{{ record.triggerError }}</a-typography-text></div>
+          <div v-else-if="record.status==='WAITING_INPUT'">等待接入会话</div>
+          <div v-if="record.triggerRetryNotBeforeUtc">最早重试 UTC：{{ record.triggerRetryNotBeforeUtc }}</div>
+        </template><span v-else>—</span></template>
+      </a-table-column>
       <a-table-column key="progress" title="进度" :width="220"
         ><template #default="{ record }"
           ><a-progress
@@ -741,7 +761,7 @@ onBeforeUnmount(() => {
             >恢复</a-button
           ><a-button
             v-if="
-              ['CREATED', 'QUEUED', 'RUNNING', 'PAUSE_REQUESTED', 'PAUSED'].includes(record.status) &&
+              ['WAITING_INPUT', 'CREATED', 'QUEUED', 'RUNNING', 'PAUSE_REQUESTED', 'PAUSED'].includes(record.status) &&
               can('iqc:task:cancel')
             "
             type="link"
@@ -749,7 +769,7 @@ onBeforeUnmount(() => {
             @click="cancel(record.id)"
             >取消</a-button
           ><a-button
-            v-if="['SUCCEEDED','PARTIAL_FAILED','FAILED','NO_DATA','CANCELLED'].includes(record.status) && can('iqc:task:delete')"
+            v-if="['SUCCEEDED','PARTIAL_FAILED','FAILED','NO_DATA','CANCELLED','TRIGGER_EXPIRED','TRIGGER_CONFLICT'].includes(record.status) && can('iqc:task:delete')"
             type="link" danger @click="removeTask(record)">删除</a-button
           ></template
         ></a-table-column
@@ -1070,7 +1090,7 @@ onBeforeUnmount(() => {
         ><a-descriptions-item label="任务类型">{{ taskTypeLabel(detail.taskType) }}</a-descriptions-item
         ><a-descriptions-item label="状态"
           ><a-tag :color="statusMap[detail.status]?.color">{{
-            statusMap[detail.status]?.label || detail.status
+            statusLabel(detail.status)
           }}</a-tag></a-descriptions-item
         ><a-descriptions-item label="会话/并发"
           >{{ conversationCount(detail) }} 个 /
@@ -1097,7 +1117,16 @@ onBeforeUnmount(() => {
         ><a-descriptions-item label="创建时间">{{
           detail.createdTime || "—"
         }}</a-descriptions-item></a-descriptions
-      ><a-divider orientation="left">创建时执行策略与 Agent 配置</a-divider
+      ><template v-if="detail.triggerSource || detail.triggerEventId">
+        <a-divider orientation="left">接入事件</a-divider><a-descriptions bordered :column="1">
+          <a-descriptions-item label="来源">{{ triggerSourceLabel(detail.triggerSource) }}</a-descriptions-item>
+          <a-descriptions-item label="事件 ID">{{ detail.triggerEventId || '—' }}</a-descriptions-item>
+          <a-descriptions-item v-if="detail.triggerError || detail.status==='WAITING_INPUT'" label="等待或未完成原因">{{ detail.triggerError || '等待接入会话' }}</a-descriptions-item>
+          <a-descriptions-item v-if="detail.triggerRetryNotBeforeUtc" label="最早重试 UTC">{{ detail.triggerRetryNotBeforeUtc }}</a-descriptions-item>
+          <a-descriptions-item v-if="detail.triggerPayloadHash" label="输入指纹">{{ detail.triggerPayloadHash }}</a-descriptions-item>
+          <a-descriptions-item v-if="detail.triggerRequestHash" label="请求指纹">{{ detail.triggerRequestHash }}</a-descriptions-item>
+        </a-descriptions>
+      </template><a-divider orientation="left">创建时执行策略与 Agent 配置</a-divider
       ><a-alert type="info" show-icon message="以下内容来自任务创建时的不可变快照，后续修改 Agent 不会影响这里。" class="snapshot-tip"/>
       <a-descriptions bordered :column="1">
         <a-descriptions-item label="Agent">{{ detailAgent?.name || "—" }}<span v-if="detailAgent?.code"> · {{ detailAgent.code }}</span></a-descriptions-item>

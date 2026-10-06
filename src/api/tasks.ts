@@ -75,6 +75,12 @@ export interface InspectionTask {
   failedMessages: number;
   attemptCount?: number;
   currentExecutionId?: string;
+  triggerSource?: string;
+  triggerEventId?: string;
+  triggerPayloadHash?: string;
+  triggerRequestHash?: string;
+  triggerError?: string;
+  triggerRetryNotBeforeUtc?: string;
   createdTime?: string;
 }
 export interface TaskExecutionSummary {
