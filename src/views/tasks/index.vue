@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import type {AutomaticRetryState} from '@/api/automatic-retry';
+import AutomaticRetryPanel from '@/components/AutomaticRetryPanel.vue';
 import TriggerAttemptHistory from '@/components/TriggerAttemptHistory.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { message, Modal } from "ant-design-vue";
@@ -78,6 +80,7 @@ const labelTree = ref<LabelTree>({ categories: [], groups: [], labels: [] });
 const labelCollections = ref<LabelCollection[]>([]);
 const detailOpen = ref(false);
 const detail = ref<InspectionTask>();
+function updateRetryDetail(value:AutomaticRetryState){if(!detail.value)return;detail.value={...detail.value,retryPolicyHash:value.policyHash??undefined,automaticRetryEnabled:value.enabled,retryNotBeforeUtc:value.nextRetryAtUtc??undefined,retryError:value.error??undefined};}
 const resultOpen = ref(false),
   conversationResultOpen = ref(false),
   resultLoading = ref(false);
@@ -1083,7 +1086,7 @@ onBeforeUnmount(() => {
   </a-modal>
   <a-drawer v-model:open="detailOpen" title="质检任务详情" width="min(820px, calc(100vw - 24px))"
     ><template v-if="detail"
-      ><TriggerAttemptHistory v-if="detailOpen && detail.triggerSource" kind="TASK" :parent-id="detail.id"/><a-divider orientation="left">任务概况</a-divider
+      ><TriggerAttemptHistory v-if="detailOpen && (detail.triggerSource || detail.retryPolicyHash)" kind="TASK" :parent-id="detail.id"/><AutomaticRetryPanel v-if="detailOpen&&detail.taskType==='PIPELINE'" :key="detail.id" :task="detail" @updated="updateRetryDetail"/><a-divider orientation="left">任务概况</a-divider
       ><a-descriptions bordered :column="1"
         ><a-descriptions-item label="任务名称">{{
           detail.name

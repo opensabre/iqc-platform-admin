@@ -75,6 +75,10 @@ export interface InspectionTask {
   failedMessages: number;
   attemptCount?: number;
   currentExecutionId?: string;
+  retryPolicyHash?: string;
+  automaticRetryEnabled?: boolean;
+  retryNotBeforeUtc?: string;
+  retryError?: string;
   triggerSource?: string;
   triggerEventId?: string;
   triggerPayloadHash?: string;

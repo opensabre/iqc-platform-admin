@@ -1,6 +1,7 @@
+import type {AutomaticRetryPolicy} from './automatic-retry';
 import http from './http';
 import type {InspectionTask,PageResult} from './tasks';
-export interface SubscriptionDefinition {schemaVersion:'iqc-event-subscription-v1';eventType:'ConversationCompleted'|'ASRCompleted';effectiveFrom:string;effectiveUntil:string|null;waitSeconds:number;concurrency:number;pipeline:{pipelineId:string;versionNo:number};selector?:{selectorId:string;versionNo:number}|null}
+export interface SubscriptionDefinition {retryPolicy?:AutomaticRetryPolicy|null;schemaVersion:'iqc-event-subscription-v1';eventType:'ConversationCompleted'|'ASRCompleted';effectiveFrom:string;effectiveUntil:string|null;waitSeconds:number;concurrency:number;pipeline:{pipelineId:string;versionNo:number};selector?:{selectorId:string;versionNo:number}|null}
 export interface EventSubscription {id:string;code:string;name:string;draftRevision:number;draftConfigJson:string;activeRevisionId:string|null;status:'ACTIVE'|'DISABLED';retryNotBeforeUtc:string|null;lastError:string|null;ownerGroupId:string|null}
 export interface SubscriptionVersion {id:string;subscriptionId:string;versionNo:number;sourceDraftRevision:number;snapshotJson:string;contentHash:string;createdTime?:string}
 const path=(id:string)=>`/iqc/event-subscriptions/${encodeURIComponent(id)}`;

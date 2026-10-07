@@ -1,6 +1,7 @@
+import type {AutomaticRetryPolicy} from './automatic-retry';
 import http from './http';
 import type {InspectionTask,PageResult} from './tasks';
-export interface PeriodicDefinition {schemaVersion:'iqc-periodic-definition-v1';cron:string;zoneId:string;effectiveFrom:string;effectiveUntil:string|null;misfirePolicy:'SKIP'|'FIRE_LATEST'|'CATCH_UP';maximumCatchUp:number;concurrency:number;pipeline:{pipelineId:string;versionNo:number};selector:{selectorId:string;versionNo:number}}
+export interface PeriodicDefinition {retryPolicy?:AutomaticRetryPolicy|null;schemaVersion:'iqc-periodic-definition-v1';cron:string;zoneId:string;effectiveFrom:string;effectiveUntil:string|null;misfirePolicy:'SKIP'|'FIRE_LATEST'|'CATCH_UP';maximumCatchUp:number;concurrency:number;pipeline:{pipelineId:string;versionNo:number};selector:{selectorId:string;versionNo:number}}
 export interface PeriodicSchedule {id:string;code:string;name:string;draftRevision:number;draftConfigJson:string;activeRevisionId:string|null;status:'ACTIVE'|'DISABLED';nextPlannedAtUtc:string|null;lastError:string|null;ownerGroupId:string|null}
 export interface PeriodicVersion {id:string;scheduleId:string;versionNo:number;sourceDraftRevision:number;snapshotJson:string;contentHash:string;createdTime?:string}
 const path=(id:string)=>`/iqc/periodic-schedules/${encodeURIComponent(id)}`;
