@@ -501,7 +501,7 @@ async function cancel(id: string) {
   Modal.confirm({
     title: "确认取消任务？",
     content:
-      "待处理、排队中或执行中的任务可以取消；执行中的任务会在当前消息完成后停止。",
+      "取消后停止后续执行和自动重试；执行中的任务在当前处理完成后停止，已失败的历史执行记录保留。",
     async onOk() {
       await cancelTask(id);
       message.success("任务已取消");
@@ -765,7 +765,7 @@ onBeforeUnmount(() => {
             >恢复</a-button
           ><a-button
             v-if="
-              ['WAITING_INPUT', 'CREATED', 'QUEUED', 'RUNNING', 'PAUSE_REQUESTED', 'PAUSED'].includes(record.status) &&
+              ['WAITING_INPUT', 'CREATED', 'QUEUED', 'RUNNING', 'PAUSE_REQUESTED', 'PAUSED', 'FAILED', 'PARTIAL_FAILED'].includes(record.status) &&
               can('iqc:task:cancel')
             "
             type="link"
