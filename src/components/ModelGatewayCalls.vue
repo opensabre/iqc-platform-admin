@@ -1,10 +1,26 @@
 <script setup lang="ts">
 import {onBeforeUnmount,ref,watch} from 'vue';
+import {message} from 'ant-design-vue';
 import {usePermission} from '@/composables/permission';
-import {listModelCalls,type ModelCall,type ModelCallStatus} from '@/api/model-gateway';
+import {listModelCalls,getModelCapacity,configureModelCapacity,releaseModelCapacity,type ModelCall,type ModelCallStatus,type ModelCapacity,type CapacityReleaseReason} from '@/api/model-gateway';
 const {can}=usePermission();
 const rows=ref<ModelCall[]>([]),loading=ref(false),error=ref(''),current=ref(1),total=ref(0),status=ref<ModelCallStatus>();
-let generation=0;
+let generation=0,capacityGeneration=0;
+const capacity=ref<ModelCapacity>(),capacityOpen=ref(false),capacityLoading=ref(false),limit=ref(0),saving=ref(false);
+const releaseCall=ref<ModelCall>(),releaseOpen=ref(false),reason=ref<CapacityReleaseReason>('REMOTE_COMPLETED'),evidence=ref(''),remoteStopped=ref(false);
+async function inspectCapacity(row:ModelCall){const ticket=++capacityGeneration;capacity.value=undefined;capacityOpen.value=true;capacityLoading.value=true;
+  try{const result=await getModelCapacity(row.modelKey);if(ticket===capacityGeneration){capacity.value=result;limit.value=result.concurrencyLimit;}}
+  catch{if(ticket===capacityGeneration)message.error('模型容量加载失败');}finally{if(ticket===capacityGeneration)capacityLoading.value=false;}}
+async function saveCapacity(){if(!capacity.value||!can('iqc:model-gateway:capacity:configure'))return;
+  if(!Number.isInteger(limit.value)||limit.value<0||limit.value>10000){message.warning('并发上限需为0到10000的整数');return;}
+  saving.value=true;try{const result=await configureModelCapacity(capacity.value.modelKey,limit.value,capacity.value.version);capacity.value=result.after;message.success('并发上限已保存');}
+  catch{message.error('保存失败，配置可能已变化，请关闭后重新查看');}finally{saving.value=false;}}
+function beginRelease(row:ModelCall){releaseCall.value=row;reason.value='REMOTE_COMPLETED';evidence.value='';remoteStopped.value=false;releaseOpen.value=true;}
+async function saveRelease(){if(!releaseCall.value||!can('iqc:model-gateway:calls:release'))return;
+  if(!remoteStopped.value||! /^[A-Za-z0-9:_./-]{1,128}$/.test(evidence.value)){message.warning('请核对远端停止并填写有效凭据编号');return;}
+  saving.value=true;try{await releaseModelCapacity(releaseCall.value.callId,releaseCall.value.modelKey,reason.value,evidence.value,remoteStopped.value);releaseOpen.value=false;message.success('占用已恢复，原调用状态保留');await load();}
+  catch{message.error('恢复失败，请刷新记录后核对');}finally{saving.value=false;}}
+
 const states={RESERVED:'响应未确认',CONFIRMED:'响应已确认',UNKNOWN:'请求结果未知'};
 const usageStates={COMPLETE:'完整用量',PARTIAL:'部分用量',MISSING:'用量未知',INVALID:'用量无效'};
 async function load(page=current.value){
@@ -16,17 +32,24 @@ async function load(page=current.value){
   finally{if(ticket===generation)loading.value=false;}
 }
 watch([status,()=>can('iqc:model-gateway:calls:view')],()=>{current.value=1;total.value=0;void load(1);},{immediate:true});
-onBeforeUnmount(()=>{generation++;});
+onBeforeUnmount(()=>{generation++;capacityGeneration++;});
 </script>
 <template>
 <section v-if="can('iqc:model-gateway:calls:view')">
 <a-space><h3>模型调用记录</h3><a-select v-model:value="status" allow-clear placeholder="全部状态" style="width:160px" :options="[{value:'RESERVED',label:'响应未确认'},{value:'CONFIRMED',label:'响应已确认'},{value:'UNKNOWN',label:'请求结果未知'}]"/><a-button :disabled="loading" @click="load()">刷新</a-button></a-space>
 <a-alert type="info" message="这里展示全局模型调用。响应已确认不代表质检成功；用量缺失显示未知。未确认请求继续占用并发额度，避免超限。"/>
 <a-alert v-if="error" type="error" :message="error"/>
-<a-table :data-source="rows" :loading="loading" row-key="callId" :pagination="false" :scroll="{x:1600}" :columns="[{title:'开始 UTC',dataIndex:'reservedAtUtc'},{title:'完成 UTC',dataIndex:'settledAtUtc'},{title:'响应状态',key:'status'},{title:'用量状态',key:'usageStatus'},{title:'输入 Token',key:'inputTokens'},{title:'输出 Token',key:'outputTokens'},{title:'总 Token',key:'totalTokens'},{title:'响应模型',dataIndex:'responseModelId'},{title:'规则',dataIndex:'ruleId'},{title:'逻辑记录',dataIndex:'logicalRecordId'},{title:'模型键',dataIndex:'modelKey'},{title:'错误类型',dataIndex:'errorType'}]">
-<template #bodyCell="{column,record}"><template v-if="column.key==='status'"><a-tag :color="record.status==='CONFIRMED'?'blue':'orange'">{{states[record.status as ModelCallStatus]}}</a-tag></template><template v-else-if="column.key==='usageStatus'">{{record.usageStatus?usageStates[record.usageStatus as keyof typeof usageStates]:'未知'}}</template><template v-else-if="['inputTokens','outputTokens','totalTokens'].includes(column.key)">{{record[column.key]??'未知'}}</template></template>
+<a-table :data-source="rows" :loading="loading" row-key="callId" :pagination="false" :scroll="{x:1600}" :columns="[{title:'开始 UTC',dataIndex:'reservedAtUtc'},{title:'完成 UTC',dataIndex:'settledAtUtc'},{title:'响应状态',key:'status'},{title:'用量状态',key:'usageStatus'},{title:'输入 Token',key:'inputTokens'},{title:'输出 Token',key:'outputTokens'},{title:'总 Token',key:'totalTokens'},{title:'响应模型',dataIndex:'responseModelId'},{title:'规则',dataIndex:'ruleId'},{title:'逻辑记录',dataIndex:'logicalRecordId'},{title:'模型键',dataIndex:'modelKey'},{title:'错误类型',dataIndex:'errorType'},{title:'容量恢复',key:'released'},{title:'操作',key:'actions',fixed:'right',width:180}]">
+<template #bodyCell="{column,record}"><template v-if="column.key==='actions'"><a-button v-if="can('iqc:model-gateway:capacity:view')" type="link" @click="inspectCapacity(record)">容量</a-button><a-button v-if="can('iqc:model-gateway:calls:release')&&record.status!=='CONFIRMED'&&!record.capacityReleasedAtUtc" type="link" @click="beginRelease(record)">核对恢复</a-button></template><template v-else-if="column.key==='released'">{{record.capacityReleasedAtUtc?`已恢复：${record.capacityReleasedBy}`:'—'}}</template><template v-else-if="column.key==='status'"><a-tag :color="record.status==='CONFIRMED'?'blue':'orange'">{{states[record.status as ModelCallStatus]}}</a-tag></template><template v-else-if="column.key==='usageStatus'">{{record.usageStatus?usageStates[record.usageStatus as keyof typeof usageStates]:'未知'}}</template><template v-else-if="['inputTokens','outputTokens','totalTokens'].includes(column.key)">{{record[column.key]??'未知'}}</template></template>
 </a-table>
 <a-pagination :current="current" :total="total" :page-size="20" :disabled="loading" @change="load"/>
+<a-modal v-model:open="capacityOpen" title="模型并发容量" :footer="null" @cancel="capacityGeneration++">
+<a-spin :spinning="capacityLoading"><template v-if="capacity"><p>当前占用：{{capacity.occupied}} · 配置版本：{{capacity.version}}</p><p>{{capacity.managed?'管理员配置生效':'沿用部署初始化配置'}}</p><a-form layout="vertical"><a-form-item label="并发上限（0表示不限）"><a-input-number v-model:value="limit" :min="0" :max="10000" :precision="0" :disabled="!can('iqc:model-gateway:capacity:configure')"/></a-form-item></a-form><p>降低到当前占用以下会阻止新调用，已有调用继续执行。</p><a-button v-if="can('iqc:model-gateway:capacity:configure')" type="primary" :loading="saving" @click="saveCapacity">保存并发上限</a-button></template></a-spin>
+</a-modal>
+<a-modal v-model:open="releaseOpen" title="核对并恢复占用" :confirm-loading="saving" @ok="saveRelease">
+<a-alert type="warning" message="请先核对原发起进程不会继续发送请求，且远端已完成、取消或请求未发送。恢复只释放一次并发占用，保留原未知结果和用量；不能仅凭等待时长判断远端已停止。"/>
+<a-form layout="vertical"><a-form-item label="核对结论"><a-select v-model:value="reason" :options="[{value:'REMOTE_COMPLETED',label:'远端已完成'},{value:'REMOTE_CANCELLED',label:'远端已取消'},{value:'REQUEST_NOT_SENT',label:'确认请求未发送'}]"/></a-form-item><a-form-item label="核对凭据编号"><a-input v-model:value="evidence" :maxlength="128" placeholder="工单、日志或核对记录编号"/></a-form-item><a-checkbox v-model:checked="remoteStopped">我已核对原调用不会再发送或在远端继续执行</a-checkbox></a-form>
+</a-modal>
 </section>
 </template>
 <style scoped>section{margin-top:24px}h3{margin:0}</style>
