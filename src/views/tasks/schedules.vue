@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TriggerAttemptHistory from '@/components/TriggerAttemptHistory.vue';
 import {computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
 import {message,Modal} from 'ant-design-vue';
 import {usePermission} from '@/composables/permission';
@@ -45,6 +46,6 @@ onMounted(()=>{void refresh();void catalogs();});onBeforeUnmount(()=>{++generati
 <a-form-item label="已发布选择器"><SelectorAssetLibrary v-if="writable" :disabled="busy" @select="chooseSelector"/><p>{{selectorLabel||'尚未选择'}}</p></a-form-item></a-form>
 <a-space><a-button v-if="writable" type="primary" :disabled="busy" @click="save">保存草稿</a-button><a-button v-if="can('iqc:schedule:publish')&&selected" :disabled="busy||dirty" @click="publish">发布修订</a-button><a-button v-if="can('iqc:schedule:preview')" :disabled="busy" @click="preview">预览计划 UTC</a-button><a-button v-if="selected" :disabled="busy" @click="reload">重新加载</a-button></a-space><a-list :data-source="times"><template #renderItem="{item}"><a-list-item>{{item}}</a-list-item></template></a-list>
 <a-alert v-if="detailError" type="warning" :message="detailError"/><template v-if="selected"><a-button :disabled="busy" @click="details(instancePage)">刷新版本与实例</a-button><h3 v-if="can('iqc:schedule:versions:view')">不可变版本</h3><a-collapse v-if="can('iqc:schedule:versions:view')"><a-collapse-panel v-for="v in history" :key="v.id" :header="`v${v.versionNo} · 修订 ${v.sourceDraftRevision} · ${v.contentHash}`"><pre>{{v.snapshotJson}}</pre></a-collapse-panel></a-collapse><h3 v-if="can('iqc:schedule:instances:view')">周期实例</h3><a-table v-if="can('iqc:schedule:instances:view')" :data-source="instances" row-key="id" :pagination="false" :columns="[{title:'任务',key:'task'},{title:'状态',dataIndex:'status'},{title:'当前 EID',dataIndex:'currentExecutionId'},{title:'计划时间',dataIndex:'scheduledTime'}]"><template #bodyCell="{column,record}"><template v-if="column.key==='task'"><router-link v-if="can('iqc:task:view')" :to="{path:'/tasks',query:{taskId:record.id}}">{{record.name}}</router-link><span v-else>{{record.name}} · {{record.id}}</span></template></template></a-table><a-pagination v-if="can('iqc:schedule:instances:view')" :current="instancePage" :total="instanceTotal" :page-size="20" :disabled="busy" @change="details"/></template>
-</a-drawer></div>
+<TriggerAttemptHistory v-if="selected && open" kind="PERIODIC" :parent-id="selected.id"/></a-drawer></div>
 </template>
 <style scoped>.schedules{padding:20px}pre{white-space:pre-wrap;overflow-wrap:anywhere}h3{margin-top:20px}</style>

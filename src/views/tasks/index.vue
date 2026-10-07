@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import TriggerAttemptHistory from '@/components/TriggerAttemptHistory.vue';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { message, Modal } from "ant-design-vue";
 import { useRouter } from "vue-router";
@@ -1082,7 +1083,7 @@ onBeforeUnmount(() => {
   </a-modal>
   <a-drawer v-model:open="detailOpen" title="质检任务详情" width="min(820px, calc(100vw - 24px))"
     ><template v-if="detail"
-      ><a-divider orientation="left">任务概况</a-divider
+      ><TriggerAttemptHistory v-if="detailOpen && detail.triggerSource" kind="TASK" :parent-id="detail.id"/><a-divider orientation="left">任务概况</a-divider
       ><a-descriptions bordered :column="1"
         ><a-descriptions-item label="任务名称">{{
           detail.name
