@@ -2,10 +2,13 @@ import http from './http';
 import type {PageResult} from './tasks';
 export type ModelCallStatus='RESERVED'|'CONFIRMED'|'UNKNOWN';
 export interface ModelCall {callId:string;modelKey:string;logicalRecordId:string|null;ruleId:string|null;owner:string|null;status:ModelCallStatus;reservedAtUtc:string;settledAtUtc:string|null;inputTokens:string|null;outputTokens:string|null;totalTokens:string|null;responseModelId:string|null;usageStatus:'COMPLETE'|'PARTIAL'|'MISSING'|'INVALID'|null;errorType:string|null;capacityReleasedAtUtc:string|null;capacityReleasedBy:string|null;capacityReleaseReason:string|null;capacityReleaseEvidence:string|null;taskId:string|null;executionId:string|null;nodeId:string|null;runIndex:number|null;conversationId:string|null;modelProfileId:string|null;modelProfileVersion:number|null;pricingHash:string|null;pricingCurrency:string|null;calculatedCost:string|null;costStatus:string|null;requestedModelName:string|null;cacheReadInputTokens:string|null;cacheWriteInputTokens:string|null}
-export const listModelCalls=(status:ModelCallStatus|undefined,current=1,size=20)=>http.get<PageResult<ModelCall>>('/iqc/model-gateway/calls',{params:{status,current,size}}).then(r=>r.data);
+export interface CurrencyCost {currency:string|null;callCount:string;knownCount:string;unknownCount:string;knownSubtotal:string|null}
+export interface CostSummary {callCount:string;knownCount:string;unknownCount:string;currencies:CurrencyCost[]}
+export interface ModelCallPage extends PageResult<ModelCall> {costSummary:CostSummary}
+export const listModelCalls=(status:ModelCallStatus|undefined,current=1,size=20)=>http.get<ModelCallPage>('/iqc/model-gateway/calls',{params:{status,current,size}}).then(r=>r.data);
 export interface ModelCapacity {modelKey:string;occupied:string;concurrencyLimit:number;managed:boolean;version:string}
 export type CapacityReleaseReason='REMOTE_COMPLETED'|'REMOTE_CANCELLED'|'REQUEST_NOT_SENT';
 export const getModelCapacity=(modelKey:string)=>http.get<ModelCapacity>(`/iqc/model-gateway/capacity/${modelKey}`).then(r=>r.data);
 export const configureModelCapacity=(modelKey:string,concurrencyLimit:number,expectedVersion:string)=>http.put<{before:ModelCapacity;after:ModelCapacity}>(`/iqc/model-gateway/capacity/${modelKey}`,{concurrencyLimit,expectedVersion}).then(r=>r.data);
 export const releaseModelCapacity=(callId:string,modelKey:string,reason:CapacityReleaseReason,evidence:string,remoteStopped:boolean)=>http.post<ModelCapacity>(`/iqc/model-gateway/calls/${callId}/capacity-release`,{modelKey,reason,evidence,remoteStopped}).then(r=>r.data);
-export const listTaskModelCalls=(taskId:string,executionId:string|undefined,status:ModelCallStatus|undefined,current=1,size=20)=>http.get<PageResult<ModelCall>>(`/iqc/tasks/${taskId}/model-calls`,{params:{executionId,status,current,size}}).then(r=>r.data);
+export const listTaskModelCalls=(taskId:string,executionId:string|undefined,status:ModelCallStatus|undefined,current=1,size=20)=>http.get<ModelCallPage>(`/iqc/tasks/${taskId}/model-calls`,{params:{executionId,status,current,size}}).then(r=>r.data);
