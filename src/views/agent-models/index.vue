@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import ModelGatewayCalls from "@/components/ModelGatewayCalls.vue";
 import { Modal, message } from "ant-design-vue";
 import { createModelProfile, disableModelProfile, enableModelProfile, listModelProfiles, testModelProfile, updateModelProfile, type IqcModelProfile, type IqcModelProfileRequest } from "@/api/config";
 import { getCachedDictionaries, type DictionaryItem } from "@/api/dictionaries";
@@ -40,4 +41,5 @@ onMounted(()=>{void Promise.all([refresh(),loadDictionaries()]);});
     <a-form-item label="Endpoint"><a-input v-model:value="form.endpoint" placeholder="例如 https://api.deepseek.com"/><template #extra>填写模型服务的基础地址，系统会自动拼接 /chat/completions；不要填写完整接口路径。DeepSeek：<code>https://api.deepseek.com</code>；OpenAI：<code>https://api.openai.com/v1</code>。</template></a-form-item><a-form-item label="API Key"><a-input v-model:value="form.secretRef" type="password" placeholder="请输入模型服务商 API Key"/><template #extra>API Key 会加密保存，列表不会显示明文；编辑时留空表示保持原值。</template></a-form-item>
     <a-row :gutter="16"><a-col :span="8"><a-form-item label="温度"><a-input-number v-model:value="form.temperature" :min="0" :max="2" :step="0.1" style="width:100%"/></a-form-item></a-col><a-col :span="8"><a-form-item label="超时秒数"><a-input-number v-model:value="form.timeoutSeconds" :min="1" :max="600" style="width:100%"/></a-form-item></a-col><a-col :span="8"><a-form-item label="重试次数"><a-input-number v-model:value="form.maxRetries" :min="0" :max="5" style="width:100%"/></a-form-item></a-col></a-row>
   </a-form></a-modal>
+  <ModelGatewayCalls/>
 </template>
