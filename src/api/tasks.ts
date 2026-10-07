@@ -70,6 +70,8 @@ export interface InspectionTask {
   autoExpandPrompt?: string;
   queuePriority?: number;
   status: string;
+  modelBudgetWaitCode?:string|null;
+  modelBudgetWaitKey?:string|null;
   totalMessages: number;
   processedMessages: number;
   failedMessages: number;

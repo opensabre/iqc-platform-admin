@@ -238,6 +238,7 @@ const statusOptions = computed(() => {
   return options;
 });
 function triggerSourceLabel(value?: string) { return value === 'API' ? 'API 接入' : value === 'EVENT' ? '事件接入' : value || '—'; }
+function budgetWaitReason(code?:string|null){const reasons:Record<string,string>={MODEL_TOKEN_BUDGET_EXHAUSTED:'Token预算不足',MODEL_COST_BUDGET_EXHAUSTED:'金额预算不足',MODEL_BUDGET_QUARANTINED:'模型预算核定范围失效，需处理隔离',MODEL_BUDGET_BOUND_UNVERIFIED:'上下文、部署或输出限制尚未核定',MODEL_COST_BUDGET_PRICE_UNVERIFIED:'模型价格尚未核定'};return code?reasons[code]??'预算条件需管理员核对':'预算条件需管理员核对';}
 function statusLabel(status: string) {
   return (
     taskStatuses.value.find((item) => item.value === status)?.label ||
@@ -693,7 +694,7 @@ onBeforeUnmount(() => {
       <a-table-column key="status" title="状态" :width="120"
         ><template #default="{ record }"
           ><a-tag :color="statusMap[record.status]?.color">{{
-            statusLabel(record.status)
+            record.status==='PAUSED'&&record.modelBudgetWaitCode?'预算等待':statusLabel(record.status)
           }}</a-tag></template
         ></a-table-column
       >
@@ -1087,7 +1088,7 @@ onBeforeUnmount(() => {
   </a-modal>
   <a-drawer v-model:open="detailOpen" title="质检任务详情" width="min(820px, calc(100vw - 24px))"
     ><template v-if="detail"
-      ><ModelGatewayCalls v-if="detailOpen" :key="`model-calls:${detail.id}`" :task-id="detail.id"/><TriggerAttemptHistory v-if="detailOpen && (detail.triggerSource || detail.retryPolicyHash)" kind="TASK" :parent-id="detail.id"/><AutomaticRetryPanel v-if="detailOpen&&detail.taskType==='PIPELINE'" :key="detail.id" :task="detail" @updated="updateRetryDetail"/><a-divider orientation="left">任务概况</a-divider
+      ><a-alert v-if="detail.status==='PAUSED'&&detail.modelBudgetWaitCode" type="warning" message="任务因模型预算等待而暂停。请管理员核对额度或核定声明后使用原恢复操作；保留当前执行轮次和已完成工作项，不增加重试轮次。" :description="`原因：${budgetWaitReason(detail.modelBudgetWaitCode)}`" style="margin-bottom:16px"/><ModelGatewayCalls v-if="detailOpen" :key="`model-calls:${detail.id}`" :task-id="detail.id"/><TriggerAttemptHistory v-if="detailOpen && (detail.triggerSource || detail.retryPolicyHash)" kind="TASK" :parent-id="detail.id"/><AutomaticRetryPanel v-if="detailOpen&&detail.taskType==='PIPELINE'" :key="detail.id" :task="detail" @updated="updateRetryDetail"/><a-divider orientation="left">任务概况</a-divider
       ><a-descriptions bordered :column="1"
         ><a-descriptions-item label="任务名称">{{
           detail.name
@@ -1095,7 +1096,7 @@ onBeforeUnmount(() => {
         ><a-descriptions-item label="任务类型">{{ taskTypeLabel(detail.taskType) }}</a-descriptions-item
         ><a-descriptions-item label="状态"
           ><a-tag :color="statusMap[detail.status]?.color">{{
-            statusLabel(detail.status)
+            detail.status==='PAUSED'&&detail.modelBudgetWaitCode?'预算等待':statusLabel(detail.status)
           }}</a-tag></a-descriptions-item
         ><a-descriptions-item label="会话/并发"
           >{{ conversationCount(detail) }} 个 /
