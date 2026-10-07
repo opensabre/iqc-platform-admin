@@ -8,16 +8,25 @@ import { usePermission } from "@/composables/permission";
 
 const profiles=ref<IqcModelProfile[]>([]); const loading=ref(false); const saving=ref(false); const modalOpen=ref(false); const selected=ref<IqcModelProfile>();
 const testingId=ref<string>();
+const pricingEnabled=ref(false),pricingCurrency=ref('CNY'),inputPrice=ref(''),outputPrice=ref('');
+function loadPricing(source?:string|null){pricingEnabled.value=!!source;pricingCurrency.value='CNY';inputPrice.value='';outputPrice.value='';
+  if(source)try{const value=JSON.parse(source);pricingCurrency.value=value.currency;inputPrice.value=value.inputPerMillion;outputPrice.value=value.outputPerMillion;}
+  catch{message.warning('价格配置无法解析，请重新填写价格');}}
+
 const providers=ref<DictionaryItem[]>([{value:"SPRING_AI",label:"Spring AI / OpenAI 兼容"},{value:"OPENAI",label:"OpenAI"},{value:"DASHSCOPE",label:"阿里云百炼"},{value:"OLLAMA",label:"Ollama 本地模型"}]);
-const emptyForm=():IqcModelProfileRequest=>({name:"",code:"",description:"",provider:"SPRING_AI",modelName:"",endpoint:"",secretRef:"",temperature:0.1,timeoutSeconds:60,maxRetries:0}); const form=ref(emptyForm()); const {can}=usePermission();
+const emptyForm=():IqcModelProfileRequest=>({name:"",code:"",description:"",provider:"SPRING_AI",modelName:"",endpoint:"",secretRef:"",temperature:0.1,timeoutSeconds:60,maxRetries:0,pricingJson:""}); const form=ref(emptyForm()); const {can}=usePermission();
 async function refresh(){loading.value=true;try{profiles.value=await listModelProfiles();}catch{message.error("模型配置加载失败");}finally{loading.value=false;}}
 async function loadDictionaries(){try{const data=await getCachedDictionaries(["iqc_model_provider"]);if(data.iqc_model_provider?.length)providers.value=data.iqc_model_provider;}catch{/* 使用本地兜底。 */}}
-function createNew(){selected.value=undefined;form.value=emptyForm();modalOpen.value=true;}
-function edit(item:IqcModelProfile){selected.value=item;form.value={name:item.name,code:item.code,description:item.description||"",provider:item.provider,modelName:item.modelName,endpoint:item.endpoint||"",secretRef:"",temperature:item.temperature,timeoutSeconds:item.timeoutSeconds,maxRetries:item.maxRetries};modalOpen.value=true;}
+function createNew(){loadPricing();selected.value=undefined;form.value=emptyForm();modalOpen.value=true;}
+function edit(item:IqcModelProfile){loadPricing(item.pricingJson);selected.value=item;form.value={name:item.name,code:item.code,description:item.description||"",provider:item.provider,modelName:item.modelName,endpoint:item.endpoint||"",secretRef:"",temperature:item.temperature,timeoutSeconds:item.timeoutSeconds,maxRetries:item.maxRetries,pricingJson:item.pricingJson??""};modalOpen.value=true;}
 async function save(){
   if(!form.value.name||!form.value.code||!form.value.modelName){message.warning("请填写名称、编码和模型名称");return;}
   if(!/^[A-Z][A-Z0-9_]{1,63}$/.test(form.value.code)){message.warning("编码必须以大写字母开头，仅支持大写字母、数字和下划线");return;}
   if(!selected.value&&form.value.provider!=="OLLAMA"&&!form.value.secretRef){message.warning("非本地模型必须填写 API Key");return;}
+  if(pricingEnabled.value){
+    if(!/^[A-Z]{3}$/.test(pricingCurrency.value)||![inputPrice.value,outputPrice.value].every(value=>/^(?:0|[1-9][0-9]{0,6})(?:\.[0-9]{1,12})?$/.test(value))){message.warning('请填写有效币种及精确非负单价，最多12位小数');return;}
+    form.value.pricingJson=JSON.stringify({schemaVersion:'iqc-model-flat-pricing-v1',currency:pricingCurrency.value,inputPerMillion:inputPrice.value,outputPerMillion:outputPrice.value});
+  }else form.value.pricingJson='';
   saving.value=true;
   try{
     if(selected.value)await updateModelProfile(selected.value.id,form.value);else await createModelProfile(form.value);
@@ -40,6 +49,9 @@ onMounted(()=>{void Promise.all([refresh(),loadDictionaries()]);});
     <a-row :gutter="16"><a-col :span="12"><a-form-item label="供应商" required><a-select v-model:value="form.provider"><a-select-option v-for="item in providers" :key="item.value" :value="item.value">{{item.label}}</a-select-option></a-select></a-form-item></a-col><a-col :span="12"><a-form-item label="模型名称" required><a-input v-model:value="form.modelName" placeholder="例如 qwen-plus"/></a-form-item></a-col></a-row>
     <a-form-item label="Endpoint"><a-input v-model:value="form.endpoint" placeholder="例如 https://api.deepseek.com"/><template #extra>填写模型服务的基础地址，系统会自动拼接 /chat/completions；不要填写完整接口路径。DeepSeek：<code>https://api.deepseek.com</code>；OpenAI：<code>https://api.openai.com/v1</code>。</template></a-form-item><a-form-item label="API Key"><a-input v-model:value="form.secretRef" type="password" placeholder="请输入模型服务商 API Key"/><template #extra>API Key 会加密保存，列表不会显示明文；编辑时留空表示保持原值。</template></a-form-item>
     <a-row :gutter="16"><a-col :span="8"><a-form-item label="温度"><a-input-number v-model:value="form.temperature" :min="0" :max="2" :step="0.1" style="width:100%"/></a-form-item></a-col><a-col :span="8"><a-form-item label="超时秒数"><a-input-number v-model:value="form.timeoutSeconds" :min="1" :max="600" style="width:100%"/></a-form-item></a-col><a-col :span="8"><a-form-item label="重试次数"><a-input-number v-model:value="form.maxRetries" :min="0" :max="5" style="width:100%"/></a-form-item></a-col></a-row>
+  <a-form-item label="配置价格"><a-switch v-model:checked="pricingEnabled"/><template #extra>关闭将清除当前价格；已发布版本保留原价格。</template></a-form-item>
+  <a-row v-if="pricingEnabled" :gutter="16"><a-col :span="8"><a-form-item label="币种"><a-input v-model:value="pricingCurrency" :maxlength="3" placeholder="CNY / USD"/></a-form-item></a-col><a-col :span="8"><a-form-item label="输入单价 / 百万 Token"><a-input v-model:value="inputPrice" placeholder="精确十进制单价"/></a-form-item></a-col><a-col :span="8"><a-form-item label="输出单价 / 百万 Token"><a-input v-model:value="outputPrice" placeholder="精确十进制单价"/></a-form-item></a-col></a-row>
+  <p v-if="pricingEnabled">请填写供应商确认的统一输入和输出单价。若包含缓存折扣等差异计费，暂不使用此统一价格计算实际费用。价格会随发布版本保存；成本预算尚未启用。</p>
   </a-form></a-modal>
   <ModelGatewayCalls/>
 </template>
