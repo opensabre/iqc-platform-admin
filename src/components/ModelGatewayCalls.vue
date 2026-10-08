@@ -2,7 +2,7 @@
 import {computed,onBeforeUnmount,ref,watch} from 'vue';
 import {message} from 'ant-design-vue';
 import {usePermission} from '@/composables/permission';
-import {listModelCalls,listTaskModelCalls,getModelCapacity,configureModelCapacity,releaseModelCapacity,reconcileModelBudget,recoverModelBudget,type ModelCall,type ModelCallStatus,type ModelCapacity,type CapacityReleaseReason,type CostSummary,type BudgetPolicy} from '@/api/model-gateway';
+import {listModelCalls,listTaskModelCalls,getModelCapacity,configureModelCapacity,releaseModelCapacity,reconcileModelBudget,recoverModelBudget,getModelBudget,configureProfileBudget,type ModelBudgetSnapshot,type ModelCall,type ModelCallStatus,type ModelCapacity,type CapacityReleaseReason,type CostSummary,type BudgetPolicy} from '@/api/model-gateway';
 const props=defineProps<{taskId?:string;executionId?:string}>();
 const {can}=usePermission();
 const authorized=computed(()=>props.taskId?can('iqc:task:model-calls:view'):can('iqc:model-gateway:calls:view'));
@@ -10,25 +10,34 @@ const rows=ref<ModelCall[]>([]),loading=ref(false),error=ref(''),current=ref(1),
 const summary=ref<CostSummary>();
 let generation=0,capacityGeneration=0;
 const capacity=ref<ModelCapacity>(),capacityOpen=ref(false),capacityLoading=ref(false),limit=ref(0),saving=ref(false);
-const budgetSource=ref<ModelCall>(),editBudget=ref(false),tokenLimit=ref(''),costLimit=ref(''),budgetCurrency=ref(''),window=ref(0),deployment=ref(''),parameter=ref('MAX_TOKENS'),priceHash=ref<string|null>(null),budgetEvidence=ref(''),contractVerified=ref(false);
+const profileBudget=ref<ModelBudgetSnapshot>();
+const canConfigureBudget=computed(()=>profileBudget.value?can('iqc:model:budget:configure'):can('iqc:model-gateway:capacity:configure'));
+const budgetSource=ref<Pick<ModelCall,'pricingHash'|'pricingCurrency'|'modelProfileVersion'>>(),editBudget=ref(false),tokenLimit=ref(''),costLimit=ref(''),budgetCurrency=ref(''),window=ref(0),deployment=ref(''),parameter=ref('MAX_TOKENS'),priceHash=ref<string|null>(null),budgetEvidence=ref(''),contractVerified=ref(false);
 const recoveringBudget=ref(false);
 function beginBudgetRecovery(){if(saving.value||!capacity.value||!can('iqc:model-gateway:budget:recover'))return;recoveringBudget.value=true;editBudget.value=true;contractVerified.value=false;budgetEvidence.value='';}
 function bindSourcePrice(){priceHash.value=budgetSource.value?.pricingHash??null;budgetCurrency.value=budgetSource.value?.pricingCurrency??'';}
 const releaseCall=ref<ModelCall>(),releaseOpen=ref(false),reason=ref<CapacityReleaseReason>('REMOTE_COMPLETED'),evidence=ref(''),remoteStopped=ref(false);
-async function inspectCapacity(row:ModelCall){const ticket=++capacityGeneration;capacity.value=undefined;capacityOpen.value=true;capacityLoading.value=true;budgetSource.value=row;recoveringBudget.value=false;editBudget.value=false;contractVerified.value=false;
+async function inspectCapacity(row:ModelCall){const ticket=++capacityGeneration;capacity.value=undefined;capacityOpen.value=true;capacityLoading.value=true;profileBudget.value=undefined;budgetSource.value=row;recoveringBudget.value=false;editBudget.value=false;contractVerified.value=false;
   try{const result=await getModelCapacity(row.modelKey);if(ticket===capacityGeneration){capacity.value=result;limit.value=result.concurrencyLimit;const b=result.budget;tokenLimit.value=b.tokenLimit??'';costLimit.value=b.costLimit??'';budgetCurrency.value=b.currency??row.pricingCurrency??'';window.value=b.contextWindow??row.contextWindowTokens??0;deployment.value=b.deploymentRef??row.deploymentRef??'';parameter.value=b.outputParameter??row.outputTokenParameter??'MAX_TOKENS';priceHash.value=b.pricingHash??row.pricingHash;budgetEvidence.value=b.evidenceRef??'';}}
   catch{if(ticket===capacityGeneration)message.error('模型容量加载失败');}finally{if(ticket===capacityGeneration)capacityLoading.value=false;}}
-async function saveCapacity(){if(saving.value||!capacity.value||!(recoveringBudget.value?can('iqc:model-gateway:budget:recover'):can('iqc:model-gateway:capacity:configure')))return;
+async function inspectModelBudget(id:string){if(!can('iqc:model:budget:view'))return;const ticket=++capacityGeneration;capacity.value=undefined;profileBudget.value=undefined;capacityOpen.value=true;capacityLoading.value=true;recoveringBudget.value=false;editBudget.value=true;contractVerified.value=false;
+  try{const source=await getModelBudget(id);if(ticket!==capacityGeneration)return;profileBudget.value=source;budgetSource.value={pricingHash:source.pricingHash,pricingCurrency:source.pricingCurrency,modelProfileVersion:source.modelVersion};
+    capacity.value=source.capacity??{modelKey:source.modelKey,occupied:'0',concurrencyLimit:1,managed:false,version:'0',budget:{tokenLimit:null,tokenCommitted:'0',tokenRemaining:null,costLimit:null,costCommitted:'0',costRemaining:null,currency:null,contextWindow:null,deploymentRef:null,outputParameter:null,pricingHash:null,evidenceRef:null,breached:false}};
+    const b=capacity.value.budget;limit.value=capacity.value.concurrencyLimit;tokenLimit.value=b.tokenLimit??'';costLimit.value=b.costLimit??'';budgetCurrency.value=b.currency??source.pricingCurrency??'';
+    window.value=source.contextWindowTokens??0;deployment.value=source.deploymentRef??'';parameter.value=source.outputTokenParameter??'MAX_TOKENS';priceHash.value=source.pricingHash;budgetEvidence.value='';
+  }catch{if(ticket===capacityGeneration)message.error('模型预算状态读取失败，请重试');}finally{if(ticket===capacityGeneration)capacityLoading.value=false;}}
+defineExpose({inspectModelBudget});
+async function saveCapacity(){if(saving.value||!capacity.value||!(recoveringBudget.value?can('iqc:model-gateway:budget:recover'):canConfigureBudget.value))return;
   if(!Number.isInteger(limit.value)||limit.value<0||limit.value>10000){message.warning('并发上限需为0到10000的整数');return;}
   let policy:BudgetPolicy|undefined;
-  if(editBudget.value||recoveringBudget.value){
+  if(editBudget.value||recoveringBudget.value||profileBudget.value){
     if(!contractVerified.value||(!tokenLimit.value&&!costLimit.value)||!Number.isInteger(window.value)||window.value<1||window.value>100000000){message.warning('请设置至少一种额度、有效上下文窗口，并核定供应商契约');return;}
     policy={tokenLimit:tokenLimit.value||null,costLimit:costLimit.value||null,currency:costLimit.value?budgetCurrency.value:capacity.value.budget.currency,contextWindow:window.value,deploymentRef:deployment.value,outputParameter:parameter.value,pricingHash:costLimit.value?priceHash.value:null,evidenceRef:budgetEvidence.value,contractVerified:contractVerified.value};
   }
   if(recoveringBudget.value&&(!capacity.value.budget.breached||capacity.value.occupied!=='0'||budgetEvidence.value===capacity.value.budget.evidenceRef)){message.warning('恢复前须清空模型占用，并提供重新核定的新凭据');return;}
-  const ticket=capacityGeneration,source=capacity.value,recovery=recoveringBudget.value;
-  saving.value=true;try{const result=recovery&&policy?await recoverModelBudget(source.modelKey,source.version,policy):await configureModelCapacity(source.modelKey,limit.value,source.version,policy);if(ticket!==capacityGeneration)return;capacity.value=result.after;editBudget.value=false;contractVerified.value=false;recoveringBudget.value=false;message.success(recovery?'预算隔离已恢复，累计消耗保留':'容量策略已保存');}
-  catch{message.error('保存失败，请核对配置、核定依据和版本后重新查看');}finally{saving.value=false;}}
+  const ticket=capacityGeneration,source=capacity.value,recovery=recoveringBudget.value,profile=profileBudget.value;
+  saving.value=true;try{const result=profile&&policy&&!recovery?(await configureProfileBudget(profile,source.version,limit.value,policy)).capacity:recovery&&policy?await recoverModelBudget(source.modelKey,source.version,policy):await configureModelCapacity(source.modelKey,limit.value,source.version,policy);if(ticket!==capacityGeneration)return;capacity.value=result.after;if(profile)profileBudget.value={...profile,capacity:result.after};editBudget.value=false;contractVerified.value=false;recoveringBudget.value=false;message.success(recovery?'预算隔离已恢复，累计消耗保留':'容量策略已保存');}
+  catch{if(ticket===capacityGeneration)message.error('保存失败，请重新打开并核对模型版本、政策版本和声明');}finally{saving.value=false;}}
 function beginRelease(row:ModelCall){releaseCall.value=row;reason.value='REMOTE_COMPLETED';evidence.value='';remoteStopped.value=false;releaseOpen.value=true;}
 async function saveRelease(){if(!releaseCall.value||!can('iqc:model-gateway:calls:release'))return;
   if(!remoteStopped.value||! /^[A-Za-z0-9:_./-]{1,128}$/.test(evidence.value)){message.warning('请核对远端停止并填写有效凭据编号');return;}
@@ -67,7 +76,8 @@ watch([status,authorized,()=>props.taskId,()=>props.executionId],()=>{current.va
 onBeforeUnmount(()=>{generation++;capacityGeneration++;reconciliationGeneration++;});
 </script>
 <template>
-<section v-if="authorized">
+<section v-if="authorized||capacityOpen">
+<template v-if="authorized">
 <a-space><h3>模型调用记录</h3><a-select v-model:value="status" allow-clear placeholder="全部状态" style="width:160px" :options="[{value:'RESERVED',label:'响应未确认'},{value:'CONFIRMED',label:'响应已确认'},{value:'UNKNOWN',label:'请求结果未知'}]"/><a-button :disabled="loading" @click="load()">刷新</a-button></a-space>
 <a-alert type="info" :message="`${props.taskId?'这里展示本任务明确关联的模型调用，未关联旧记录不推测归属。':'这里展示全局模型调用。'}响应已确认不代表质检成功；缺失用量显示未知。已恢复占用会另行标记。`"/>
 <div v-if="summary" class="cost-summary">
@@ -80,20 +90,21 @@ onBeforeUnmount(()=>{generation++;capacityGeneration++;reconciliationGeneration+
 <template #bodyCell="{column,record}"><template v-if="column.key==='actions'"><a-button v-if="can('iqc:model-gateway:capacity:view')" type="link" @click="inspectCapacity(record)">容量</a-button><a-button v-if="can('iqc:model-gateway:calls:release')&&record.status!=='CONFIRMED'&&!record.capacityReleasedAtUtc" type="link" @click="beginRelease(record)">核对恢复</a-button><a-button v-if="can('iqc:model-gateway:calls:reconcile')&&record.budgetReservedTokens!=null&&!record.reconciliation&&(record.status==='CONFIRMED'||record.capacityReleasedAtUtc)" type="link" :disabled="reconciliationSaving" @click="beginReconciliation(record)">预算对账</a-button></template><template v-else-if="column.key==='released'">{{record.capacityReleasedAtUtc?`已恢复：${record.capacityReleasedBy}`:'—'}}</template><template v-else-if="column.key==='status'"><a-tag :color="record.status==='CONFIRMED'?'blue':'orange'">{{states[record.status as ModelCallStatus]}}</a-tag></template><template v-else-if="column.key==='usageStatus'">{{record.usageStatus?usageStates[record.usageStatus as keyof typeof usageStates]:'未知'}}</template><template v-else-if="['deploymentRef','contextWindowTokens'].includes(column.key)">{{record[column.key]??'未知'}}</template><template v-else-if="column.key==='outputLimit'">{{record.maxOutputTokens==null?'未知':`${record.maxOutputTokens} (${record.outputTokenParameter})`}}</template><template v-else-if="column.key==='outputLimitStatus'"><a-tag :color="record.outputLimitStatus==='OBSERVED_OVER_LIMIT'?'red':undefined">{{outputStates[record.outputLimitStatus]||'未知'}}</a-tag></template><template v-else-if="column.key==='reconciliation'"><template v-if="record.reconciliation">Token：{{record.reconciliation.tokens}}<br/>金额：{{record.reconciliation.cost==null?'未参与':`${record.reconciliation.cost} ${record.reconciliation.currency}`}}<br/>{{record.reconciliation.owner}} · {{record.reconciliation.atUtc}} UTC<br/>凭据：{{record.reconciliation.evidence}}</template><template v-else>未人工核对</template></template><template v-else-if="column.key==='budgetStatus'">{{budgetStates[record.budgetStatus]||'未知'}}</template><template v-else-if="column.key==='budgetReservedTokens'">{{record.budgetReservedTokens??'未参与'}}</template><template v-else-if="column.key==='budgetReservedCost'">{{record.budgetReservedCost==null?'未参与':`${record.budgetReservedCost} ${record.budgetCurrency}`}}</template><template v-else-if="column.key==='cost'">{{record.calculatedCost==null?'未知':`${record.calculatedCost} ${record.pricingCurrency}`}}</template><template v-else-if="column.key==='costStatus'">{{costStates[record.costStatus]||'未知'}}</template><template v-else-if="column.key==='toolRoundIndex'">{{record.toolRoundIndex==null?'未知':record.toolRoundIndex===0?'初次请求':`续调 ${record.toolRoundIndex}`}}</template><template v-else-if="column.key==='runIndex'">{{record.runIndex==null?'未知':record.runIndex+1}}</template><template v-else-if="['inputTokens','outputTokens','totalTokens','cacheReadInputTokens','cacheWriteInputTokens'].includes(column.key)">{{record[column.key]??'未知'}}</template></template>
 </a-table>
 <a-pagination :current="current" :total="total" :page-size="20" :disabled="loading" @change="load"/>
+</template>
 <a-modal v-model:open="capacityOpen" title="模型并发容量" :footer="null" @cancel="capacityGeneration++">
-<a-spin :spinning="capacityLoading"><template v-if="capacity"><p>当前占用：{{capacity.occupied}} · 配置版本：{{capacity.version}}</p><p>{{capacity.managed?'管理员配置生效':'沿用部署初始化配置'}}</p><a-form layout="vertical"><a-form-item label="并发上限（0表示不限）"><a-input-number v-model:value="limit" :min="0" :max="10000" :precision="0" :disabled="recoveringBudget||!can('iqc:model-gateway:capacity:configure')"/></a-form-item></a-form><p>降低到当前占用以下会阻止新调用，已有调用继续执行。</p><a-divider>累计预算</a-divider>
+<a-spin :spinning="capacityLoading"><template v-if="capacity"><a-alert v-if="profileBudget&&!profileBudget.capacity" type="info" message="预算账本尚未创建。保存后从零开始累计参与预算的调用，未参与预算的历史消耗不会补计。"/><p v-if="profileBudget">模型配置版本：{{profileBudget.modelVersion}}</p><p>当前占用：{{capacity.occupied}} · 配置版本：{{capacity.version}}</p><p>{{capacity.managed?'管理员配置生效':'沿用部署初始化配置'}}</p><a-form layout="vertical"><a-form-item label="并发上限（0表示不限）"><a-input-number v-model:value="limit" :min="0" :max="10000" :precision="0" :disabled="recoveringBudget||!canConfigureBudget"/></a-form-item></a-form><p>降低到当前占用以下会阻止新调用，已有调用继续执行。</p><a-divider>累计预算</a-divider>
 <a-alert v-if="capacity.budget.breached" type="error" message="模型核定范围失效，已隔离后续调用；普通策略修改不会解除隔离。"/>
 <p>Token限额：{{capacity.budget.tokenLimit??'未设置'}} · 承诺：{{capacity.budget.tokenCommitted??'未知'}} · 剩余：{{capacity.budget.tokenRemaining??'未设置限额'}}</p>
 <p>金额限额：{{capacity.budget.costLimit??'未设置'}} · 承诺：{{capacity.budget.costCommitted??'未知'}} {{capacity.budget.currency??''}} · 剩余：{{capacity.budget.costRemaining??'未设置限额'}}</p>
 <p>承诺包含实际核销和未知调用的预留。Token记录参与预算的调用，金额记录启用金额额度的调用；未参与历史不回填，不按自然日重置。</p>
 <a-button v-if="capacity.budget.breached&&can('iqc:model-gateway:budget:recover')&&!recoveringBudget" :disabled="saving||capacity.occupied!=='0'" @click="beginBudgetRecovery">重新核定并恢复隔离</a-button>
 <a-alert v-if="recoveringBudget" type="info" message="请先完成所有预算调用的最终核销或人工对账，再填写新核定政策和独立凭据。恢复不会清空累计消耗。"/>
-<template v-if="can('iqc:model-gateway:capacity:configure')||recoveringBudget"><a-checkbox v-if="!recoveringBudget" v-model:checked="editBudget">同时修改预算</a-checkbox>
+<template v-if="canConfigureBudget||recoveringBudget"><a-checkbox v-if="!recoveringBudget&&!profileBudget" v-model:checked="editBudget">同时修改预算</a-checkbox>
 <a-form v-if="editBudget" layout="vertical"><a-form-item label="累计Token限额（留空不限制，0阻止消耗）"><a-input v-model:value="tokenLimit"/></a-form-item><a-form-item label="累计金额限额（精确十进制，留空不限制）"><a-input v-model:value="costLimit"/></a-form-item><a-form-item label="币种（账本设定后不可更换）"><a-input v-model:value="budgetCurrency" :maxlength="3"/></a-form-item>
 <a-form-item label="核定总上下文窗口Token"><a-input-number v-model:value="window" :min="1" :max="100000000" :precision="0"/></a-form-item><a-form-item label="核定部署参考"><a-input v-model:value="deployment" :maxlength="128"/></a-form-item><a-form-item label="核定输出参数"><a-select v-model:value="parameter" :options="[{value:'MAX_TOKENS',label:'max_tokens'},{value:'MAX_COMPLETION_TOKENS',label:'max_completion_tokens'}]"/></a-form-item>
 <p>金额定价：{{priceHash===budgetSource?.pricingHash?`所选调用的模型配置版本 ${budgetSource?.modelProfileVersion??'未知'}`:'沿现有核定价格'}}</p><a-button :disabled="!budgetSource?.pricingHash" @click="bindSourcePrice">绑定所选调用的模型价格</a-button>
 <a-form-item label="核定凭据编号"><a-input v-model:value="budgetEvidence" :maxlength="128"/></a-form-item><a-checkbox v-model:checked="contractVerified">已核定供应商的上下文、输出限制、超长拒绝计费及统一价格范围</a-checkbox><p>配置声明或一次响应不能替代供应商核定。至少保留一种限额，修改策略不重置承诺或隔离。</p></a-form></template>
-<a-button v-if="recoveringBudget||can('iqc:model-gateway:capacity:configure')" type="primary" :loading="saving" @click="saveCapacity">{{recoveringBudget?'核定并恢复预算隔离':'保存容量策略'}}</a-button></template></a-spin>
+<a-button v-if="recoveringBudget||canConfigureBudget" type="primary" :loading="saving" @click="saveCapacity">{{recoveringBudget?'核定并恢复预算隔离':profileBudget?'保存模型预算':'保存容量策略'}}</a-button></template></a-spin>
 </a-modal>
 <a-modal v-model:open="releaseOpen" title="核对并恢复占用" :confirm-loading="saving" @ok="saveRelease">
 <a-alert type="warning" message="请先核对原发起进程不会继续发送请求，且远端已完成、取消或请求未发送。恢复只释放一次并发占用，保留原未知结果和用量；不能仅凭等待时长判断远端已停止。"/>

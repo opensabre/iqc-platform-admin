@@ -19,3 +19,7 @@ export interface BudgetReconciliation {callId:string;modelKey:string;tokens:stri
 export const reconcileModelBudget=(callId:string,modelKey:string,tokens:string,cost:string|null,currency:string|null,evidence:string,verified:boolean)=>http.post<{before:ModelCapacity;after:ModelCapacity;reconciliation:BudgetReconciliation}>(`/iqc/model-gateway/calls/${callId}/budget-reconciliation`,{modelKey,tokens,cost,currency,evidence,verified}).then(r=>r.data);
 
 export const recoverModelBudget=(modelKey:string,expectedVersion:string,budget:BudgetPolicy)=>http.post<{before:ModelCapacity;after:ModelCapacity}>(`/iqc/model-gateway/capacity/${modelKey}/budget-recovery`,{expectedVersion,budget}).then(r=>r.data);
+
+export interface ModelBudgetSnapshot {modelProfileId:string;modelVersion:number;modelKey:string;contextWindowTokens:number|null;deploymentRef:string|null;maxOutputTokens:number|null;outputTokenParameter:string|null;pricingHash:string|null;pricingCurrency:string|null;capacity:ModelCapacity|null}
+export const getModelBudget=(id:string)=>http.get<ModelBudgetSnapshot>(`/iqc/agent-assets/models/${id}/budget`).then(r=>r.data);
+export const configureProfileBudget=(source:ModelBudgetSnapshot,capacityVersion:string,concurrencyLimit:number,budget:BudgetPolicy)=>http.post(`/iqc/agent-assets/models/${source.modelProfileId}/budget`,{modelVersion:source.modelVersion,capacityVersion,concurrencyLimit,budget}).then(r=>r.data as {modelProfileId:string;modelVersion:number;capacity:{before:ModelCapacity;after:ModelCapacity}});
