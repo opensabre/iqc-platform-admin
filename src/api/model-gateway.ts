@@ -27,3 +27,6 @@ export const configureProfileBudget=(source:ModelBudgetSnapshot,capacityVersion:
 export type ModelMonitoringRange='15m'|'1h'|'6h'|'24h'|'7d'|'30d';
 export interface ModelMonitoringHistory {range:ModelMonitoringRange;start:string;end:string;stepSeconds:number;series:Record<string,string>}
 export const getModelMonitoringHistory=(range:ModelMonitoringRange)=>http.get<ModelMonitoringHistory>('/iqc/model-gateway/monitoring/history',{params:{range}}).then(r=>r.data);
+
+export interface ModelMonitoringSource {available:boolean;message:string;targets:string|null}
+export const getModelMonitoringSource=()=>http.get<ModelMonitoringSource>('/iqc/model-gateway/monitoring/status').then(r=>r.data);
