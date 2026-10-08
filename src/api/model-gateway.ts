@@ -23,3 +23,7 @@ export const recoverModelBudget=(modelKey:string,expectedVersion:string,budget:B
 export interface ModelBudgetSnapshot {modelProfileId:string;modelVersion:number;modelKey:string;contextWindowTokens:number|null;deploymentRef:string|null;maxOutputTokens:number|null;outputTokenParameter:string|null;pricingHash:string|null;pricingCurrency:string|null;capacity:ModelCapacity|null}
 export const getModelBudget=(id:string)=>http.get<ModelBudgetSnapshot>(`/iqc/agent-assets/models/${id}/budget`).then(r=>r.data);
 export const configureProfileBudget=(source:ModelBudgetSnapshot,capacityVersion:string,concurrencyLimit:number,budget:BudgetPolicy)=>http.post(`/iqc/agent-assets/models/${source.modelProfileId}/budget`,{modelVersion:source.modelVersion,capacityVersion,concurrencyLimit,budget}).then(r=>r.data as {modelProfileId:string;modelVersion:number;capacity:{before:ModelCapacity;after:ModelCapacity}});
+
+export type ModelMonitoringRange='15m'|'1h'|'6h'|'24h'|'7d'|'30d';
+export interface ModelMonitoringHistory {range:ModelMonitoringRange;start:string;end:string;stepSeconds:number;series:Record<string,string>}
+export const getModelMonitoringHistory=(range:ModelMonitoringRange)=>http.get<ModelMonitoringHistory>('/iqc/model-gateway/monitoring/history',{params:{range}}).then(r=>r.data);
