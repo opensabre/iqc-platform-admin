@@ -17,3 +17,5 @@ export const listTaskModelCalls=(taskId:string,executionId:string|undefined,stat
 
 export interface BudgetReconciliation {callId:string;modelKey:string;tokens:string;cost:string|null;currency:string|null;atUtc:string;owner:string;userId:string;evidence:string}
 export const reconcileModelBudget=(callId:string,modelKey:string,tokens:string,cost:string|null,currency:string|null,evidence:string,verified:boolean)=>http.post<{before:ModelCapacity;after:ModelCapacity;reconciliation:BudgetReconciliation}>(`/iqc/model-gateway/calls/${callId}/budget-reconciliation`,{modelKey,tokens,cost,currency,evidence,verified}).then(r=>r.data);
+
+export const recoverModelBudget=(modelKey:string,expectedVersion:string,budget:BudgetPolicy)=>http.post<{before:ModelCapacity;after:ModelCapacity}>(`/iqc/model-gateway/capacity/${modelKey}/budget-recovery`,{expectedVersion,budget}).then(r=>r.data);
