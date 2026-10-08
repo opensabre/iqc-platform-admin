@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
+import ModelMonitoring from "@/components/ModelMonitoring.vue";
 import ModelGatewayCalls from "@/components/ModelGatewayCalls.vue";
 import { Modal, message } from "ant-design-vue";
 import { createModelProfile, disableModelProfile, enableModelProfile, listModelProfiles, testModelProfile, updateModelProfile, type IqcModelProfile, type IqcModelProfileRequest } from "@/api/config";
@@ -64,5 +65,6 @@ onMounted(()=>{void Promise.all([refresh(),loadDictionaries()]);});
   <a-row v-if="pricingEnabled" :gutter="16"><a-col :span="8"><a-form-item label="币种"><a-input v-model:value="pricingCurrency" :maxlength="3" placeholder="CNY / USD"/></a-form-item></a-col><a-col :span="8"><a-form-item label="输入单价 / 百万 Token"><a-input v-model:value="inputPrice" placeholder="精确十进制单价"/></a-form-item></a-col><a-col :span="8"><a-form-item label="输出单价 / 百万 Token"><a-input v-model:value="outputPrice" placeholder="精确十进制单价"/></a-form-item></a-col></a-row>
   <p v-if="pricingEnabled">请填写供应商确认的统一输入和输出单价。若包含缓存折扣等差异计费，暂不使用此统一价格计算实际费用。价格会随发布版本保存；成本预算需单独核定配置。</p>
   </a-form></a-modal>
+  <ModelMonitoring/>
   <ModelGatewayCalls ref="modelCalls"/>
 </template>
