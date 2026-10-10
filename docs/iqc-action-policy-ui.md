@@ -10,3 +10,15 @@
 结果详情ActionHistoryPanel增加iqc:action:enqueue按钮，沿既有权限composable；还须有history:view才能进入动作面板。POST /iqc/conversation-results/{id}/actions/enqueue仅请求后台发现，DISCOVERY_REQUESTED提示稍后刷新，ALREADY_DISCOVERED只显示完成检查；不会显示“发送成功”。请求失败明确显示错误，点击期间防重复提交，切换结果/权限变化/卸载后废弃旧响应。请求成功后沿已有记录查询刷新，不自动轮询。
 后端要求开关启用、生产冻结策略、来源创建者及稳定身份匹配，广泛结果读权限不等于能替创建者执行动作。组织DML_29为真实API注册资源，默认IQC_ADMIN/QUALITY_MANAGER。尚未运行浏览器/接口/迁移或动作网络验收。
 动作记录nextAttemptAtUtc列调整为“下次检查/重试 UTC”：PENDING可以表示等待任务/固定复核轮次等前置条件，attempt0不代表发出过动作。候选动作完成只表示实际候选创建，后续标注/金标审核沿原流程。
+
+## UNKNOWN 持久产物人工核对（B 独立分支）
+
+复用结果详情 ActionHistoryPanel，新增独立 `iqc:action:reconcile` 操作；仍须先拥有 history:view。仅对三类已有本地只读核对能力（SAVE_RESULT、CREATE_REVIEW、ADD_TO_EVALUATION_CANDIDATE）的 REQUIRES_RECONCILIATION/UNKNOWN 行显示按钮。旧后端未返回version或版本超出JS安全整数时仍可阅读记录，不提供无法精确条件提交的按钮。
+
+弹窗要求非空≤1000字原因，以当前结果ID、动作账本ID、观察version和原因调用后端；不提交产物引用或成功声明。提交中禁用重复操作和关闭弹窗，结果/权限变化或卸载废弃旧响应。响应须匹配动作ID与已知状态；CONFIRMED提示真实产物完成，UNCONFIRMED提示继续等待核对，STALE_OBSERVATION要求查看刷新后的记录。重新查询状态而不在本地伪造COMPLETE；请求异常/外来回执仅提示未确认，保留人工原因，不自动再次请求。后端仍负责原负责人稳定身份、冻结请求及CAS围栏。
+
+验证：类型检查87951 exit0；定向89094 exit0，9项通过，覆盖权限、旧版本读取、远端/不安全版本不开放、原因、防重复、真实刷新、结果切换、撤权及外来回执。生产构建58003 exit0，4018 modules；完整最终64297 exit0，28文件180项通过。日志 `/private/tmp/iqc-b-reconcile-ui-{types,tests,build,final-tests}.log`。
+
+首次完整测试1失败/179通过；A未改动4ba1d4f基线上同一导航测试94514 exit1（1失败/6通过），夹具空业务项与既有页面businessItems.length展示条件不符。仅在B导航测试补真实质检项并隔离无关动作面板，保留来源版本断言和页面生产逻辑；最终完整通过不包含失败轮。构建仍有已有Node/pnpm版本及chunk大小提示。
+
+基线A UI4ba1d4f，B独立树feature/iqc-prd-b-action-ui；配套后端b2c3fa6与权限084d1ae均是独立提交。本轮组件测试使用原Vue/DOM测试方式和Ant组件stub；未宣称真实浏览器、四角色登录、HTTP/网关授权、生产动作链或部署通过。未修改A树/后端/组织/framework/gateway，未推送或合入A；完整尝试审计、阻塞恢复、远端适配与PRD其他能力继续。
