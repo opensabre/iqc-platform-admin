@@ -59,7 +59,7 @@ describe('manual action reconciliation',()=>{
 
 function journalEvent(version:string,previousVersion:string|null){
  const state={status:'COMPLETE',attemptCount:2,claimedAtUtc:null,settledAtUtc:null,nextAttemptAtUtc:null,outcome:'CONFIRMED_SUCCESS',evidenceReference:'actual proof',resultReference:'artifact',errorCode:null};
- return {version,previousVersion,previousState:previousVersion===null?null:{...state,status:'WAITING_RETRY',outcome:'CONFIRMED_RETRYABLE_FAILURE'},state,actor:'alice',recordedAtUtc:'2026-10-11T01:00:00'};
+ return {version,previousVersion,previousState:previousVersion===null?null:{...state,status:'WAITING_RETRY',outcome:'CONFIRMED_RETRYABLE_FAILURE'},state,actor:'alice',recordedAtUtc:'2026-10-11T01:00:00',reconciliationReason:null as string|null|undefined};
 }
 function journalPage(events:ReturnType<typeof journalEvent>[],nextBeforeVersion:string|null=null,earlierHistoryUnavailable=false){return [{...observed,history:{events,nextBeforeVersion,earlierHistoryUnavailable}}];}
 describe('durable action history',()=>{
@@ -94,9 +94,9 @@ describe('durable action history',()=>{
   button('重试加载').click();await settle();expect(host.querySelectorAll('.journal-events li')).toHaveLength(0);
  });
  it('renders evidence as text and does not fabricate history for an older backend',async()=>{
-  const event=journalEvent('0',null);event.state.evidenceReference='<img src=x onerror=alert(1)>';
+  const event=journalEvent('0',null);event.state.evidenceReference='<img src=x onerror=alert(1)>';event.reconciliationReason='<b>人工核对</b>';
   vi.mocked(listActionHistory).mockResolvedValueOnce([{...observed}]).mockResolvedValueOnce(journalPage([event]));
-  mount();await settle();button('查看历史').click();await settle();expect(host.textContent).toContain('<img src=x onerror=alert(1)>');expect(host.querySelector('img')).toBeNull();
+  mount();await settle();button('查看历史').click();await settle();expect(host.textContent).toContain('<img src=x onerror=alert(1)>');expect(host.querySelector('img')).toBeNull();expect(host.textContent).toContain('核对原因：<b>人工核对</b>');expect(host.querySelector('.journal-events b')).toBeNull();
   button('关闭历史').click();await settle();button('查看历史').click();await settle();expect(host.textContent).toContain('动作历史加载失败');expect(host.querySelectorAll('.journal-events li')).toHaveLength(0);
  });
 });

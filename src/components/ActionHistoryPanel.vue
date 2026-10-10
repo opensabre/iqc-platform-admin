@@ -29,6 +29,7 @@ async function loadJournal(more=false){
   for(const event of page.events){
    if(!event||!validVersion(event.version)||boundary!==null&&compareVersion(event.version,boundary)>=0||!validState(event.state)||typeof event.recordedAtUtc!=='string'||event.actor!==null&&typeof event.actor!=='string')throw Error('Invalid action journal event');
    if(event.previousVersion!==null&&(!validVersion(event.previousVersion)||compareVersion(event.previousVersion,event.version)>=0||!validState(event.previousState))||event.previousVersion===null&&event.previousState!==null)throw Error('Invalid action journal predecessor');
+   if(event.reconciliationReason!=null&&(typeof event.reconciliationReason!=='string'||event.reconciliationReason.length>1000))throw Error('Invalid reconciliation reason');
    boundary=event.version;
   }
   if(page.nextBeforeVersion!==null&&(!validVersion(page.nextBeforeVersion)||page.events.length!==50||page.nextBeforeVersion!==page.events.at(-1)?.version||page.earlierHistoryUnavailable))throw Error('Invalid action journal cursor');
@@ -105,6 +106,7 @@ onBeforeUnmount(()=>{closeJournal();alive=false;generation++;requestGeneration++
 <ol class="journal-events"><li v-for="event in journalRows" :key="event.version">
 <strong>{{labels[event.state.status]||event.state.status}}</strong> · 领取次数 {{event.state.attemptCount}}
 <p>记录时间 UTC：{{event.recordedAtUtc}} · 操作人：{{event.actor??'—'}}</p>
+<p v-if="event.reconciliationReason">核对原因：{{event.reconciliationReason}}</p>
 <p v-if="event.state.outcome">确认结果：{{event.state.outcome}}</p>
 <p v-if="event.state.claimedAtUtc">领取时间 UTC：{{event.state.claimedAtUtc}}</p>
 <p v-if="event.state.settledAtUtc">结算时间 UTC：{{event.state.settledAtUtc}}</p>

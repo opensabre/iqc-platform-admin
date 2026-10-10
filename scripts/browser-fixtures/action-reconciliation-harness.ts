@@ -31,7 +31,7 @@ http.defaults.adapter=async config=>{
    const start=config.params.beforeVersion?BigInt(config.params.beforeVersion)-1n:9223372036854775806n;
    const count=config.params.beforeVersion?3:50;
    const state={status:'COMPLETE',attemptCount:2,claimedAtUtc:null,settledAtUtc:null,nextAttemptAtUtc:null,outcome:'CONFIRMED_SUCCESS',evidenceReference:null as string|null,resultReference:'browser-artifact',errorCode:null};
-   const events=Array.from({length:count},(_,i)=>{const version=(start-BigInt(i)).toString();return {version,previousVersion:(start-BigInt(i)-1n).toString(),state:{...state,evidenceReference:`browser-proof-${result.value}-${version}`},previousState:{...state,status:'WAITING_RETRY',outcome:'CONFIRMED_RETRYABLE_FAILURE',evidenceReference:'original failed proof'},actor:'fixture-owner',recordedAtUtc:'2026-10-11T01:00:00'};});
+   const events=Array.from({length:count},(_,i)=>{const version=(start-BigInt(i)).toString();return {version,previousVersion:(start-BigInt(i)-1n).toString(),state:{...state,evidenceReference:`browser-proof-${result.value}-${version}`},previousState:{...state,status:'WAITING_RETRY',outcome:'CONFIRMED_RETRYABLE_FAILURE',evidenceReference:'original failed proof'},actor:'fixture-owner',recordedAtUtc:'2026-10-11T01:00:00',reconciliationReason:i===0?'原始持久产物只读核对已确认':null};});
    const page={events,nextBeforeVersion:config.params.beforeVersion?null:events.at(-1)!.version,earlierHistoryUnavailable:!!config.params.beforeVersion};
    data=[{...row,history:page}];
    if(journalDelay.value)await new Promise<void>(resolve=>{releaseJournal=resolve;});
