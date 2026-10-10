@@ -56,3 +56,47 @@ describe('manual action reconciliation',()=>{
   expect(host.textContent).toContain('核对请求未确认');expect(host.textContent).not.toContain('动作已完成');expect(host.querySelector('textarea')).not.toBeNull();
  });
 });
+
+function journalEvent(version:string,previousVersion:string|null){
+ const state={status:'COMPLETE',attemptCount:2,claimedAtUtc:null,settledAtUtc:null,nextAttemptAtUtc:null,outcome:'CONFIRMED_SUCCESS',evidenceReference:'actual proof',resultReference:'artifact',errorCode:null};
+ return {version,previousVersion,previousState:previousVersion===null?null:{...state,status:'WAITING_RETRY',outcome:'CONFIRMED_RETRYABLE_FAILURE'},state,actor:'alice',recordedAtUtc:'2026-10-11T01:00:00'};
+}
+function journalPage(events:ReturnType<typeof journalEvent>[],nextBeforeVersion:string|null=null,earlierHistoryUnavailable=false){return [{...observed,history:{events,nextBeforeVersion,earlierHistoryUnavailable}}];}
+describe('durable action history',()=>{
+ beforeEach(()=>{vi.clearAllMocks();state.permissions=reactive(['iqc:action:history:view']);vi.mocked(listActionHistory).mockResolvedValue([{...observed}]);});
+ afterEach(()=>{app?.unmount();host?.remove();});
+ it('reads history with the existing view permission and shows actual references and an upgrade gap',async()=>{
+  vi.mocked(listActionHistory).mockResolvedValueOnce([{...observed}]).mockResolvedValueOnce(journalPage([journalEvent('3','2')],null,true));
+  mount();await settle();button('查看历史').click();await settle();
+  expect(listActionHistory).toHaveBeenLastCalledWith('result-1',{actionExecutionId:'action-1',includeHistory:true});
+  expect(host.textContent).toContain('actual proof');expect(host.textContent).toContain('较早的动作历史未保留');expect(button('核对实际产物')).toBeUndefined();
+ });
+ it('uses the exact string cursor once and appends earlier events',async()=>{
+  const events=Array.from({length:50},(_,i)=>journalEvent((9223372036854775806n-BigInt(i)).toString(),(9223372036854775805n-BigInt(i)).toString()));
+  let finish!:(data:unknown)=>void;
+  vi.mocked(listActionHistory).mockResolvedValueOnce([{...observed}]).mockResolvedValueOnce(journalPage(events,events.at(-1)!.version)).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}) as never);
+  mount();await settle();button('查看历史').click();await settle();button('加载更早记录').click();button('加载更早记录').click();await settle();
+  expect(listActionHistory).toHaveBeenCalledTimes(3);expect(listActionHistory).toHaveBeenLastCalledWith('result-1',{actionExecutionId:'action-1',includeHistory:true,beforeVersion:events.at(-1)!.version});
+  finish(journalPage([journalEvent('0',null)]));await settle();expect(host.querySelectorAll('.journal-events li')).toHaveLength(51);expect(button('加载更早记录')).toBeUndefined();
+ });
+ it('discards pending old-result and revoked-permission history responses',async()=>{
+  let finish!:(data:unknown)=>void;
+  vi.mocked(listActionHistory).mockResolvedValueOnce([{...observed}]).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}) as never);
+  const result=mount();await settle();button('查看历史').click();await settle();result.value='result-2';await settle();
+  finish(journalPage([journalEvent('3','2')]));await settle();expect(host.querySelector('.journal-events')).toBeNull();expect(host.textContent).not.toContain('actual proof');
+  vi.mocked(listActionHistory).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}) as never);
+  button('查看历史').click();await settle();state.permissions.splice(0);await settle();finish(journalPage([journalEvent('3','2')]));await settle();expect(host.textContent).not.toContain('actual proof');
+ });
+ it('rejects another action or an invalid pagination boundary',async()=>{
+  vi.mocked(listActionHistory).mockResolvedValueOnce([{...observed}]).mockResolvedValueOnce([{...journalPage([journalEvent('3','2')])[0],id:'foreign'}]);
+  mount();await settle();button('查看历史').click();await settle();expect(host.textContent).toContain('动作历史加载失败');expect(host.textContent).not.toContain('actual proof');
+  vi.mocked(listActionHistory).mockResolvedValueOnce(journalPage([journalEvent('3','2')],'4'));
+  button('重试加载').click();await settle();expect(host.querySelectorAll('.journal-events li')).toHaveLength(0);
+ });
+ it('renders evidence as text and does not fabricate history for an older backend',async()=>{
+  const event=journalEvent('0',null);event.state.evidenceReference='<img src=x onerror=alert(1)>';
+  vi.mocked(listActionHistory).mockResolvedValueOnce([{...observed}]).mockResolvedValueOnce(journalPage([event]));
+  mount();await settle();button('查看历史').click();await settle();expect(host.textContent).toContain('<img src=x onerror=alert(1)>');expect(host.querySelector('img')).toBeNull();
+  button('关闭历史').click();await settle();button('查看历史').click();await settle();expect(host.textContent).toContain('动作历史加载失败');expect(host.querySelectorAll('.journal-events li')).toHaveLength(0);
+ });
+});

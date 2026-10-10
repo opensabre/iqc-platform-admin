@@ -1,6 +1,10 @@
 import http from './http';
-export interface ActionHistory {id:string;version?:number|null;actionId:string;type:string;status:string;attemptCount:number|null;nextAttemptAtUtc:string|null;claimedAtUtc:string|null;settledAtUtc:string|null;outcome:string|null;evidenceReference:string|null;resultReference:string|null;errorCode:string|null}
-export async function listActionHistory(id:string){const {data}=await http.get<ActionHistory[]>(`/iqc/conversation-results/${encodeURIComponent(id)}/actions`);return data;}
+export interface ActionHistory {id:string;version?:number|null;actionId:string;type:string;status:string;attemptCount:number|null;nextAttemptAtUtc:string|null;claimedAtUtc:string|null;settledAtUtc:string|null;outcome:string|null;evidenceReference:string|null;resultReference:string|null;errorCode:string|null;history?:ActionEventPage|null}
+export interface ActionEventState {status:string;attemptCount:number;claimedAtUtc:string|null;settledAtUtc:string|null;nextAttemptAtUtc:string|null;outcome:string|null;evidenceReference:string|null;resultReference:string|null;errorCode:string|null}
+export interface ActionStateEvent {version:string;previousVersion:string|null;previousState:ActionEventState|null;state:ActionEventState;actor:string|null;recordedAtUtc:string}
+export interface ActionEventPage {events:ActionStateEvent[];nextBeforeVersion:string|null;earlierHistoryUnavailable:boolean}
+export interface ActionHistoryOptions {actionExecutionId:string;includeHistory:true;beforeVersion?:string}
+export async function listActionHistory(id:string,options?:ActionHistoryOptions){const {data}=await http.get<ActionHistory[]>(`/iqc/conversation-results/${encodeURIComponent(id)}/actions`,options?{params:options}:undefined);return data;}
 
 export interface ActionDiscoveryResponse {sourceResultId:string;status:"DISCOVERY_REQUESTED"|"ALREADY_DISCOVERED"}
 export async function requestActionDiscovery(id:string){const {data}=await http.post<ActionDiscoveryResponse>(`/iqc/conversation-results/${encodeURIComponent(id)}/actions/enqueue`);return data;}
