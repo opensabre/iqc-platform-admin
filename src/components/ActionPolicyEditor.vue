@@ -10,6 +10,12 @@
           <a-form-item label="动作编码"><a-input :value="action.actionId" :disabled="disabled" @update:value="(value:string)=>patch(index,{actionId:value})"/></a-form-item>
           <a-form-item label="触发条件"><ActionConditionEditor :model-value="action.condition" :finding-codes="findingCodes" :item-codes="itemCodes" :node-count="conditionCount(action.condition)" :disabled="disabled" @update:model-value="condition=>patch(index,{condition})"/></a-form-item>
           <a-form-item v-if="action.type==='UPDATE_LABEL'" label="冻结标签值目标"><a-select :value="target(action)" :options="targets(action)" :disabled="disabled" style="min-width:260px" @change="(value:string)=>setTarget(index,value)"/></a-form-item>
+          <template v-if="action.type==='CREATE_RISK_EVENT'">
+            <p>风险等级和证据取实际生产结果；未知或无风险不创建确定风险事件。创建事件不表示风险已处置。</p>
+            <a-form-item label="风险类别编码"><a-input :value="text(action,'category')" :disabled="disabled" :maxlength="64" @update:value="(value:string)=>config(index,{category:value})"/></a-form-item>
+            <a-form-item label="风险标题"><a-input :value="text(action,'title')" :disabled="disabled" :maxlength="128" @update:value="(value:string)=>config(index,{title:value})"/></a-form-item>
+            <a-form-item label="风险描述"><a-textarea :value="text(action,'description')" :disabled="disabled" :maxlength="1000" @update:value="(value:string)=>config(index,{description:value})"/></a-form-item>
+          </template>
           <template v-if="action.type==='CREATE_REVIEW'">
             <a-form-item label="复核原因"><a-textarea :value="text(action,'reason')" :disabled="disabled" :maxlength="1000" @update:value="(value:string)=>config(index,{reason:value})"/></a-form-item>
             <a-form-item label="预期已有复核轮次"><a-input-number :value="number(action,'expectedRevision',0)" :disabled="disabled" :min="0" :max="2147483646" :precision="0" @change="(value:unknown)=>config(index,{expectedRevision:value})"/></a-form-item>
@@ -56,8 +62,8 @@ function setTarget(index:number,value:string){const binding=(props.labels?.bindi
 function add(){
   if(props.disabled)return;const actions=props.modelValue?.actions || [];if(actions.length>=100)return;
   let id=1;while(actions.some(action=>action.actionId===`action_${id}`))id++;
-  const configuration:Record<string,unknown>=newType.value==='CREATE_REVIEW'?{reason:'',expectedRevision:0}:newType.value==='ADD_TO_EVALUATION_CANDIDATE'?{sampleType:'POSITIVE',reviewRevision:1}:{};
-  update([...actions,{actionId:`action_${id}`,type:newType.value,adapterVersion:1,condition:always(),idempotency:'PRODUCTION_SOURCE_V1',retry:null,failureHandling:'RECORD_ONLY',configuration}]);
+  const configuration:Record<string,unknown>=newType.value==='CREATE_RISK_EVENT'?{category:'',title:'',description:''}:newType.value==='CREATE_REVIEW'?{reason:'',expectedRevision:0}:newType.value==='ADD_TO_EVALUATION_CANDIDATE'?{sampleType:'POSITIVE',reviewRevision:1}:{};
+  update([...actions,{actionId:`action_${id}`,type:newType.value,adapterVersion:1,condition:newType.value==='CREATE_RISK_EVENT'?{kind:'RISK_AT_LEAST',code:null,value:'LOW',children:[]}:always(),idempotency:'PRODUCTION_SOURCE_V1',retry:null,failureHandling:'RECORD_ONLY',configuration}]);
 }
 function remove(index:number){update((props.modelValue?.actions||[]).filter((_,i)=>i!==index));}
 </script>

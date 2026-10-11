@@ -1,7 +1,7 @@
 import type { ActionCondition, ActionPolicy } from './pipelines';
 import { validateAutomaticRetry } from './automatic-retry';
 export type PolicyAction = ActionPolicy['actions'][number];
-export const supportedActionNames = { SAVE_RESULT:'保存分析结果', UPDATE_LABEL:'更新标签', CREATE_REVIEW:'发起业务复核', ADD_TO_EVALUATION_CANDIDATE:'加入评测候选' } as const;
+export const supportedActionNames = { SAVE_RESULT:'保存分析结果', UPDATE_LABEL:'更新标签', CREATE_RISK_EVENT:'创建风险事件', CREATE_REVIEW:'发起业务复核', ADD_TO_EVALUATION_CANDIDATE:'加入评测候选' } as const;
 export const conditionNames:Record<ActionCondition['kind'],string> = {ALWAYS:'每份生产结果',ALL:'全部条件满足',ANY:'任一条件满足',NOT:'条件取反',FINDING_EQUALS:'Finding 值相等',FINDING_STATE:'Finding 状态',ITEM_STATUS:'质检项状态',RISK_AT_LEAST:'风险等级不低于',FINAL_SCORE_BELOW:'最终评分低于',RESULT_STATUS:'结果状态'};
 export const findingStates=['KNOWN','UNKNOWN','CONFLICT','ERROR','NOT_EVALUATED'];
 export const itemStates=['PASS','FAIL','NOT_APPLICABLE','REVIEW_REQUIRED','ERROR','NOT_EVALUATED'];
@@ -38,8 +38,12 @@ function validateCondition(condition:ActionCondition,depth:number,count:{value:n
 }
 function configuration(action:PolicyAction){
   const c=action.configuration;
-  const keys=action.type==='SAVE_RESULT'?[]:action.type==='UPDATE_LABEL'?['labelId','valueCode']:action.type==='CREATE_REVIEW'?['reason','expectedRevision']:['sampleType','name','tags','reviewRevision'];
+  const keys=action.type==='SAVE_RESULT'?[]:action.type==='UPDATE_LABEL'?['labelId','valueCode']:action.type==='CREATE_RISK_EVENT'?['category','title','description']:action.type==='CREATE_REVIEW'?['reason','expectedRevision']:['sampleType','name','tags','reviewRevision'];
   if(Object.keys(c).some(key=>!keys.includes(key)))throw Error(`动作 ${action.actionId} 包含不支持的配置字段`);
+  if(action.type==='CREATE_RISK_EVENT'){
+    if(typeof c.category!=='string' || !/^[A-Za-z0-9][A-Za-z0-9:_./@+-]{0,63}$/.test(c.category))throw Error('风险类别须为有效稳定编码，最多64字');
+    for(const [key,max] of [['title',128],['description',1000]] as const){const value=c[key];if(typeof value!=='string' || !value.trim() || value.length>max || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(value))throw Error(`风险${key==='title'?'标题':'描述'}必填，最多${max}字且不能含控制字符`);}
+  }
   if(action.type==='CREATE_REVIEW'){
     if(typeof c.reason!=='string' || !c.reason.trim() || c.reason.trim().length>1000)throw Error('复核原因必填，最多1000字');
     if(c.expectedRevision!==undefined && !boundedInteger(c.expectedRevision,0,2147483646))throw Error('复核预期轮次无效');
