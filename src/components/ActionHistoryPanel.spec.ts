@@ -1,10 +1,10 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {createApp,defineComponent,h,nextTick,reactive,ref,type App} from 'vue';
 import ActionHistoryPanel from './ActionHistoryPanel.vue';
-import {listActionHistory,reconcileAction} from '@/api/action-history';
+import {listActionHistory,reconcileAction,recoverAction} from '@/api/action-history';
 const state=vi.hoisted(()=>({permissions:[] as string[]}));
 vi.mock('@/composables/permission',()=>({usePermission:()=>({can:(code:string)=>state.permissions.includes(code)})}));
-vi.mock('@/api/action-history',()=>({listActionHistory:vi.fn(),requestActionDiscovery:vi.fn(),reconcileAction:vi.fn()}));
+vi.mock('@/api/action-history',()=>({listActionHistory:vi.fn(),requestActionDiscovery:vi.fn(),reconcileAction:vi.fn(),recoverAction:vi.fn()}));
 let app:App,host:HTMLDivElement;
 const observed={id:'action-1',version:3,actionId:'review',type:'CREATE_REVIEW',status:'REQUIRES_RECONCILIATION',outcome:'UNKNOWN',attemptCount:1,nextAttemptAtUtc:null,claimedAtUtc:null,settledAtUtc:null,evidenceReference:null,resultReference:null,errorCode:'WORKER_CONFIRMATION_LOST'};
 async function settle(){for(let i=0;i<12;i++){await Promise.resolve();await nextTick();}}
@@ -16,7 +16,7 @@ function mount(){
  app.component('AButton',defineComponent({setup:(_,ctx)=>()=>h('button',ctx.attrs,ctx.slots.default?.())}));
  app.component('AAlert',defineComponent({props:['message'],setup:p=>()=>h('p',String(p.message))}));
  app.component('ATable',defineComponent({props:['dataSource'],setup:(p,ctx)=>()=>h('div',(p.dataSource as typeof observed[]).map(record=>h('div',[h('span',record.status),ctx.slots.bodyCell?.({column:{key:'operation'},record})])))}));
- app.component('AModal',defineComponent({props:['open','confirmLoading'],setup:(p,ctx)=>()=>p.open?h('section',[ctx.slots.default?.(),h('button',{disabled:!!p.confirmLoading,onClick:()=> (ctx.attrs.onOk as ()=>void)()},'核对'),h('button',{onClick:()=> (ctx.attrs.onCancel as ()=>void)()},'取消')]):null}));
+ app.component('AModal',defineComponent({props:['open','confirmLoading','okText'],setup:(p,ctx)=>()=>p.open?h('section',[ctx.slots.default?.(),h('button',{disabled:!!p.confirmLoading,onClick:()=> (ctx.attrs.onOk as ()=>void)()},String(p.okText||'核对')),h('button',{onClick:()=> (ctx.attrs.onCancel as ()=>void)()},'取消')]):null}));
  app.component('ATextarea',defineComponent({props:['value','disabled'],setup:(p,ctx)=>()=>h('textarea',{value:p.value,disabled:!!p.disabled,onInput:(e:Event)=>(ctx.attrs['onUpdate:value'] as (s:string)=>void)((e.target as HTMLTextAreaElement).value)})}));
  app.mount(host);return result;
 }
@@ -147,5 +147,30 @@ describe('manual observation history',()=>{
   vi.mocked(listActionHistory).mockResolvedValueOnce([{...observed}]).mockResolvedValueOnce(observationPage([invalid])).mockResolvedValueOnce([{...observed}]);
   mount();await settle();button('查看核对尝试').click();await settle();expect(host.textContent).toContain('核对尝试加载失败');
   expect(host.querySelectorAll('.observation-events li')).toHaveLength(0);button('重试核对记录').click();await settle();expect(host.textContent).toContain('核对尝试加载失败');
+ });
+});
+
+const blocked={...observed,status:'BLOCKED_ADAPTER',outcome:null,attemptCount:0,version:0};
+describe('blocked action recovery',()=>{
+ beforeEach(()=>{vi.clearAllMocks();state.permissions=reactive(['iqc:action:history:view','iqc:action:recover']);vi.mocked(listActionHistory).mockResolvedValue([{...blocked}]);});
+ afterEach(()=>{app?.unmount();host?.remove();});
+ it('requires the dedicated grant and excludes unknown or unsafe versions',async()=>{
+  vi.mocked(listActionHistory).mockResolvedValue([{...blocked,outcome:'UNKNOWN',attemptCount:1},{...blocked,id:'unsafe',version:Number.MAX_SAFE_INTEGER+1}]);mount();await settle();expect(button('恢复阻塞动作')).toBeUndefined();expect(recoverAction).not.toHaveBeenCalled();
+ });
+ it('validates the reason and submits the observed version once then reads actual state',async()=>{
+  let finish!:(data:unknown)=>void;vi.mocked(recoverAction).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}) as never);
+  mount();await settle();button('恢复阻塞动作').click();await settle();button('恢复').click();await settle();expect(recoverAction).not.toHaveBeenCalled();await reason();button('恢复').click();button('恢复').click();await settle();
+  expect(recoverAction).toHaveBeenCalledExactlyOnceWith('result-1','action-1',0,'确认原始复核产物');
+  vi.mocked(listActionHistory).mockResolvedValue([{...blocked,status:'PENDING',version:1}]);finish({id:'action-1',state:'RECOVERED'});await settle();expect(host.textContent).toContain('已恢复等待检查');expect(host.textContent).toContain('PENDING');expect(reconcileAction).not.toHaveBeenCalled();
+ });
+ it('discards pending success when recovery permission is revoked',async()=>{
+  let finish!:(data:unknown)=>void;vi.mocked(recoverAction).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}) as never);
+  mount();await settle();button('恢复阻塞动作').click();await settle();await reason();button('恢复').click();await settle();state.permissions.splice(1);await settle();finish({id:'action-1',state:'RECOVERED'});await settle();expect(host.querySelector('textarea')).toBeNull();expect(host.textContent).not.toContain('已恢复等待检查');
+ });
+ it('refresh invalidates an open observation before it can be submitted',async()=>{
+  mount();await settle();button('恢复阻塞动作').click();await settle();button('刷新').click();await settle();expect(host.querySelector('textarea')).toBeNull();expect(recoverAction).not.toHaveBeenCalled();
+ });
+ it('does not accept a response for another action',async()=>{
+  vi.mocked(recoverAction).mockResolvedValue({id:'foreign',state:'RECOVERED'});mount();await settle();button('恢复阻塞动作').click();await settle();await reason();button('恢复').click();await settle();expect(host.textContent).toContain('恢复请求未确认');expect(host.textContent).not.toContain('已恢复等待检查');
  });
 });
