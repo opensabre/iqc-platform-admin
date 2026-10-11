@@ -12,12 +12,13 @@ vi.mock("@/api/results", () => ({
   listResults: vi.fn().mockResolvedValue({ records: [], total: 0 }),
   getConversationResultDetail: vi.fn(async () => ({ task: { id: "task", status: state.status, ruleSnapshotJson: state.labelOnly
     ? '{"schemeSnapshot":{"release":{"definition":{"items":[],"labels":[{"id":"house","versionNo":1}]}}}}' : '{"schemeSnapshot":{}}' }, messages: [], results: [] })),
-  getResultHierarchy: vi.fn(async () => ({ conversation: { id: state.actual, scoreStatus: "PENDING", resultStatus: "PENDING", businessItemResultsJson: "[]" }, rules: [], evidenceByRuleResult: {} })),
+  getResultHierarchy: vi.fn(async () => ({ conversation: { id: state.actual, scoreStatus: "PENDING", resultStatus: "PENDING", businessItemResultsJson: JSON.stringify(state.labelOnly ? [] : [{ itemCode: "greeting", name: "问候", ruleId: "rule-1", ruleVersionNo: 1, status: "FAIL", matchedMessageIds: [] }]) }, rules: [], evidenceByRuleResult: {} })),
   exportResults: vi.fn(), exportSchemeResults: vi.fn(), exportTaskBusinessReviews: vi.fn(), exportTaskLabelResults: vi.fn(), getResultDetail: vi.fn(), getBatchResultSummary: vi.fn()
 }));
 vi.mock("@/api/dictionaries", () => ({ dictionaryLabel: (_: unknown, value: string) => value, getCachedDictionaries: vi.fn().mockResolvedValue({}) }));
 vi.mock("@/api/quality", () => ({ createFeedback: vi.fn(), createSample: vi.fn(), requestReview: vi.fn() }));
 vi.mock("@/components/BusinessReviewPanel.vue", () => ({ default: defineComponent({ props: ["resultId"], setup(props) { return () => h("div", `review-for:${props.resultId}`); } }) }));
+vi.mock("@/components/ActionHistoryPanel.vue", () => ({ default: defineComponent({ setup: () => () => null }) }));
 vi.mock("@/components/ConversationDetailDrawer.vue", () => ({ default: defineComponent({ setup: () => () => null }) }));
 vi.mock("@/components/ReviewTaskSelector.vue", () => ({ default: defineComponent({
   props: ["modelValue"], emits: ["update:modelValue"], setup(props, {emit}) { return () => h("input", {

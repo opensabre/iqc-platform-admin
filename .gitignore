@@ -4,3 +4,7 @@ coverage/
 .env.local
 .env.development
 .DS_Store
+
+# Local browser evidence; manual fixture sources live in scripts/browser-fixtures.
+output/playwright/
+.playwright-cli/
