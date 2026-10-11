@@ -7,6 +7,7 @@ import { exportResults, getResultDetail, getConversationResultDetail, getResultH
 import { exportSchemeResults, exportTaskBusinessReviews, exportTaskLabelResults } from "@/api/results";
 import DecisionRevisionPanel from "@/components/DecisionRevisionPanel.vue";
 import ActionHistoryPanel from "@/components/ActionHistoryPanel.vue";
+import RiskEventPanel from "@/components/RiskEventPanel.vue";
 import {parsePipelineExecutionTrace} from "@/components/pipeline-execution-trace";
 import RouteExecutionTrace from "@/components/RouteExecutionTrace.vue";
 import BusinessReviewPanel from "@/components/BusinessReviewPanel.vue";
@@ -264,6 +265,7 @@ onMounted(() => {
     </section>
     <a-alert v-for="(item,index) in diagnostics" :key="`error-${index}`" type="error" show-icon :message="`${ruleTitle(item,index)}执行异常`" :description="item.reason" class="section-block"/>
     <ActionHistoryPanel v-if="hierarchy" :key="`actions-${hierarchy.conversation.id}`" :result-id="hierarchy.conversation.id" />
+    <RiskEventPanel v-if="hierarchy" :key="`risks-${hierarchy.conversation.id}`" :result-id="hierarchy.conversation.id" />
     <RouteExecutionTrace v-if="hierarchy" :trace-json="hierarchy.conversation.executionTraceJson" />
     <DecisionRevisionPanel v-if="hierarchy && parsePipelineExecutionTrace(hierarchy.conversation.executionTraceJson).status==='AVAILABLE'" :key="hierarchy.conversation.id" :result-id="hierarchy.conversation.id" :task-status="detail.task?.status || ''" />
     <section v-if="conversationMessages.length" class="section-block"><h3>会话消息明细（{{conversationMessages.length}} 条）</h3><a-list bordered size="small"><a-list-item v-for="item in conversationMessages" :id="messageAnchorId(item.sequenceNo)" :key="item.id" class="conversation-message" :class="{ 'message-highlight': highlightedSequenceNo === item.sequenceNo }"><a-list-item-meta :title="`消息 #${item.sequenceNo} · ${item.speakerRole || '未知角色'}`" :description="item.content || '—'"/><a-tag v-if="conversationResults.some((result) => result.messageId === item.id)" color="error">有质检结果</a-tag></a-list-item></a-list></section>
