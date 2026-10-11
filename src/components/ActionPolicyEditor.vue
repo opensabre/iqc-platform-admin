@@ -16,6 +16,22 @@
             <a-form-item label="风险标题"><a-input :value="text(action,'title')" :disabled="disabled" :maxlength="128" @update:value="(value:string)=>config(index,{title:value})"/></a-form-item>
             <a-form-item label="风险描述"><a-textarea :value="text(action,'description')" :disabled="disabled" :maxlength="1000" @update:value="(value:string)=>config(index,{description:value})"/></a-form-item>
           </template>
+          <template v-if="action.type==='SEND_ALERT'">
+            <p>使用公共通知服务已有场景与模板。参数按发布时配置冻结，不自动读取会话内容；未确认回执需核对，不自动重复发送。</p>
+            <a-form-item label="通知场景编码"><a-input :value="text(action,'sceneCode')" :disabled="disabled" :maxlength="64" @update:value="(value:string)=>config(index,{sceneCode:value})"/></a-form-item>
+            <a-form-item label="通知渠道"><a-select :value="text(action,'channel')" :options="[{value:'SMS',label:'短信'},{value:'EMAIL',label:'邮件'}]" :disabled="disabled" @change="(value:string)=>config(index,{channel:value})"/></a-form-item>
+            <a-form-item label="接收号码或邮件地址"><a-input :value="text(action,'target')" :disabled="disabled" :maxlength="255" @update:value="(value:string)=>config(index,{target:value})"/></a-form-item>
+            <a-form-item label="模板参数">
+              <div v-for="[key,value] in alertArgs(action)" :key="key" style="margin-bottom:8px">
+                <span>{{ key }}</span>
+                <a-textarea :value="value" :disabled="disabled" :maxlength="1000" @update:value="(value:string)=>setAlertArg(index,key,value)"/>
+                <a-button danger :disabled="disabled" @click="removeAlertArg(index,key)">移除参数</a-button>
+              </div>
+              <a-input :value="argumentNames[index] || ''" placeholder="新参数名称" :disabled="disabled || alertArgs(action).length>=50" :maxlength="64" @update:value="(value:string)=>argumentNames[index]=value"/>
+              <a-button :disabled="disabled || alertArgs(action).length>=50" @click="addAlertArg(index)">添加参数</a-button>
+              <a-alert v-if="argumentErrors[index]" type="error" :message="argumentErrors[index]"/>
+            </a-form-item>
+          </template>
           <template v-if="action.type==='CREATE_REVIEW'">
             <a-form-item label="复核原因"><a-textarea :value="text(action,'reason')" :disabled="disabled" :maxlength="1000" @update:value="(value:string)=>config(index,{reason:value})"/></a-form-item>
             <a-form-item label="预期已有复核轮次"><a-input-number :value="number(action,'expectedRevision',0)" :disabled="disabled" :min="0" :max="2147483646" :precision="0" @change="(value:unknown)=>config(index,{expectedRevision:value})"/></a-form-item>
@@ -47,6 +63,7 @@ const props=defineProps<{modelValue?:ActionPolicy|null;labels?:FindingLabelPolic
 const emit=defineEmits<{'update:modelValue':[value:ActionPolicy]}>();
 const newType=ref<keyof typeof supportedActionNames>('SAVE_RESULT');
 const actionOptions=Object.entries(supportedActionNames).map(([value,label])=>({value,label}));
+const argumentNames=ref<Record<number,string>>({}),argumentErrors=ref<Record<number,string>>({});
 const sampleOptions=[{value:'POSITIVE',label:'正样本'},{value:'NEGATIVE',label:'负样本'},{value:'FALSE_POSITIVE',label:'误报'},{value:'FALSE_NEGATIVE',label:'漏报'}];
 function actionName(action:PolicyAction){return Object.hasOwn(supportedActionNames,action.type)?supportedActionNames[action.type as keyof typeof supportedActionNames]:action.type;}
 function update(actions:PolicyAction[]){if(!props.disabled)emit('update:modelValue',{schemaVersion:'iqc-action-policy-v1',actions});}
@@ -56,14 +73,23 @@ function optional(index:number,key:string,value:string){const action=props.model
 function text(action:PolicyAction,key:string){return typeof action.configuration[key]==='string'?String(action.configuration[key]):'';}
 function number(action:PolicyAction,key:string,fallback:number){return action.configuration[key]===undefined?fallback:typeof action.configuration[key]==='number'?action.configuration[key] as number:undefined;}
 function tags(action:PolicyAction){return Array.isArray(action.configuration.tags)?action.configuration.tags.filter((value):value is string=>typeof value==='string'):[];}
+function alertArgs(action:PolicyAction):[string,string][]{const args=action.configuration.args;return args && typeof args==='object' && !Array.isArray(args)?Object.entries(args).map(([key,value])=>[key,typeof value==='string'?value:'']):[];}
+function setAlertArg(index:number,key:string,value:string){const action=props.modelValue?.actions[index];if(action)config(index,{args:{...action.configuration.args as Record<string,unknown>,[key]:value}});}
+function removeAlertArg(index:number,key:string){const action=props.modelValue?.actions[index];if(!action)return;const args={...action.configuration.args as Record<string,unknown>};delete args[key];config(index,{args});}
+function addAlertArg(index:number){
+  if(props.disabled)return;const action=props.modelValue?.actions[index],key=argumentNames.value[index]||'';
+  if(!action || alertArgs(action).length>=50)return;
+  if(!/^[A-Za-z0-9_]{1,64}$/.test(key) || alertArgs(action).some(([existing])=>existing===key)){argumentErrors.value[index]='名称须为1到64位字母、数字或下划线，且不能重复';return;}
+  setAlertArg(index,key,'');argumentNames.value[index]='';argumentErrors.value[index]='';
+}
 function target(action:PolicyAction){return typeof action.configuration.labelId==='string' && typeof action.configuration.valueCode==='string'?JSON.stringify([action.configuration.labelId,action.configuration.valueCode]):undefined;}
 function targets(action:PolicyAction){const values=(props.labels?.bindings || []).map(binding=>({value:JSON.stringify([binding.labelId,binding.valueCode]),label:`${binding.labelId} / ${binding.valueCode} · v${binding.labelVersion}`}));const selected=target(action);if(selected && !values.some(value=>value.value===selected))values.unshift({value:selected,label:'原目标（当前绑定中不存在）'});return values;}
 function setTarget(index:number,value:string){const binding=(props.labels?.bindings||[]).find(item=>JSON.stringify([item.labelId,item.valueCode])===value);if(binding)patch(index,{configuration:{labelId:binding.labelId,valueCode:binding.valueCode}});}
 function add(){
   if(props.disabled)return;const actions=props.modelValue?.actions || [];if(actions.length>=100)return;
   let id=1;while(actions.some(action=>action.actionId===`action_${id}`))id++;
-  const configuration:Record<string,unknown>=newType.value==='CREATE_RISK_EVENT'?{category:'',title:'',description:''}:newType.value==='CREATE_REVIEW'?{reason:'',expectedRevision:0}:newType.value==='ADD_TO_EVALUATION_CANDIDATE'?{sampleType:'POSITIVE',reviewRevision:1}:{};
-  update([...actions,{actionId:`action_${id}`,type:newType.value,adapterVersion:1,condition:newType.value==='CREATE_RISK_EVENT'?{kind:'RISK_AT_LEAST',code:null,value:'LOW',children:[]}:always(),idempotency:'PRODUCTION_SOURCE_V1',retry:null,failureHandling:'RECORD_ONLY',configuration}]);
+  const configuration:Record<string,unknown>=newType.value==='SEND_ALERT'?{sceneCode:'',channel:'EMAIL',target:'',args:{}}:newType.value==='CREATE_RISK_EVENT'?{category:'',title:'',description:''}:newType.value==='CREATE_REVIEW'?{reason:'',expectedRevision:0}:newType.value==='ADD_TO_EVALUATION_CANDIDATE'?{sampleType:'POSITIVE',reviewRevision:1}:{};
+  update([...actions,{actionId:`action_${id}`,type:newType.value,adapterVersion:1,condition:['CREATE_RISK_EVENT','SEND_ALERT'].includes(newType.value)?{kind:'RISK_AT_LEAST',code:null,value:'LOW',children:[]}:always(),idempotency:'PRODUCTION_SOURCE_V1',retry:null,failureHandling:'RECORD_ONLY',configuration}]);
 }
-function remove(index:number){update((props.modelValue?.actions||[]).filter((_,i)=>i!==index));}
+function remove(index:number){argumentNames.value={};argumentErrors.value={};update((props.modelValue?.actions||[]).filter((_,i)=>i!==index));}
 </script>

@@ -1,7 +1,7 @@
 import type { ActionCondition, ActionPolicy } from './pipelines';
 import { validateAutomaticRetry } from './automatic-retry';
 export type PolicyAction = ActionPolicy['actions'][number];
-export const supportedActionNames = { SAVE_RESULT:'保存分析结果', UPDATE_LABEL:'更新标签', CREATE_RISK_EVENT:'创建风险事件', CREATE_REVIEW:'发起业务复核', ADD_TO_EVALUATION_CANDIDATE:'加入评测候选' } as const;
+export const supportedActionNames = { SAVE_RESULT:'保存分析结果', UPDATE_LABEL:'更新标签', CREATE_RISK_EVENT:'创建风险事件', SEND_ALERT:'发送告警', CREATE_REVIEW:'发起业务复核', ADD_TO_EVALUATION_CANDIDATE:'加入评测候选' } as const;
 export const conditionNames:Record<ActionCondition['kind'],string> = {ALWAYS:'每份生产结果',ALL:'全部条件满足',ANY:'任一条件满足',NOT:'条件取反',FINDING_EQUALS:'Finding 值相等',FINDING_STATE:'Finding 状态',ITEM_STATUS:'质检项状态',RISK_AT_LEAST:'风险等级不低于',FINAL_SCORE_BELOW:'最终评分低于',RESULT_STATUS:'结果状态'};
 export const findingStates=['KNOWN','UNKNOWN','CONFLICT','ERROR','NOT_EVALUATED'];
 export const itemStates=['PASS','FAIL','NOT_APPLICABLE','REVIEW_REQUIRED','ERROR','NOT_EVALUATED'];
@@ -38,11 +38,19 @@ function validateCondition(condition:ActionCondition,depth:number,count:{value:n
 }
 function configuration(action:PolicyAction){
   const c=action.configuration;
-  const keys=action.type==='SAVE_RESULT'?[]:action.type==='UPDATE_LABEL'?['labelId','valueCode']:action.type==='CREATE_RISK_EVENT'?['category','title','description']:action.type==='CREATE_REVIEW'?['reason','expectedRevision']:['sampleType','name','tags','reviewRevision'];
+  const keys=action.type==='SAVE_RESULT'?[]:action.type==='UPDATE_LABEL'?['labelId','valueCode']:action.type==='CREATE_RISK_EVENT'?['category','title','description']:action.type==='CREATE_REVIEW'?['reason','expectedRevision']:action.type==='SEND_ALERT'?['sceneCode','channel','target','args']:['sampleType','name','tags','reviewRevision'];
   if(Object.keys(c).some(key=>!keys.includes(key)))throw Error(`动作 ${action.actionId} 包含不支持的配置字段`);
   if(action.type==='CREATE_RISK_EVENT'){
     if(typeof c.category!=='string' || !/^[A-Za-z0-9][A-Za-z0-9:_./@+-]{0,63}$/.test(c.category))throw Error('风险类别须为有效稳定编码，最多64字');
     for(const [key,max] of [['title',128],['description',1000]] as const){const value=c[key];if(typeof value!=='string' || !value.trim() || value.length>max || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(value))throw Error(`风险${key==='title'?'标题':'描述'}必填，最多${max}字且不能含控制字符`);}
+  }
+  if(action.type==='SEND_ALERT'){
+    if(typeof c.sceneCode!=='string' || !/^[A-Za-z0-9:_-]{1,64}$/.test(c.sceneCode))throw Error('告警场景编码必填，最多64字，仅支持字母、数字、冒号、下划线和短横线');
+    if(!['SMS','EMAIL'].includes(String(c.channel)))throw Error('请选择短信或邮件渠道');
+    if(typeof c.target!=='string' || !c.target || c.target.length>255 || /[\s\u0000-\u001f\u007f-\u009f]/.test(c.target))throw Error('告警接收地址必填，最多255字，不能含空白或控制字符');
+    if(c.channel==='SMS' && !/^\+?[0-9]{6,20}$/.test(c.target))throw Error('短信号码须为6至20位数字，可带加号前缀');
+    if(c.channel==='EMAIL' && (c.target.indexOf('@')<1 || c.target.indexOf('@')!==c.target.lastIndexOf('@') || c.target.endsWith('@')))throw Error('邮件地址须包含一个有效的 @ 分隔符');
+    if(c.args!==undefined && (!c.args || typeof c.args!=='object' || Array.isArray(c.args) || Object.entries(c.args).length>50 || Object.entries(c.args).some(([key,value])=>!/^[A-Za-z0-9_]{1,64}$/.test(key) || typeof value!=='string' || value.length>1000)))throw Error('告警模板参数最多50项；名称最多64字，仅含字母、数字、下划线，值须为最多1000字的文本');
   }
   if(action.type==='CREATE_REVIEW'){
     if(typeof c.reason!=='string' || !c.reason.trim() || c.reason.trim().length>1000)throw Error('复核原因必填，最多1000字');

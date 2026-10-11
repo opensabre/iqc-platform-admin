@@ -76,7 +76,7 @@ async function loadObservations(more=false){
 function openObservations(row:ActionHistory){if(!alive||!allowed.value||reconciling.value||loading.value)return;closeObservations();observationAction.value=row.id;observationName.value=row.actionId;void loadObservations();}
 const selected=ref<ActionHistory|null>(null),reason=ref(''),reconciling=ref(false),reconcileMessage=ref(''),reconcileError=ref('');
 let reconciliationGeneration=0;
-const localReceiptTypes=new Set(['SAVE_RESULT','UPDATE_LABEL','CREATE_RISK_EVENT','CREATE_REVIEW','ADD_TO_EVALUATION_CANDIDATE']);
+const localReceiptTypes=new Set(['SAVE_RESULT','UPDATE_LABEL','CREATE_RISK_EVENT','SEND_ALERT','CREATE_REVIEW','ADD_TO_EVALUATION_CANDIDATE']);
 function eligible(row:ActionHistory){return canReconcile.value&&row.status==='REQUIRES_RECONCILIATION'&&row.outcome==='UNKNOWN'&&localReceiptTypes.has(row.type)&&Number.isSafeInteger(row.version)&&(row.version??0)>0;}
 function recoverable(row:ActionHistory){return canRecover.value&&['BLOCKED_SOURCE','BLOCKED_AUTHORIZATION','BLOCKED_ADAPTER'].includes(row.status)&&Number.isSafeInteger(row.version)&&(row.version??-1)>=0&&(row.attemptCount===0&&row.outcome===null||Number.isSafeInteger(row.attemptCount)&&(row.attemptCount??0)>0&&row.outcome==='CONFIRMED_RETRYABLE_FAILURE');}
 function openRecovery(row:ActionHistory){if(!alive||!allowed.value||reconciling.value||loading.value||!recoverable(row))return;operation.value='recover';selected.value={...row};reason.value='';reconcileError.value='';reconcileMessage.value='';}
