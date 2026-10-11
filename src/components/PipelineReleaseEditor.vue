@@ -2,6 +2,8 @@
 import {ref,watch} from 'vue';
 import PublishedAssetReference from './PublishedAssetReference.vue';
 import FindingLabelPolicyEditor from './FindingLabelPolicyEditor.vue';
+import ActionPolicyEditor from './ActionPolicyEditor.vue';
+import {validateActionPolicy} from '@/api/action-policy-editor';
 import {validateFindingLabelPolicy,validateLabelActionTargets} from '@/api/finding-label-policy';
 import type {PipelineRelease,PipelineNode} from '@/api/pipelines';
 const props=defineProps<{initial:PipelineRelease;disabled?:boolean}>();
@@ -45,11 +47,6 @@ function addLabelAction(binding:NonNullable<PipelineRelease['labelPolicy']>['bin
    condition:{kind:'ALWAYS',code:null,value:null,children:[]},idempotency:'PRODUCTION_SOURCE_V1',retry:null,failureHandling:'RECORD_ONLY',
    configuration:{labelId:binding.labelId,valueCode:binding.valueCode}}]};
 }
-function removeAction(index:number) {
- if(props.disabled || !actionPolicy.value)return;
- actionPolicy.value={...actionPolicy.value,actions:actionPolicy.value.actions.filter((_,i)=>i!==index)};
- actionError.value='';
-}
 function release():PipelineRelease {
  if(!fusion.value||!scoring.value)throw Error('政策未加载');
  const converted=nodes.value.map(n=>{
@@ -66,8 +63,9 @@ function release():PipelineRelease {
  if(Object.values(priority).some(v=>!Number.isSafeInteger(v))||Object.values(override).some(v=>typeof v!=='string'))throw Error('优先级必须为整数，覆盖映射必须为节点编码');
  if(publicationGate.value){const p=publicationGate.value;for(const ratio of [p.minimumRiskRecall,p.minimumOverallF1,p.minimumRegressionPass,p.minimumStructuredSuccess])if(typeof ratio!=='number'||!Number.isFinite(ratio)||ratio<0||ratio>1)throw Error('发布门禁比率必须为0–1');if(!Number.isInteger(p.maximumP95Ms)||p.maximumP95Ms<1||p.maximumP95Ms>300000||!Number.isInteger(p.minimumSamples)||p.minimumSamples<1||p.minimumSamples>1000)throw Error('发布门禁样本/耗时阈值无效');}
  const labels=validateFindingLabelPolicy(labelPolicy.value);
- validateLabelActionTargets(actionPolicy.value,labels);
- return {...(labels?{labelPolicy:labels}:{}),...(actionPolicy.value?{actionPolicy:JSON.parse(JSON.stringify(actionPolicy.value)) as NonNullable<PipelineRelease['actionPolicy']>}:{}),...(publicationGate.value?{publicationGate:{...publicationGate.value}}:{}),schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:'iqc-pipeline-v1',nodes:converted},fusion:{...fusion.value,nodePriority:priority as Record<string,number>,overrideNodeByCode:override as Record<string,string>},items:items.value.map(({points,veto,...i})=>i),scoring:{...scoring.value,items:items.value.map(i=>({itemCode:i.itemCode,points:i.points,veto:i.veto}))}};
+ const actions=validateActionPolicy(actionPolicy.value);
+ validateLabelActionTargets(actions,labels);
+ return {...(labels?{labelPolicy:labels}:{}),...(actions?{actionPolicy:actions}:{}),...(publicationGate.value?{publicationGate:{...publicationGate.value}}:{}),schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:'iqc-pipeline-v1',nodes:converted},fusion:{...fusion.value,nodePriority:priority as Record<string,number>,overrideNodeByCode:override as Record<string,string>},items:items.value.map(({points,veto,...i})=>i),scoring:{...scoring.value,items:items.value.map(i=>({itemCode:i.itemCode,points:i.points,veto:i.veto}))}};
 }
 defineExpose({release});
 </script>
@@ -91,7 +89,7 @@ defineExpose({release});
 </a-form></a-collapse-panel></a-collapse>
 <h3>事实融合</h3><a-form v-if="fusion" layout="vertical"><a-form-item label="政策标识 / 版本"><a-space><a-input v-model:value="fusion.id" :disabled="disabled"/><a-input-number v-model:value="fusion.version" :min="1" :precision="0" :disabled="disabled"/></a-space></a-form-item><a-form-item label="融合方式"><a-select v-model:value="fusion.method" :options="options(['PRIORITY','VOTING','OVERRIDE','CONFIDENCE'])" :disabled="disabled"/></a-form-item><a-form-item label="节点优先级（JSON）"><a-textarea v-model:value="priorities" :rows="2" :disabled="disabled"/></a-form-item><a-form-item v-if="fusion.method==='OVERRIDE'" label="事实编码 → 覆盖节点（JSON）"><a-textarea v-model:value="overrides" :rows="2" :disabled="disabled"/></a-form-item><template v-if="fusion.method==='CONFIDENCE'"><a-form-item label="校准标识"><a-input v-model:value="fusion.confidenceCalibrationId" :disabled="disabled"/></a-form-item><a-form-item label="已校准节点"><a-select v-model:value="fusion.calibratedNodeIds" mode="multiple" :options="options(nodes.map(n=>n.nodeId))" :disabled="disabled"/></a-form-item><a-alert type="info" message="当前RULE/DLS/LLM适配器未输出已校准置信度，选择此政策不会产生确定的融合值。"/></template></a-form>
 <FindingLabelPolicyEditor :key="policyEditorGeneration" v-model="labelPolicy" :finding-codes="nodes.map(node=>node.factCode).filter(Boolean)" :disabled="disabled" @action="addLabelAction"/>
-<a-alert v-if="actionError" type="error" :message="actionError" show-icon/><section v-if="actionPolicy"><h3>动作策略</h3><p>策略随流水线版本保存。新增打标动作默认针对每份生产结果，生成确定、未知、冲突、错误或未评估标签值；此处查看已有策略。</p><a-card v-for="(action,index) in actionPolicy.actions" :key="action.actionId" size="small" style="margin:8px 0"><strong>{{action.actionId}}</strong> · {{action.type}} · 版本 {{action.adapterVersion ?? 1}}<p>失败处理：{{action.failureHandling==='ESCALATE_REVIEW'?'升级复核':'仅记录'}}；最多尝试 {{action.retry?.maximumAttempts ?? 1}} 次。</p><a-button danger :disabled="disabled" @click="removeAction(index)">移除动作</a-button></a-card><p v-if="!actionPolicy.actions.length">此版本未配置动作。</p></section>
+<a-alert v-if="actionError" type="error" :message="actionError" show-icon/><ActionPolicyEditor :key="`actions-${policyEditorGeneration}`" v-model="actionPolicy" :labels="labelPolicy" :finding-codes="nodes.map(node=>node.factCode).filter(Boolean)" :item-codes="items.map(item=>item.itemCode).filter(Boolean)" :disabled="disabled"/>
 <h3>发布门禁政策</h3><a-switch :checked="!!publicationGate" :disabled="disabled" @change="configurePublicationGate"/> 自定义阈值；未启用时采用95%风险召回、92%F1、100%回归、99.5%结构化成功和5000ms P95默认值。
 <a-form v-if="publicationGate" layout="vertical"><a-form-item label="风险召回 / Overall F1 最低比率（0–1）"><a-space><a-input-number v-model:value="publicationGate.minimumRiskRecall" :min="0" :max="1" :step="0.01" :disabled="disabled"/><a-input-number v-model:value="publicationGate.minimumOverallF1" :min="0" :max="1" :step="0.01" :disabled="disabled"/></a-space></a-form-item><a-form-item label="回归通过 / 结构化输出最低比率（0–1）"><a-space><a-input-number v-model:value="publicationGate.minimumRegressionPass" :min="0" :max="1" :step="0.01" :disabled="disabled"/><a-input-number v-model:value="publicationGate.minimumStructuredSuccess" :min="0" :max="1" :step="0.001" :disabled="disabled"/></a-space></a-form-item><a-form-item label="评测计算P95毫秒 / 每类金标最少样本"><a-space><a-input-number v-model:value="publicationGate.maximumP95Ms" :min="1" :max="300000" :precision="0" :disabled="disabled"/><a-input-number v-model:value="publicationGate.minimumSamples" :min="1" :max="1000" :precision="0" :disabled="disabled"/></a-space></a-form-item></a-form>
 <h3>业务映射与评分</h3><a-form v-if="scoring" layout="vertical"><a-form-item label="计分方式"><a-select v-model:value="scoring.mode" :options="options(['DEDUCTION','POINTS'])" :disabled="disabled"/></a-form-item><a-form-item label="基础分 / 合格线"><a-space><a-input-number v-model:value="scoring.baseScore" :min="1" :max="100" :precision="0" :disabled="disabled"/><a-input-number v-model:value="scoring.passingScore" :min="0" :max="100" :precision="0" :disabled="disabled"/></a-space></a-form-item></a-form>
