@@ -5,3 +5,6 @@ export async function handleRiskEvent(resultId:string,id:string,version:string,s
 export interface RiskHandlingEvent {version:string;previousStatus:string;status:string;reason:string;actor:string;recordedAtUtc:string}
 export interface RiskHandlingPage {events:RiskHandlingEvent[];nextBeforeVersion:string|null}
 export async function riskHandlingHistory(resultId:string,id:string,beforeVersion?:string){const {data}=await http.get<RiskHandlingPage>(`/iqc/conversation-results/${encodeURIComponent(resultId)}/risk-events/${encodeURIComponent(id)}/history`,{params:{beforeVersion}});return data;}
+
+export interface RiskCenterPage {events:RiskEvent[];nextAfterId:string|null}
+export async function riskCenter(afterId?:string,status?:string,riskLevel?:string){const {data}=await http.get<RiskCenterPage>('/iqc/risk-events',{params:{afterId,status,riskLevel}});return data;}

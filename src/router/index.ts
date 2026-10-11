@@ -23,6 +23,7 @@ const routes: RouteRecordRaw[] = [
       { path: "labels/collections", component: () => import("@/views/labels/collections.vue"), meta: { title: "标签集合", permission: "iqc:label-collection:view" } },
       { path: "labels/candidates", component: () => import("@/views/labels/candidates.vue"), meta: { title: "候选标签", permission: "iqc:label-candidate:view" } },
       { path: "results", component: () => import("@/views/results/index.vue"), meta: { title: "质检结果", permission: "iqc:result:view" } },
+      { path: "risk-events", component: () => import("@/views/risk-events/index.vue"), meta: { title: "风险中心", permission: "iqc:risk:center:view" } },
       { path: "quality-operations", component: () => import("@/views/quality-operations/index.vue"), meta: { title: "质量运营", permission: "iqc:review:view" } },
       { path: "agents", component: () => import("@/views/agents/index.vue"), meta: { title: "智能体列表", permission: "iqc:agent:view" } },
       { path: "agent-skills", component: () => import("@/views/agent-skills/index.vue"), meta: { title: "Skill 管理", permission: "iqc:skill:view" } },

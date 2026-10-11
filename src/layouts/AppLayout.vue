@@ -38,6 +38,7 @@ const menuItems: MenuItem[] = [
     { key: "labels-candidates", path: "/labels/candidates", label: "候选标签", permission: "iqc:label-candidate:view" },
   ] },
   { key: "results", path: "/results", label: "质检结果", icon: CheckCircleOutlined, permission: "iqc:result:view" },
+  { key: "risk-events", path: "/risk-events", label: "风险中心", icon: CheckCircleOutlined, permission: "iqc:risk:center:view" },
   { key: "quality-operations", path: "/quality-operations", label: "质量运营", icon: CheckCircleOutlined, permission: "iqc:review:view" },
   { key: "agents", label: "智能体管理", icon: ClusterOutlined, children: [
     { key: "agents-list", path: "/agents", label: "智能体列表", permission: "iqc:agent:view" },
@@ -68,7 +69,7 @@ const canonicalLabels: Record<string, string> = {
   "/evaluation/tasks": "固定数据集评测",
   "/evaluation/datasets": "评测数据集",
   "/dashboard": "睿检总览", "/profile": "个人中心", "/conversations/api": "接口对接", "/conversations/list": "会话列表", "/conversations/upload": "文本上传",
-  "/pipelines": "检测流水线", "/findings": "事实语义目录", "/tasks": "质检任务", "/labels/tree": "标签树", "/labels/collections": "标签集合", "/labels/candidates": "候选标签", "/results": "质检结果", "/agents": "智能体列表", "/agent-models": "模型配置",
+  "/pipelines": "检测流水线", "/findings": "事实语义目录", "/tasks": "质检任务", "/labels/tree": "标签树", "/labels/collections": "标签集合", "/labels/candidates": "候选标签", "/results": "质检结果", "/risk-events": "风险中心", "/agents": "智能体列表", "/agent-models": "模型配置",
   "/agent-mcps": "MCP 管理", "/agent-skills": "Skill 管理", "/rules/library": "规则库", "/rules/conversation": "会话规则",
   "/rules/sets": "规则集", "/rules/test-center": "测试中心", "/rules/approvals": "审批与发布",
   "/templates": "模板中心", "/settings": "系统设置", "/audit-logs": "操作日志",
