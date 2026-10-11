@@ -41,8 +41,8 @@ export function summarizeTrialLabels(task: InspectionTask, rows: LabelResult[]):
       received.add(key);
       const presentation = presentLabel(row);
       const state = presentation.state;
-      counts[state === "HIT" ? "ERROR" : state]++;
-      if (!presentation.valid || state === "HIT") invalid = true;
+      counts[state === "HIT" || state === "NOT_EVALUATED" ? "ERROR" : state]++;
+      if (!presentation.valid || state === "HIT" || state === "NOT_EVALUATED" || row.generationSource === "PIPELINE_FINDING") invalid = true;
     }
     return { expected: expected.size, received: rows.length, counts,
       complete: !invalid && received.size === expected.size, invalid };

@@ -23,8 +23,8 @@ let generation = 0;
 const machine = computed(() => presentLabel(props.label));
 const valueType = computed(() => {
   try {
-    const payload = JSON.parse(props.label.valueJson || "null") as { schemaVersion?: string; valueType?: string } | null;
-    return payload?.schemaVersion === "iqc-label-result-v2" ? payload.valueType : undefined;
+    const payload = JSON.parse(props.label.valueJson || "null") as { schemaVersion?: string; valueType?: string; binding?: { valueType?: string } } | null;
+    return payload?.schemaVersion === "iqc-label-finding-projection-v1" ? payload.binding?.valueType : payload?.schemaVersion === "iqc-label-result-v2" ? payload.valueType : undefined;
   } catch { return undefined; }
 });
 const eligible = computed(() => machine.value.valid && machine.value.state !== "HIT"

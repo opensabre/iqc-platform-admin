@@ -99,8 +99,8 @@ function showConversationLabels(conversationId: string) {
   selectedLabelConversationId.value = conversationId;
   resultTab.value = "labels";
 }
-const labelStateCounts = computed(() => ["KNOWN", "UNKNOWN", "CONFLICT", "ERROR", "HIT"].map(state => ({
-  state, name: ({ KNOWN: "确定", UNKNOWN: "未知", CONFLICT: "冲突", ERROR: "错误", HIT: "兼容命中" } as Record<string, string>)[state],
+const labelStateCounts = computed(() => ["KNOWN", "UNKNOWN", "CONFLICT", "ERROR", "NOT_EVALUATED", "HIT"].map(state => ({
+  state, name: ({ KNOWN: "确定", UNKNOWN: "未知", CONFLICT: "冲突", ERROR: "错误", NOT_EVALUATED: "未评估", HIT: "兼容命中" } as Record<string, string>)[state],
   count: labelRows.value.filter(row => row.presentation.state === state).length,
 })));
 const labelInsights = ref<LabelInsightSummary>();
@@ -1254,12 +1254,14 @@ onBeforeUnmount(() => {
         <p v-if="labelInsights?.coverageValueCount">新版标签值状态率（已生成 {{ labelInsights.coverageValueCount }} 条为分母；不含兼容命中与未产出的值）：
           未知 {{ ((labelInsights.coverageStatusCounts?.UNKNOWN || 0) / labelInsights.coverageValueCount * 100).toFixed(1) }}% ·
           冲突 {{ ((labelInsights.coverageStatusCounts?.CONFLICT || 0) / labelInsights.coverageValueCount * 100).toFixed(1) }}% ·
-          识别失败 {{ ((labelInsights.coverageStatusCounts?.ERROR || 0) / labelInsights.coverageValueCount * 100).toFixed(1) }}%
+          识别失败 {{ ((labelInsights.coverageStatusCounts?.ERROR || 0) / labelInsights.coverageValueCount * 100).toFixed(1) }}% ·
+          未评估 {{ ((labelInsights.coverageStatusCounts?.NOT_EVALUATED || 0) / labelInsights.coverageValueCount * 100).toFixed(1) }}%
         </p>
         <p v-if="labelInsights?.reviewed?.coverageValueCount">人工有效口径下的新版标签值状态率（已生成 {{ labelInsights.reviewed.coverageValueCount }} 条为分母；未修订沿用机器值）：
           未知 {{ ((labelInsights.reviewed.coverageStatusCounts?.UNKNOWN || 0) / labelInsights.reviewed.coverageValueCount * 100).toFixed(1) }}% ·
           冲突 {{ ((labelInsights.reviewed.coverageStatusCounts?.CONFLICT || 0) / labelInsights.reviewed.coverageValueCount * 100).toFixed(1) }}% ·
-          识别失败 {{ ((labelInsights.reviewed.coverageStatusCounts?.ERROR || 0) / labelInsights.reviewed.coverageValueCount * 100).toFixed(1) }}%
+          识别失败 {{ ((labelInsights.reviewed.coverageStatusCounts?.ERROR || 0) / labelInsights.reviewed.coverageValueCount * 100).toFixed(1) }}% ·
+          未评估 {{ ((labelInsights.reviewed.coverageStatusCounts?.NOT_EVALUATED || 0) / labelInsights.reviewed.coverageValueCount * 100).toFixed(1) }}%
         </p>
         <a-table v-if="visibleLabelRows.length" :data-source="visibleLabelRows" row-key="id" :pagination="false" size="small" :scroll="{x:1000}">
           <a-table-column title="会话 ID" data-index="conversationId" :ellipsis="true"/>
@@ -1274,7 +1276,7 @@ onBeforeUnmount(() => {
               <div v-for="(candidate, index) in record.presentation.candidates" :key="index" style="margin-bottom:12px">
                 <div>候选 {{ index + 1 }}：{{ candidate.value }}</div>
                 <div v-for="(quote, quoteIndex) in candidate.evidence" :key="quoteIndex" style="white-space:pre-wrap;overflow-wrap:anywhere">
-                  “{{ quote.text }}”<a-button type="link" @click="showConversationResult(record.conversationId, JSON.stringify([{messageId:quote.messageId}]))">定位原文</a-button>
+                  “{{ quote.text }}”<a-button v-if="quote.messageId" type="link" @click="showConversationResult(record.conversationId, JSON.stringify([{messageId:quote.messageId}]))">定位原文</a-button>
                 </div>
                 <small style="overflow-wrap:anywhere">来源结果：{{ candidate.source }}</small>
               </div>
