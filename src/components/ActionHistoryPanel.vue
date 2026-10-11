@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed,onBeforeUnmount,ref,watch} from 'vue';
 import {usePermission} from '@/composables/permission';
-import {listActionHistory,requestActionDiscovery,reconcileAction,type ActionHistory,type ActionStateEvent,type ActionEventState} from '@/api/action-history';
+import {listActionHistory,requestActionDiscovery,reconcileAction,type ActionHistory,type ActionStateEvent,type ActionEventState,type ActionAttempt} from '@/api/action-history';
 const props=defineProps<{resultId:string}>();
 const {can}=usePermission();
 const allowed=computed(()=>can('iqc:action:history:view'));
@@ -38,6 +38,39 @@ async function loadJournal(more=false){
  finally{if(alive&&ticket===journalGeneration)journalLoading.value=false;}
 }
 function openJournal(row:ActionHistory){if(!alive||!allowed.value||reconciling.value||loading.value)return;closeJournal();journalAction.value=row.id;journalName.value=row.actionId;void loadJournal();}
+const observationAction=ref<string|null>(null),observationName=ref(''),observationRows=ref<ActionAttempt[]>([]),observationLoading=ref(false),observationError=ref(''),observationNext=ref<string|null>(null);
+let observationGeneration=0;
+const observationLabels:Record<string,string>={STARTED:'核对结果尚未持久确认',CONFIRMED:'已确认实际产物',UNCONFIRMED:'未取得实际产物确认',STALE_OBSERVATION:'观察版本已失效',LOOKUP_FAILED:'核对未完成'};
+function closeObservations(){observationGeneration++;observationAction.value=null;observationName.value='';observationRows.value=[];observationLoading.value=false;observationError.value='';observationNext.value=null;}
+function observationKey(row:ActionAttempt){return `${new Date(row.startedAtUtc+'Z').toISOString().slice(0,-1)}~${row.id}`;}
+function validObservationTime(value:unknown):value is string {
+ if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?$/.test(value)||value.slice(0,4)<'1000')return false;
+ const parsed=new Date(value+'Z');return Number.isFinite(parsed.getTime())&&parsed.toISOString().slice(0,19)===value.slice(0,19);
+}
+function validObservationCursor(value:unknown):value is string {return typeof value==='string'&&value.length===56&&validObservationTime(value.slice(0,23))&&value[23]==='~'&&/^[a-f0-9]{32}$/.test(value.slice(24));}
+async function loadObservations(more=false){
+ const actionId=observationAction.value,before=more?observationNext.value:null;
+ if(!alive||!allowed.value||!actionId||observationLoading.value||more&&!before)return;
+ const ticket=++observationGeneration,id=props.resultId;observationLoading.value=true;observationError.value='';
+ try {
+  const data=await listActionHistory(id,{actionExecutionId:actionId,includeAttempts:true,...(before?{beforeAttempt:before}:{})});
+  const page=Array.isArray(data)&&data.length===1&&data[0]?.id===actionId?data[0].attempts:null;
+  if(!page||!Array.isArray(page.attempts)||page.attempts.length>50)throw Error('Invalid observations');
+  let boundary=before;
+  for(const row of page.attempts){
+   if(!row||typeof row.id!=='string'||!/^[a-f0-9]{32}$/.test(row.id)||!validVersion(row.observedVersion)||row.observedVersion==='0'||typeof row.actor!=='string'||typeof row.reason!=='string'||row.reason.length>1000||!Object.hasOwn(observationLabels,row.state)||!validObservationTime(row.startedAtUtc))throw Error('Invalid observation');
+   const key=observationKey(row);
+   if(boundary!==null&&key>=boundary)throw Error('Invalid observation order');
+   if(row.state==='STARTED'?(row.finishedAtUtc!==null||row.confirmedVersion!==null):(!validObservationTime(row.finishedAtUtc)||new Date(row.finishedAtUtc+'Z').getTime()<new Date(row.startedAtUtc+'Z').getTime()))throw Error('Invalid observation terminal time');
+   if(row.state==='CONFIRMED'?(!validVersion(row.confirmedVersion)||BigInt(row.confirmedVersion)!==BigInt(row.observedVersion)+1n):row.confirmedVersion!==null)throw Error('Invalid observation confirmation');
+   boundary=key;
+  }
+  if(page.nextBeforeAttempt!==null&&(!validObservationCursor(page.nextBeforeAttempt)||page.attempts.length!==50||page.nextBeforeAttempt!==boundary))throw Error('Invalid observation cursor');
+  if(alive&&ticket===observationGeneration&&allowed.value){observationRows.value=more?[...observationRows.value,...page.attempts]:page.attempts;observationNext.value=page.nextBeforeAttempt;}
+ } catch {if(alive&&ticket===observationGeneration)observationError.value='核对尝试加载失败，请重试。';}
+ finally {if(alive&&ticket===observationGeneration)observationLoading.value=false;}
+}
+function openObservations(row:ActionHistory){if(!alive||!allowed.value||reconciling.value||loading.value)return;closeObservations();observationAction.value=row.id;observationName.value=row.actionId;void loadObservations();}
 const selected=ref<ActionHistory|null>(null),reason=ref(''),reconciling=ref(false),reconcileMessage=ref(''),reconcileError=ref('');
 let reconciliationGeneration=0;
 const localReceiptTypes=new Set(['SAVE_RESULT','CREATE_REVIEW','ADD_TO_EVALUATION_CANDIDATE']);
@@ -71,7 +104,7 @@ const labels:Record<string,string>={PENDING:'待执行',RUNNING:'执行中',WAIT
 const columns=[{title:'动作',dataIndex:'actionId',width:160},{title:'类型',dataIndex:'type',width:180},{title:'状态',key:'status',width:140},{title:'执行尝试',dataIndex:'attemptCount',width:100},{title:'下次检查/重试 UTC',dataIndex:'nextAttemptAtUtc',width:190},{title:'结算时间 UTC',dataIndex:'settledAtUtc',width:190},{title:'结果引用',dataIndex:'resultReference',width:180},{title:'证据引用',dataIndex:'evidenceReference',width:180},{title:'原因代码',dataIndex:'errorCode',width:220},{title:'操作',key:'operation',width:140}];
 async function refresh(){
  if(!alive||!allowed.value||!props.resultId)return;
- closeJournal();const ticket=++generation,id=props.resultId;loading.value=true;error.value='';rows.value=[];
+ closeJournal();closeObservations();const ticket=++generation,id=props.resultId;loading.value=true;error.value='';rows.value=[];
  try{
   const data=await listActionHistory(id);
   if(!Array.isArray(data)||data.length>100||data.some(row=>!row||typeof row.id!=='string'||typeof row.actionId!=='string'||typeof row.type!=='string'||typeof row.status!=='string'||row.version!=null&&(!Number.isInteger(row.version)||row.version<0)||row.attemptCount!==null&&(!Number.isInteger(row.attemptCount)||row.attemptCount<0)))throw Error('Invalid action records');
@@ -92,13 +125,13 @@ async function requestCheck(){
  }catch{if(alive&&ticket===requestGeneration)requestError.value='动作检查请求失败，请确认该结果属于您且动作处理已启用。';}
  finally{if(alive&&ticket===requestGeneration)requesting.value=false;}
 }
-watch([()=>props.resultId,allowed],closeJournal);
+watch([()=>props.resultId,allowed],()=>{closeJournal();closeObservations();});
 watch([()=>props.resultId,allowed,canReconcile],()=>{reconciliationGeneration++;selected.value=null;reason.value='';reconciling.value=false;reconcileMessage.value='';reconcileError.value='';});
 watch([()=>props.resultId,allowed,canRequest],()=>{requestGeneration++;requesting.value=false;requestMessage.value='';requestError.value='';});
 watch([()=>props.resultId,allowed],()=>{generation++;rows.value=[];error.value='';loading.value=false;if(allowed.value)void refresh();},{immediate:true});
-onBeforeUnmount(()=>{closeJournal();alive=false;generation++;requestGeneration++;reconciliationGeneration++;rows.value=[];});
+onBeforeUnmount(()=>{closeJournal();closeObservations();alive=false;generation++;requestGeneration++;reconciliationGeneration++;rows.value=[];});
 </script>
-<template><section v-if="allowed" class="action-history"><a-space><h3>动作执行记录</h3><a-button :loading="loading" :disabled="reconciling" @click="refresh">刷新</a-button><a-button v-if="canRequest" :loading="requesting" @click="requestCheck">检查结果动作</a-button></a-space><p>动作状态与机器分析结论分别记录。</p><a-alert v-if="requestMessage" type="info" :message="requestMessage"/><a-alert v-if="requestError" type="error" :message="requestError"/><a-alert v-if="reconcileMessage" type="info" :message="reconcileMessage"/><a-alert v-if="reconcileError" type="error" :message="reconcileError"/><a-alert v-if="error" type="error" :message="error"/><a-table v-else :loading="loading" :data-source="rows" :columns="columns" row-key="id" size="small" :pagination="false" :scroll="{x:1540}" :locale="{emptyText:loading?'加载中':'暂无动作记录'}"><template #bodyCell="{column,record,text}"><template v-if="column.key==='status'">{{labels[record.status]||record.status}}</template><template v-else-if="column.key==='operation'"><a-button :disabled="reconciling||loading" @click="openJournal(record)">查看历史</a-button><a-button v-if="eligible(record)" :disabled="reconciling||loading" @click="openReconciliation(record)">核对实际产物</a-button></template><template v-else>{{text ?? '—'}}</template></template></a-table><a-modal :open="!!selected" title="核对实际产物" :confirm-loading="reconciling" :closable="!reconciling" :keyboard="!reconciling" :mask-closable="false" :cancel-button-props="{disabled:reconciling}" ok-text="核对" cancel-text="取消" @ok="confirmReconciliation" @cancel="cancelReconciliation"><p>动作：{{selected?.actionId}}</p><p>仅查询您原始动作的已保存产物；没有确认产物时保持待核对。</p><label for="action-reconciliation-reason">核对原因</label><a-textarea id="action-reconciliation-reason" v-model:value="reason" :maxlength="1000" :disabled="reconciling" :rows="3"/><a-alert v-if="reconcileError" type="error" :message="reconcileError"/></a-modal><a-modal :open="!!journalAction" :title="`动作历史：${journalName}`" :footer="null" @cancel="closeJournal">
+<template><section v-if="allowed" class="action-history"><a-space><h3>动作执行记录</h3><a-button :loading="loading" :disabled="reconciling" @click="refresh">刷新</a-button><a-button v-if="canRequest" :loading="requesting" @click="requestCheck">检查结果动作</a-button></a-space><p>动作状态与机器分析结论分别记录。</p><a-alert v-if="requestMessage" type="info" :message="requestMessage"/><a-alert v-if="requestError" type="error" :message="requestError"/><a-alert v-if="reconcileMessage" type="info" :message="reconcileMessage"/><a-alert v-if="reconcileError" type="error" :message="reconcileError"/><a-alert v-if="error" type="error" :message="error"/><a-table v-else :loading="loading" :data-source="rows" :columns="columns" row-key="id" size="small" :pagination="false" :scroll="{x:1540}" :locale="{emptyText:loading?'加载中':'暂无动作记录'}"><template #bodyCell="{column,record,text}"><template v-if="column.key==='status'">{{labels[record.status]||record.status}}</template><template v-else-if="column.key==='operation'"><a-button :disabled="reconciling||loading" @click="openJournal(record)">查看历史</a-button><a-button :disabled="reconciling||loading" @click="openObservations(record)">查看核对尝试</a-button><a-button v-if="eligible(record)" :disabled="reconciling||loading" @click="openReconciliation(record)">核对实际产物</a-button></template><template v-else>{{text ?? '—'}}</template></template></a-table><a-modal :open="!!selected" title="核对实际产物" :confirm-loading="reconciling" :closable="!reconciling" :keyboard="!reconciling" :mask-closable="false" :cancel-button-props="{disabled:reconciling}" ok-text="核对" cancel-text="取消" @ok="confirmReconciliation" @cancel="cancelReconciliation"><p>动作：{{selected?.actionId}}</p><p>仅查询您原始动作的已保存产物；没有确认产物时保持待核对。</p><label for="action-reconciliation-reason">核对原因</label><a-textarea id="action-reconciliation-reason" v-model:value="reason" :maxlength="1000" :disabled="reconciling" :rows="3"/><a-alert v-if="reconcileError" type="error" :message="reconcileError"/></a-modal><a-modal :open="!!journalAction" :title="`动作历史：${journalName}`" :footer="null" @cancel="closeJournal">
 <p>以下记录按变更顺序由新到旧展示。领取次数不证明动作已经发送。</p>
 <a-alert v-if="journalError" type="error" :message="journalError"/>
 <p v-if="journalLoading">加载中</p>
@@ -120,5 +153,19 @@ onBeforeUnmount(()=>{closeJournal();alive=false;generation++;requestGeneration++
 <a-button v-if="journalNext" :loading="journalLoading" :disabled="journalLoading" @click="loadJournal(true)">加载更早记录</a-button>
 <a-button v-if="journalError" :disabled="journalLoading" @click="loadJournal(!!journalNext)">重试加载</a-button>
 <a-button @click="closeJournal">关闭历史</a-button>
+</a-modal><a-modal :open="!!observationAction" :title="`核对尝试：${observationName}`" :footer="null" @cancel="closeObservations">
+<p>核对尝试按开始时间由新到旧展示。核对结果尚未持久确认时，不能据此判断动作失败或重发。</p>
+<a-alert v-if="observationError" type="error" :message="observationError"/>
+<p v-if="observationLoading">加载中</p>
+<p v-if="!observationLoading&&!observationRows.length&&!observationError">暂无保存的核对尝试；较早请求可能未保留。</p>
+<ol class="observation-events"><li v-for="row in observationRows" :key="row.id">
+<strong>{{observationLabels[row.state]}}</strong>
+<p>核对原因：{{row.reason}}</p><p>操作人：{{row.actor}} · 观察版本：{{row.observedVersion}}</p>
+<p>开始时间 UTC：{{row.startedAtUtc}}</p><p v-if="row.finishedAtUtc">结束时间 UTC：{{row.finishedAtUtc}}</p>
+<p v-if="row.confirmedVersion">确认版本：{{row.confirmedVersion}}</p>
+</li></ol>
+<a-button v-if="observationNext" :loading="observationLoading" :disabled="observationLoading" @click="loadObservations(true)">加载更早核对</a-button>
+<a-button v-if="observationError" :disabled="observationLoading" @click="loadObservations(!!observationNext)">重试核对记录</a-button>
+<a-button @click="closeObservations">关闭核对记录</a-button>
 </a-modal></section></template>
-<style scoped>.action-history{margin:20px 0}.action-history p{overflow-wrap:anywhere}.action-history .ant-alert{margin:8px 0}.journal-events{padding-left:24px;max-height:55vh;overflow:auto}.journal-events li{margin:16px 0;overflow-wrap:anywhere}.journal-events p{margin:4px 0}</style>
+<style scoped>.action-history{margin:20px 0}.action-history p{overflow-wrap:anywhere}.action-history .ant-alert{margin:8px 0}.journal-events,.observation-events{padding-left:24px;max-height:55vh;overflow:auto}.journal-events li,.observation-events li{margin:16px 0;overflow-wrap:anywhere}.journal-events p,.observation-events p{margin:4px 0}</style>

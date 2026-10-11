@@ -100,3 +100,52 @@ describe('durable action history',()=>{
   button('关闭历史').click();await settle();button('查看历史').click();await settle();expect(host.textContent).toContain('动作历史加载失败');expect(host.querySelectorAll('.journal-events li')).toHaveLength(0);
  });
 });
+
+function observation(id:string,state='STARTED') {
+ return {id,observedVersion:'9223372036854775806',actor:'alice',reason:'<b>核对原因</b>',state,
+  startedAtUtc:'2026-10-11T00:00:00',finishedAtUtc:state==='STARTED'?null:'2026-10-11T00:01:00',
+  confirmedVersion:state==='CONFIRMED'?'9223372036854775807':null};
+}
+function observationPage(attempts:ReturnType<typeof observation>[],nextBeforeAttempt:string|null=null) {
+ return [{...observed,attempts:{attempts,nextBeforeAttempt}}] as never;
+}
+describe('manual observation history',()=>{
+ beforeEach(()=>{vi.clearAllMocks();state.permissions=reactive(['iqc:action:history:view']);vi.mocked(listActionHistory).mockResolvedValue([{...observed}]);});
+ afterEach(()=>{app?.unmount();host?.remove();});
+ it('shows unresolved observations and escaped reasons with view permission only',async()=>{
+  vi.mocked(listActionHistory).mockResolvedValueOnce([{...observed}]).mockResolvedValueOnce(observationPage([observation('a'.repeat(32))]));
+  mount();await settle();button('查看核对尝试').click();await settle();
+  expect(listActionHistory).toHaveBeenLastCalledWith('result-1',{actionExecutionId:'action-1',includeAttempts:true});
+  expect(host.textContent).toContain('核对结果尚未持久确认');expect(host.textContent).toContain('<b>核对原因</b>');
+  expect(host.querySelector('.observation-events b')).toBeNull();expect(host.textContent).toContain('9223372036854775806');
+ });
+ it('paginates repeated observations at one timestamp without duplicate requests',async()=>{
+  const attempts=Array.from({length:50},(_,i)=>observation((100-i).toString(16).padStart(32,'0'),'UNCONFIRMED'));
+  const cursor='2026-10-11T00:00:00.000~'+attempts.at(-1)!.id;
+  let finish!:(data:unknown)=>void;
+  vi.mocked(listActionHistory).mockResolvedValueOnce([{...observed}]).mockResolvedValueOnce(observationPage(attempts,cursor)).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}) as never);
+  mount();await settle();button('查看核对尝试').click();await settle();button('加载更早核对').click();button('加载更早核对').click();await settle();
+  expect(listActionHistory).toHaveBeenCalledTimes(3);expect(listActionHistory).toHaveBeenLastCalledWith('result-1',{actionExecutionId:'action-1',includeAttempts:true,beforeAttempt:cursor});
+  finish(observationPage([observation('0'.repeat(31)+'1','CONFIRMED')]));await settle();
+  expect(host.querySelectorAll('.observation-events li')).toHaveLength(51);expect(button('加载更早核对')).toBeUndefined();
+  expect(host.textContent).toContain('确认版本：9223372036854775807');
+ });
+ it('discards old-result and closed observation responses',async()=>{
+  let finish!:(data:unknown)=>void;
+  vi.mocked(listActionHistory).mockResolvedValueOnce([{...observed}]).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}) as never);
+  const result=mount();await settle();button('查看核对尝试').click();await settle();result.value='result-2';await settle();
+  finish(observationPage([observation('a'.repeat(32))]));await settle();expect(host.querySelectorAll('.observation-events li')).toHaveLength(0);
+ });
+ it('discards pending observations when history permission is revoked',async()=>{
+  let finish!:(data:unknown)=>void;
+  vi.mocked(listActionHistory).mockResolvedValueOnce([{...observed}]).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}) as never);
+  mount();await settle();button('查看核对尝试').click();await settle();state.permissions.splice(0);await settle();
+  finish(observationPage([observation('a'.repeat(32))]));await settle();expect(host.textContent).not.toContain('<b>核对原因</b>');
+ });
+ it('rejects invalid terminal metadata and missing old-backend pages',async()=>{
+  const invalid=observation('a'.repeat(32));invalid.confirmedVersion='4';
+  vi.mocked(listActionHistory).mockResolvedValueOnce([{...observed}]).mockResolvedValueOnce(observationPage([invalid])).mockResolvedValueOnce([{...observed}]);
+  mount();await settle();button('查看核对尝试').click();await settle();expect(host.textContent).toContain('核对尝试加载失败');
+  expect(host.querySelectorAll('.observation-events li')).toHaveLength(0);button('重试核对记录').click();await settle();expect(host.textContent).toContain('核对尝试加载失败');
+ });
+});
