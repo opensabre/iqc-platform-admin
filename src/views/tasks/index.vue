@@ -1282,7 +1282,16 @@ onBeforeUnmount(() => {
               </div>
             </details>
           </template></a-table-column>
-          <a-table-column title="来源" data-index="generationSource" :width="90"/>
+          <a-table-column title="来源" :width="220"><template #default="{record}">
+            <div>{{ record.generationSource === 'PIPELINE_FINDING' ? '流水线分析事实' : record.generationSource }}</div>
+            <details v-if="record.findingSource"><summary>查看标签来源</summary>
+              <p style="overflow-wrap:anywhere">Finding：{{ record.findingSource.findingCode }}</p>
+              <p style="overflow-wrap:anywhere">执行轮次：{{ record.findingSource.executionId }}</p>
+              <p style="overflow-wrap:anywhere">原动作：{{ record.findingSource.actionExecutionId }}</p>
+              <p style="overflow-wrap:anywhere">冻结输入 SHA256：{{ record.findingSource.inputHash }}</p>
+              <p style="overflow-wrap:anywhere">标签投影 SHA256：{{ record.findingSource.projectionHash }}</p>
+            </details>
+          </template></a-table-column>
           <a-table-column title="置信度" :width="90"><template #default="{record}">{{ record.confidence ?? '—' }}</template></a-table-column>
           <a-table-column title="会话" :width="90"><template #default="{record}"><a-button type="link" @click="showConversationResult(record.conversationId, record.evidenceJson)">查看会话</a-button></template></a-table-column>
           <a-table-column title="人工复核" :width="90"><template #default="{record}"><a-button v-if="can('iqc:review:view') && record.presentation.valid && record.presentation.state !== 'HIT'" type="link" @click="selectedLabelReview = record">查看/复核</a-button><span v-else>—</span></template></a-table-column>
