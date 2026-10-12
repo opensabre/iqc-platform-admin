@@ -118,3 +118,7 @@ I5：结果动作面板已增加检查请求入口，独立enqueue权限、请�
 ## I5 失败升级关联只读入口（2026-10-12）
 
 原ActionHistoryPanel在FAILED确认失败行增加独立failure-review:view入口，GET实际历史核验结果；ESCALATED必须真实br-ID，UNCONFIRMED不推断等待或成功，原策略/状态不适用分别显示。原负责人范围，不请求新建/重发，也不修改父列表失败状态。关闭/刷新/切结果/撤权/卸载以generation废弃旧响应。复用原Modal与质量运营导航，无新页面/表。需组织01/900257和后台实际GET配套，真实权限/浏览器/SQL验收待。
+
+## I6 转写指标节点表单（2026-10-12）
+
+复用PipelineReleaseEditor/PublishedAssetReference加入METRIC，四种指标、显式角色及NUMBER/METRIC定义选择，固定transcript-timing-v1；提交只保留指标配置/原Finding引用，不带旧规则/智能体/phase/inputScope快照。切引擎清理相斥字段，旧RULE/DLS/LLM仍原引用路径；输入完整性由后台实际manifest核对。明确缺坐标未知、转写间隙/重叠不等于声学静默/抢话、6位小数语义。无新页面/权限/表，原发布/试跑门禁；真实浏览器/引用类型/生产评测运行及I6其余引擎/DAG待。
