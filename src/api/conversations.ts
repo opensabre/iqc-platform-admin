@@ -7,6 +7,9 @@ export interface ConversationMessageDraft {
   content: string;
   rawLine: string;
   lineNumber: number;
+  startMs?: number | null;
+  endMs?: number | null;
+  confidence?: number | null;
 }
 
 export interface ConversationParseError {
@@ -27,11 +30,11 @@ export interface ConversationImportResult {
 export interface ConversationMetadata { employeeId?: string; employeeName?: string; employeeGroupId?: string; employeeDepartmentId?: string; asrStatus?: string; customerLevel?: string; complaint?: boolean; businessFields?: Record<string, string | number | boolean | null>; customerExternalId?: string; customerName?: string; customerContactMasked?: string; channel?: string; startedTime?: string; endedTime?: string; businessType?: string; businessNo?: string; tags?: string[]; }
 export interface ConversationSummary extends ConversationMetadata { id: string; batchNo?: string; sourceType?: string; externalId?: string; sourceFileName: string; messageCount: number; errorCount: number; status: string; tagsJson?: string; businessFieldsJson?: string; createdTime?: string; }
 export interface ConversationPage { records: ConversationSummary[]; current: number; size: number; total: number; }
-export interface ConversationMessage { id: string; sequenceNo: number; speakerRole: string; relativeTime: string; content: string; }
+export interface ConversationMessage { id: string; sequenceNo: number; speakerRole: string; relativeTime: string; content: string; startMs?: number | null; endMs?: number | null; confidence?: number | null; }
 export interface ConversationDetail { conversation: ConversationSummary; messages: ConversationMessage[]; }
 export interface ConversationBatchResult { batchNo: string; totalCount: number; successCount: number; failureCount: number; items: ConversationImportResult[]; }
 export interface ApiConversationStats { start: string; end: string; conversationCount: number; messageCount: number; batchCount: number; externalIdCount: number; }
-export interface RealtimeConversation extends ConversationMetadata { externalId?: string; batchNo?: string; title?: string; messages: Array<{ role: string; time?: string; content: string }> }
+export interface RealtimeConversation extends ConversationMetadata { externalId?: string; batchNo?: string; title?: string; messages: Array<{ role: string; time?: string; content: string; startMs?: number | null; endMs?: number | null; confidence?: number | null }> }
 export interface RealtimeBatchResult { batchNo: string; totalCount: number; successCount: number; failureCount: number; items: Array<Record<string, unknown>> }
 
 export async function importConversation(file: File, metadata?: ConversationMetadata) {
