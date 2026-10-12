@@ -114,3 +114,7 @@ I5：结果动作面板已增加检查请求入口，独立enqueue权限、请�
 ## B：离线转写对齐显示（2026-10-12）
 
 沿原会话明细和API接入说明显示真实startMs/endMs与confidence，小时不按24h取模、保留毫秒；未知字段省略，不提供未接通的音频播放。API类型沿原请求增加可选字段，无新导航/组件/权限。完整vue-tsc/Vite构建49052退出0，原大包提示保留，临时依赖链接已移除。日志/private/tmp/iqc-b-offline-transcript-ui-build.log；未验证浏览器/真实角色或完整音频定位。
+
+## I5 失败升级关联只读入口（2026-10-12）
+
+原ActionHistoryPanel在FAILED确认失败行增加独立failure-review:view入口，GET实际历史核验结果；ESCALATED必须真实br-ID，UNCONFIRMED不推断等待或成功，原策略/状态不适用分别显示。原负责人范围，不请求新建/重发，也不修改父列表失败状态。关闭/刷新/切结果/撤权/卸载以generation废弃旧响应。复用原Modal与质量运营导航，无新页面/表。需组织01/900257和后台实际GET配套，真实权限/浏览器/SQL验收待。

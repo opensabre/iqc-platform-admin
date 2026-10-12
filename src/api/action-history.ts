@@ -22,3 +22,6 @@ export async function recoverAction(resultId:string,actionExecutionId:string,ver
  const {data}=await http.post<ActionRecoveryResponse>(`/iqc/conversation-results/${encodeURIComponent(resultId)}/actions/${encodeURIComponent(actionExecutionId)}/recover`,{version,reason});
  return data;
 }
+
+export interface FailureReviewResponse {id:string;state:'ESCALATED'|'UNCONFIRMED'|'NOT_CONFIGURED'|'NOT_ELIGIBLE';reviewId:string|null}
+export async function lookupFailureReview(resultId:string,actionId:string){const {data}=await http.get<FailureReviewResponse>(`/iqc/conversation-results/${encodeURIComponent(resultId)}/actions/${encodeURIComponent(actionId)}/failure-review`);return data;}
