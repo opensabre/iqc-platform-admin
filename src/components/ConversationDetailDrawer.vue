@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { onBeforeUnmount, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import { getConversation, type ConversationDetail, type ConversationMessage } from "@/api/conversations";
 import { CheckOutlined, CopyOutlined } from "@ant-design/icons-vue";
@@ -10,6 +10,7 @@ const emit = defineEmits<{ "update:open": [value: boolean] }>();
 const loading = ref(false);
 const detail = ref<ConversationDetail>();
 const copiedId = ref(false);
+let generation = 0;
 
 function isAgent(role?: string) { return ["agent", "assistant", "客服"].includes((role || "").toLowerCase()); }
 function roleLabel(role?: string) { return isAgent(role) ? "客服" : "客户"; }
@@ -32,14 +33,18 @@ async function copyConversationId() {
 }
 
 async function loadDetail(id?: string) {
-  if (!id) { detail.value = undefined; return; }
+  const request = ++generation;
+  detail.value = undefined; copiedId.value = false;
+  if (!id || !props.open) { loading.value = false; return; }
   loading.value = true;
-  try { detail.value = await getConversation(id); }
-  catch { message.error("会话详情加载失败"); emit("update:open", false); }
-  finally { loading.value = false; }
+  try { const received = await getConversation(id); if (request === generation) detail.value = received; }
+  catch { if (request === generation) { message.error("会话详情加载失败"); emit("update:open", false); } }
+  finally { if (request === generation) loading.value = false; }
 }
 
-watch(() => [props.open, props.conversationId] as const, ([open, id]) => { if (open) void loadDetail(id); }, { immediate: true });
+watch(() => [props.open, props.conversationId] as const, ([open, id]) => { void loadDetail(open ? id : undefined); }, { immediate: true });
+onBeforeUnmount(() => { generation++; });
+
 </script>
 
 <template>
