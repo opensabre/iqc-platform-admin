@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from "vue";
 import { message } from "ant-design-vue";
-import { getConversation, type ConversationDetail, type ConversationMessage } from "@/api/conversations";
+import { getConversation, type ConversationDetail } from "@/api/conversations";
 import { CheckOutlined, CopyOutlined } from "@ant-design/icons-vue";
+import { segmentRange, confidenceLabel } from "@/utils/transcriptAlignment";
 import { copyToClipboard } from "@/utils/clipboard";
 
 const props = defineProps<{ open: boolean; conversationId?: string }>();
@@ -14,18 +15,6 @@ let generation = 0;
 
 function isAgent(role?: string) { return ["agent", "assistant", "客服"].includes((role || "").toLowerCase()); }
 function roleLabel(role?: string) { return isAgent(role) ? "客服" : "客户"; }
-function segmentTime(value: number) {
-  const hours = Math.floor(value / 3600000), minutes = Math.floor(value / 60000) % 60, seconds = Math.floor(value / 1000) % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(value % 1000).padStart(3, "0")}`;
-}
-function segmentRange(item: ConversationMessage) {
-  const { startMs, endMs } = item;
-  return typeof startMs === "number" && typeof endMs === "number" && Number.isSafeInteger(startMs) && Number.isSafeInteger(endMs) && startMs >= 0 && endMs >= startMs
-    ? `${segmentTime(startMs)} – ${segmentTime(endMs)}` : undefined;
-}
-function confidenceLabel(value?: number | null) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1 ? `${(value * 100).toFixed(2)}%` : undefined;
-}
 async function copyConversationId() {
   if (!detail.value?.conversation.id) return;
   try { await copyToClipboard(detail.value.conversation.id); copiedId.value = true; window.setTimeout(() => { copiedId.value = false; }, 1600); }
