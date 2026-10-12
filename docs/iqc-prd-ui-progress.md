@@ -107,3 +107,7 @@ I5：结果动作面板已增加检查请求入口，独立enqueue权限、请�
 ## B：风险与告警界面集成构建（2026-10-11）
 
 同步A已提交826bbb5，保留风险中心、历史与原动作恢复界面；SEND_ALERT配置和UNKNOWN只读核对入口已合入。B完整npm run build（vue-tsc+Vite）49602退出0，仍有原大包提示，临时依赖链接已移除。日志/private/tmp/iqc-b-risk-alert-integrated-ui-build.log。该构建不证明浏览器、真实身份权限、通知跨服务或真实渠道验收。
+
+## B：离线转写对齐显示（2026-10-12）
+
+沿原会话明细和API接入说明显示真实startMs/endMs与confidence，小时不按24h取模、保留毫秒；未知字段省略，不提供未接通的音频播放。API类型沿原请求增加可选字段，无新导航/组件/权限。完整vue-tsc/Vite构建49052退出0，原大包提示保留，临时依赖链接已移除。日志/private/tmp/iqc-b-offline-transcript-ui-build.log；未验证浏览器/真实角色或完整音频定位。

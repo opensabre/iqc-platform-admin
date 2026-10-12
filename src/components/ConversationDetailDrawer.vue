@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { message } from "ant-design-vue";
-import { getConversation, type ConversationDetail } from "@/api/conversations";
+import { getConversation, type ConversationDetail, type ConversationMessage } from "@/api/conversations";
 import { CheckOutlined, CopyOutlined } from "@ant-design/icons-vue";
 import { copyToClipboard } from "@/utils/clipboard";
 
@@ -13,6 +13,18 @@ const copiedId = ref(false);
 
 function isAgent(role?: string) { return ["agent", "assistant", "客服"].includes((role || "").toLowerCase()); }
 function roleLabel(role?: string) { return isAgent(role) ? "客服" : "客户"; }
+function segmentTime(value: number) {
+  const hours = Math.floor(value / 3600000), minutes = Math.floor(value / 60000) % 60, seconds = Math.floor(value / 1000) % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}.${String(value % 1000).padStart(3, "0")}`;
+}
+function segmentRange(item: ConversationMessage) {
+  const { startMs, endMs } = item;
+  return typeof startMs === "number" && typeof endMs === "number" && Number.isSafeInteger(startMs) && Number.isSafeInteger(endMs) && startMs >= 0 && endMs >= startMs
+    ? `${segmentTime(startMs)} – ${segmentTime(endMs)}` : undefined;
+}
+function confidenceLabel(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1 ? `${(value * 100).toFixed(2)}%` : undefined;
+}
 async function copyConversationId() {
   if (!detail.value?.conversation.id) return;
   try { await copyToClipboard(detail.value.conversation.id); copiedId.value = true; window.setTimeout(() => { copiedId.value = false; }, 1600); }
@@ -45,7 +57,7 @@ watch(() => [props.open, props.conversationId] as const, ([open, id]) => { if (o
         <div class="chat-panel">
           <div v-for="item in detail.messages" :key="item.id" class="chat-row" :class="{ agent: isAgent(item.speakerRole) }">
             <a-avatar :class="isAgent(item.speakerRole) ? 'agent-avatar' : 'user-avatar'">{{ roleLabel(item.speakerRole).slice(0, 1) }}</a-avatar>
-            <div class="chat-body"><div class="chat-info"><span>{{ roleLabel(item.speakerRole) }}</span><time>{{ item.relativeTime }}</time></div><div class="bubble">{{ item.content }}</div></div>
+            <div class="chat-body"><div class="chat-info"><span>{{ roleLabel(item.speakerRole) }}</span><time>{{ item.relativeTime }}</time></div><div v-if="segmentRange(item) || confidenceLabel(item.confidence)" class="segment-meta"><span v-if="segmentRange(item)">转写区间 {{ segmentRange(item) }}</span><span v-if="confidenceLabel(item.confidence)">置信度 {{ confidenceLabel(item.confidence) }}</span></div><div class="bubble">{{ item.content }}</div></div>
           </div>
           <a-empty v-if="!detail.messages.length" description="暂无会话消息" />
         </div>
@@ -55,5 +67,5 @@ watch(() => [props.open, props.conversationId] as const, ([open, id]) => { if (o
 </template>
 
 <style scoped>
-.detail-meta{margin-bottom:20px}.copy-button{padding:0 4px}.copy-success{color:#52c41a}.chat-panel{padding:20px 8px;background:#f6f8fb;border-radius:12px;min-height:300px}.chat-row{display:flex;gap:10px;margin-bottom:18px;align-items:flex-start}.chat-row.agent{flex-direction:row-reverse}.agent-avatar{background:#1677ff}.user-avatar{background:#64748b}.chat-body{max-width:75%}.chat-info{display:flex;gap:10px;margin-bottom:5px;color:#64748b;font-size:12px}.agent .chat-info{justify-content:flex-end}.bubble{padding:11px 14px;background:#fff;border-radius:4px 14px 14px 14px;box-shadow:0 2px 8px rgba(15,23,42,.06);white-space:pre-wrap;word-break:break-word}.agent .bubble{background:#1677ff;color:#fff;border-radius:14px 4px 14px 14px}
+.segment-meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:5px;font-size:12px;color:#64748b}.detail-meta{margin-bottom:20px}.copy-button{padding:0 4px}.copy-success{color:#52c41a}.chat-panel{padding:20px 8px;background:#f6f8fb;border-radius:12px;min-height:300px}.chat-row{display:flex;gap:10px;margin-bottom:18px;align-items:flex-start}.chat-row.agent{flex-direction:row-reverse}.agent-avatar{background:#1677ff}.user-avatar{background:#64748b}.chat-body{max-width:75%}.chat-info{display:flex;gap:10px;margin-bottom:5px;color:#64748b;font-size:12px}.agent .chat-info{justify-content:flex-end}.bubble{padding:11px 14px;background:#fff;border-radius:4px 14px 14px 14px;box-shadow:0 2px 8px rgba(15,23,42,.06);white-space:pre-wrap;word-break:break-word}.agent .bubble{background:#1677ff;color:#fff;border-radius:14px 4px 14px 14px}
 </style>
