@@ -122,3 +122,7 @@ I5：结果动作面板已增加检查请求入口，独立enqueue权限、请�
 ## I6 转写指标节点表单（2026-10-12）
 
 复用PipelineReleaseEditor/PublishedAssetReference加入METRIC，四种指标、显式角色及NUMBER/METRIC定义选择，固定transcript-timing-v1；提交只保留指标配置/原Finding引用，不带旧规则/智能体/phase/inputScope快照。切引擎清理相斥字段，旧RULE/DLS/LLM仍原引用路径；输入完整性由后台实际manifest核对。明确缺坐标未知、转写间隙/重叠不等于声学静默/抢话、6位小数语义。无新页面/权限/表，原发布/试跑门禁；真实浏览器/引用类型/生产评测运行及I6其余引擎/DAG待。
+
+## 指标与离线金标整合（2026-10-12）
+
+1580f43原编辑器METRIC四指标/显式角色与冻结引用；4424abd整合B已提交金标冻结区间/置信度显示及会话详情请求代次隔离，未知值仍省略。29351整合vue-tsc/Vite build退出0（原大chunk提示），日志/tmp/iqc-metric-audio-integrated-ui-build.log。后台已整合音频v3独立身份及候选/金标/评测时间坐标，上传HTTP/Range/播放器尚未合入；未运行测试、浏览器或部署，完整I6及PRD继续。
