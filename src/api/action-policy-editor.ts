@@ -15,7 +15,7 @@ export function conditionCount(condition:ActionCondition):number {
   while(pending.length && count<=100){const next=pending.pop();count++;if(Array.isArray(next?.children))pending.push(...next.children);}
   return count;
 }
-export function editableAction(action:PolicyAction):boolean {return (action.adapterVersion??1)===1 && Object.hasOwn(supportedActionNames,action.type) && action.failureHandling==='RECORD_ONLY';}
+export function editableAction(action:PolicyAction):boolean {return (action.adapterVersion??1)===1 && Object.hasOwn(supportedActionNames,action.type) && ['RECORD_ONLY','ESCALATE_REVIEW'].includes(action.failureHandling);}
 function boundedInteger(value:unknown,min:number,max:number){return typeof value==='number' && Number.isSafeInteger(value) && value>=min && value<=max;}
 export function isActionScalar(value:unknown){return typeof value==='string' || typeof value==='boolean' || typeof value==='number' && Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value));}
 function validateCondition(condition:ActionCondition,depth:number,count:{value:number}) {
