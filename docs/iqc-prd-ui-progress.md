@@ -130,3 +130,7 @@ I5：结果动作面板已增加检查请求入口，独立enqueue权限、请�
 ## Session配置首批（2026-10-13）
 
 原PipelineReleaseEditor/API类型增加SESSION，固定dls-session-v1，沿原发布引用选择DLS规则及BOOLEAN/NUMBER事实定义，支持流程满足与指定RULE子规则命中消息数；切换引擎清除阶段/Agent相斥配置，不支持输入裁剪。80808 vue-tsc/Vite构建退出0，日志/tmp/iqc-session-engine-ui-build.log（原大chunk提示）。真实发布/任务/评测/浏览器验收尚待；未新增运行测试、SQL或部署，不标记完整I6完成。
+
+## 并行ALL配置首批（2026-10-13）
+
+原PipelineReleaseEditor加入顺序/并行模式，独立iqc-pipeline-parallel-v1保留原版本可读语义；输出声明模板复用原高级schema配置，节点编码/聚合变化后需手动更新，服务端独立校验归属及依赖读取。UI96151 vue-tsc/Vite退出0（原chunk提示），日志/tmp/iqc-parallel-dag-ui-build.log。实际并发/停止/预算/租约和浏览器、满足策略汇聚/可视化DAG仍待，未新增运行测试、SQL或部署，不标记完整I6完成。

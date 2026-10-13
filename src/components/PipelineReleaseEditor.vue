@@ -17,9 +17,11 @@ const actionError=ref('');
 function configurePublicationGate(enabled:boolean){publicationGate.value=enabled?{schemaVersion:'iqc-publication-gate-v1',minimumRiskRecall:0.95,minimumOverallF1:0.92,minimumRegressionPass:1,minimumStructuredSuccess:0.995,maximumP95Ms:5000,minimumSamples:1}:undefined;}
 const nodes=ref<NodeDraft[]>([]),items=ref<ItemDraft[]>([]),fusion=ref<PipelineRelease['fusion']>(),scoring=ref<PipelineRelease['scoring']>();
 const priorities=ref('{}'),overrides=ref('{}');
+const parallel=ref(false);
 const options=(values:string[])=>values.map(value=>({value,label:value}));
 watch(()=>props.initial,value=>{
  const copy=JSON.parse(JSON.stringify(value)) as PipelineRelease;
+ parallel.value=copy.pipeline.schemaVersion==='iqc-pipeline-parallel-v1';
  policyEditorGeneration.value++;actionError.value='';
  publicationGate.value=copy.publicationGate;actionPolicy.value=copy.actionPolicy;labelPolicy.value=copy.labelPolicy;
  nodes.value=copy.pipeline.nodes.map(n=>({...n,inputJson:JSON.stringify(n.inputMapping,null,2),outputJson:JSON.stringify(n.outputSchema,null,2),conditionJson:JSON.stringify(n.condition?.value ?? null),factCode:String((n.config.findingDefinition as {code?:string}|undefined)?.code || '')}));
@@ -38,6 +40,12 @@ function changeEngine(node:NodeDraft){
  if(node.type==='METRIC'){node.version='transcript-timing-v1';node.config={findingReference,metric:'TRANSCRIPT_GAP_MS',agentRole:'agent',customerRole:'customer'};}
  else if(node.type==='SESSION'){node.version='dls-session-v1';node.config={findingReference,ruleReference:node.config.ruleReference,aggregation:'DLS_ENTRY_MATCH'};}
  else {node.version='1';node.config={findingReference,ruleReference:node.config.ruleReference,inputScope:node.type==='RULE'?'MESSAGE':'CONVERSATION',phase:'DIRECT',...(node.type==='LLM'?{agentReference:node.config.agentReference}:{})};}
+}
+function initializeParallelSchemas(){
+ for(const node of nodes.value){
+  const number=node.type==='METRIC' || node.type==='SESSION'&&node.config.aggregation==='MATCHED_MESSAGE_COUNT';
+  node.outputJson=JSON.stringify({type:'object',properties:{[`${node.nodeId}_state`]:{type:'string'},[`${node.nodeId}_value`]:{type:number?'number':'boolean'}},required:[`${node.nodeId}_state`],additionalProperties:false},null,2);
+ }
 }
 function move(index:number,delta:number) {const target=index+delta;if(target<0||target>=nodes.value.length)return;[nodes.value[index],nodes.value[target]]=[nodes.value[target]!,nodes.value[index]!];}
 function remove(index:number) {nodes.value.splice(index,1);}
@@ -79,6 +87,11 @@ function release():PipelineRelease {
   if(!config.findingReference?.id || !Number.isInteger(config.findingReference.versionNo) || config.findingReference.versionNo<1 || config.findingReference.versionNo>2147483647)throw Error('每个节点须选择明确的已发布事实版本');
   return {nodeId:n.nodeId,type:n.type,name:n.name,version:n.version,dependsOn:[...n.dependsOn],inputMapping:input as Record<string,string>,config,condition:n.condition?{...n.condition,value:n.condition.operator==='EXISTS'?null:JSON.parse(n.conditionJson)}:null,timeoutMs:n.timeoutMs,retries:n.retries,onError:n.onError,fallbackNodeId:n.onError==='FALLBACK'?n.fallbackNodeId:null,outputSchema:output,enabled:n.enabled};
  });
+ if(parallel.value)for(const node of converted){
+  if(!node.enabled && !converted.some(source=>source.enabled&&source.onError==='FALLBACK'&&source.fallbackNodeId===node.nodeId))continue;
+  const schema=node.outputSchema;
+  if(!schema || schema.type!=='object' || schema.additionalProperties!==false || !schema.properties || typeof schema.properties!=='object' || Array.isArray(schema.properties))throw Error('并行节点及备用节点须声明关闭额外字段的对象输出schema');
+ }
  const ids=new Set<string>();for(const n of converted){if(!n.nodeId.trim()||ids.has(n.nodeId)||n.dependsOn.some(id=>!ids.has(id)))throw Error('节点编码须唯一，依赖须指向前序节点');ids.add(n.nodeId);}
  if(!converted.length||converted.length>200)throw Error('需要1到200个节点');
  for(const n of converted)if(n.onError==='FALLBACK'){const f=converted.find(v=>v.nodeId===n.fallbackNodeId);if(!f||f.enabled||f.nodeId===n.nodeId||f.onError==='FALLBACK'||f.dependsOn.some(id=>!n.dependsOn.includes(id)))throw Error('备用节点须停用、非递归，且依赖属于源节点依赖');}
@@ -88,12 +101,15 @@ function release():PipelineRelease {
  const labels=validateFindingLabelPolicy(labelPolicy.value);
  const actions=validateActionPolicy(actionPolicy.value);
  validateLabelActionTargets(actions,labels);
- return {...(labels?{labelPolicy:labels}:{}),...(actions?{actionPolicy:actions}:{}),...(publicationGate.value?{publicationGate:{...publicationGate.value}}:{}),schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:'iqc-pipeline-v1',nodes:converted},fusion:{...fusion.value,nodePriority:priority as Record<string,number>,overrideNodeByCode:override as Record<string,string>},items:items.value.map(({points,veto,...i})=>i),scoring:{...scoring.value,items:items.value.map(i=>({itemCode:i.itemCode,points:i.points,veto:i.veto}))}};
+ return {...(labels?{labelPolicy:labels}:{}),...(actions?{actionPolicy:actions}:{}),...(publicationGate.value?{publicationGate:{...publicationGate.value}}:{}),schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:parallel.value?'iqc-pipeline-parallel-v1':'iqc-pipeline-v1',nodes:converted},fusion:{...fusion.value,nodePriority:priority as Record<string,number>,overrideNodeByCode:override as Record<string,string>},items:items.value.map(({points,veto,...i})=>i),scoring:{...scoring.value,items:items.value.map(i=>({itemCode:i.itemCode,points:i.points,veto:i.veto}))}};
 }
 defineExpose({release});
 </script>
 <template>
-<section><h3>检测节点</h3><p>按顺序执行，依赖必须指向前序节点。错误和未执行保留状态。</p><a-button :disabled="disabled || nodes.length>=200" @click="addNode">添加节点</a-button>
+<section><h3>检测节点</h3>
+<a-form layout="vertical"><a-form-item label="并行执行"><a-switch v-model:checked="parallel" :disabled="disabled"/></a-form-item></a-form>
+<p v-if="!parallel">按顺序执行，依赖必须指向前序节点。错误和未执行保留状态。</p>
+<template v-else><p>按依赖波次并发，等待全部终态后汇总。只读取显式依赖祖先的输出；变量名称不得跨分支重复。依赖仍指向列表前序节点。</p><a-button :disabled="disabled" @click="initializeParallelSchemas">按当前节点生成输出声明（覆盖现有声明）</a-button><p>修改节点编码或事实类型后需更新声明；自定义输出可在高级配置编辑。服务器会校验变量归属和读取依赖。</p></template><a-button :disabled="disabled || nodes.length>=200" @click="addNode">添加节点</a-button>
 <a-collapse><a-collapse-panel v-for="(node,index) in nodes" :key="index" :header="`${index+1}. ${node.name} (${node.nodeId})`">
 <a-space wrap><a-button :disabled="disabled || index===0" @click="move(index,-1)">上移</a-button><a-button :disabled="disabled || index===nodes.length-1" @click="move(index,1)">下移</a-button><a-button danger :disabled="disabled" @click="remove(index)">移除</a-button><a-switch v-model:checked="node.enabled" :disabled="disabled"/> <span>正常执行（关闭后可作备用节点）</span></a-space>
 <a-form layout="vertical"><a-form-item label="节点编码 / 名称"><a-space><a-input v-model:value="node.nodeId" :disabled="disabled"/><a-input v-model:value="node.name" :disabled="disabled"/></a-space></a-form-item>
