@@ -44,7 +44,8 @@
             <a-form-item label="样本标签（可选）"><a-select :value="tags(action)" mode="tags" :disabled="disabled" @change="(value:string[])=>config(index,{tags:value})"/></a-form-item>
           </template>
           <AutomaticRetryPolicyEditor :model-value="action.retry" :disabled="disabled" @update:model-value="retry=>patch(index,{retry})"/>
-          <p>失败政策：仅记录。提交结果未确认时保留未知状态，需要人工核对，不自动重发。</p>
+          <a-form-item label="失败处理"><a-select :value="action.failureHandling" :options="[{value:'RECORD_ONLY',label:'仅记录'},{value:'ESCALATE_REVIEW',label:'确认失败后升级业务复核'}]" :disabled="disabled" @change="(value:'RECORD_ONLY'|'ESCALATE_REVIEW')=>patch(index,{failureHandling:value})"/></a-form-item>
+          <p>升级复核在确认失败且重试结束后进行；已有待处理复核时等待。未知回执仍需核对，不自动重发；未尝试的超期和阻塞不自动升级。</p>
         </a-form>
       </template>
       <p v-else>此类型、版本或失败政策的原配置保持只读：{{ action.actionId }}。最多尝试 {{ action.retry?.maximumAttempts ?? 1 }} 次。</p>

@@ -104,6 +104,9 @@ I5：结果动作面板已增加检查请求入口，独立enqueue权限、请�
 
 复用原动作策略/条件/重试表单，开放实际SEND_ALERT v1，场景编码、SMS/EMAIL渠道、固定接收地址和最多50项文本模板参数；不另建通知模板或通知记录页面。新增默认风险LOW触发，配置严格有界且按发布快照冻结，不现场插入会话变量。已有未知类型/版本/失败政策仍只读保留。动作历史允许SEND_ALERT的UNKNOWN只读核对，实际后台仅GET owning通知记录，不重发。需后台9003310、通知9c2c6cf与组织07/900256配套；真实渠道/登录/浏览器和完整权限验收尚未进行。
 
+## I5 确认失败升级配置（2026-10-12）
+
+复用原动作表单，实际v1适配允许配置RECORD_ONLY或ESCALATE_REVIEW，不修改动作配置结构或既有幂等键。明确仅FAILED/确认失败在重试结束后升级，UNKNOWN仍核对，已有PENDING等待；未尝试EXPIRED/阻塞及历史EID政策尚未实施。未知类型/版本保留只读。需配套失败升级拥有服务与默认关闭的后台扫描；实际运行、等待/失败原因和关联复核历史展示尚待，不声称全I5已完成。
 ## B：风险与告警界面集成构建（2026-10-11）
 
 同步A已提交826bbb5，保留风险中心、历史与原动作恢复界面；SEND_ALERT配置和UNKNOWN只读核对入口已合入。B完整npm run build（vue-tsc+Vite）49602退出0，仍有原大包提示，临时依赖链接已移除。日志/private/tmp/iqc-b-risk-alert-integrated-ui-build.log。该构建不证明浏览器、真实身份权限、通知跨服务或真实渠道验收。
@@ -111,3 +114,15 @@ I5：结果动作面板已增加检查请求入口，独立enqueue权限、请�
 ## B：离线转写对齐显示（2026-10-12）
 
 沿原会话明细和API接入说明显示真实startMs/endMs与confidence，小时不按24h取模、保留毫秒；未知字段省略，不提供未接通的音频播放。API类型沿原请求增加可选字段，无新导航/组件/权限。完整vue-tsc/Vite构建49052退出0，原大包提示保留，临时依赖链接已移除。日志/private/tmp/iqc-b-offline-transcript-ui-build.log；未验证浏览器/真实角色或完整音频定位。
+
+## I5 失败升级关联只读入口（2026-10-12）
+
+原ActionHistoryPanel在FAILED确认失败行增加独立failure-review:view入口，GET实际历史核验结果；ESCALATED必须真实br-ID，UNCONFIRMED不推断等待或成功，原策略/状态不适用分别显示。原负责人范围，不请求新建/重发，也不修改父列表失败状态。关闭/刷新/切结果/撤权/卸载以generation废弃旧响应。复用原Modal与质量运营导航，无新页面/表。需组织01/900257和后台实际GET配套，真实权限/浏览器/SQL验收待。
+
+## I6 转写指标节点表单（2026-10-12）
+
+复用PipelineReleaseEditor/PublishedAssetReference加入METRIC，四种指标、显式角色及NUMBER/METRIC定义选择，固定transcript-timing-v1；提交只保留指标配置/原Finding引用，不带旧规则/智能体/phase/inputScope快照。切引擎清理相斥字段，旧RULE/DLS/LLM仍原引用路径；输入完整性由后台实际manifest核对。明确缺坐标未知、转写间隙/重叠不等于声学静默/抢话、6位小数语义。无新页面/权限/表，原发布/试跑门禁；真实浏览器/引用类型/生产评测运行及I6其余引擎/DAG待。
+
+## 指标与离线金标整合（2026-10-12）
+
+1580f43原编辑器METRIC四指标/显式角色与冻结引用；4424abd整合B已提交金标冻结区间/置信度显示及会话详情请求代次隔离，未知值仍省略。29351整合vue-tsc/Vite build退出0（原大chunk提示），日志/tmp/iqc-metric-audio-integrated-ui-build.log。后台已整合音频v3独立身份及候选/金标/评测时间坐标，上传HTTP/Range/播放器尚未合入；未运行测试、浏览器或部署，完整I6及PRD继续。

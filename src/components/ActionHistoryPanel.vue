@@ -1,13 +1,32 @@
 <script setup lang="ts">
 import {computed,onBeforeUnmount,ref,watch} from 'vue';
 import {usePermission} from '@/composables/permission';
-import {listActionHistory,requestActionDiscovery,reconcileAction,recoverAction,type ActionHistory,type ActionStateEvent,type ActionEventState,type ActionAttempt} from '@/api/action-history';
+import {listActionHistory,lookupFailureReview,type FailureReviewResponse,requestActionDiscovery,reconcileAction,recoverAction,type ActionHistory,type ActionStateEvent,type ActionEventState,type ActionAttempt} from '@/api/action-history';
 const props=defineProps<{resultId:string}>();
 const {can}=usePermission();
 const allowed=computed(()=>can('iqc:action:history:view'));
 const canRequest=computed(()=>can('iqc:action:enqueue'));
 const canReconcile=computed(()=>can('iqc:action:reconcile'));
 const canRecover=computed(()=>can('iqc:action:recover'));
+const canFailureReview=computed(()=>can('iqc:action:failure-review:view'));
+const failureAction=ref(''),failureName=ref(''),failureEvidence=ref<FailureReviewResponse|null>(null),failureLoading=ref(false),failureError=ref('');
+let failureGeneration=0;
+const failureStates:Record<FailureReviewResponse['state'],string>={ESCALATED:'已确认保存的升级复核',UNCONFIRMED:'未查到确认产物；不据此判断等待原因',NOT_CONFIGURED:'原动作策略未配置升级复核',NOT_ELIGIBLE:'当前动作不属于已确认失败'};
+function closeFailureReview(){failureGeneration++;failureAction.value='';failureName.value='';failureEvidence.value=null;failureLoading.value=false;failureError.value='';}
+function failureEligible(row:ActionHistory){return canFailureReview.value && row.status==='FAILED' && ['CONFIRMED_FINAL_FAILURE','CONFIRMED_RETRYABLE_FAILURE'].includes(row.outcome||'');}
+async function openFailureReview(row:ActionHistory){
+ if(!alive || !allowed.value || !failureEligible(row) || loading.value || reconciling.value)return;
+ closeFailureReview();failureAction.value=row.id;failureName.value=row.actionId;failureLoading.value=true;
+ const ticket=++failureGeneration,resultId=props.resultId;
+ try{
+  const data=await lookupFailureReview(resultId,row.id);
+  if(!alive || ticket!==failureGeneration || !allowed.value || !canFailureReview.value || props.resultId!==resultId)return;
+  if(!data || data.id!==row.id || !Object.hasOwn(failureStates,data.state)
+      || (data.state==='ESCALATED'?typeof data.reviewId!=='string' || !/^br-[a-f0-9]{60}$/.test(data.reviewId):data.reviewId!==null))throw Error('Invalid failure review');
+  failureEvidence.value=data;
+ }catch{if(alive && ticket===failureGeneration)failureError.value='关联读取失败；请确认您是原动作负责人并有查看权限。';}
+ finally{if(alive && ticket===failureGeneration)failureLoading.value=false;}
+}
 const operation=ref<'reconcile'|'recover'>('reconcile');
 const journalAction=ref<string|null>(null),journalName=ref(''),journalRows=ref<ActionStateEvent[]>([]),journalLoading=ref(false),journalError=ref(''),journalNext=ref<string|null>(null),journalGap=ref(false);
 let journalGeneration=0;
@@ -109,7 +128,7 @@ const labels:Record<string,string>={PENDING:'待执行',RUNNING:'执行中',WAIT
 const columns=[{title:'动作',dataIndex:'actionId',width:160},{title:'类型',dataIndex:'type',width:180},{title:'状态',key:'status',width:140},{title:'执行尝试',dataIndex:'attemptCount',width:100},{title:'下次检查/重试 UTC',dataIndex:'nextAttemptAtUtc',width:190},{title:'结算时间 UTC',dataIndex:'settledAtUtc',width:190},{title:'结果引用',dataIndex:'resultReference',width:180},{title:'证据引用',dataIndex:'evidenceReference',width:180},{title:'原因代码',dataIndex:'errorCode',width:220},{title:'操作',key:'operation',width:140}];
 async function refresh(){
  if(!alive||!allowed.value||!props.resultId)return;
- reconciliationGeneration++;selected.value=null;reason.value='';reconciling.value=false;closeJournal();closeObservations();const ticket=++generation,id=props.resultId;loading.value=true;error.value='';rows.value=[];
+ reconciliationGeneration++;selected.value=null;reason.value='';reconciling.value=false;closeJournal();closeObservations();closeFailureReview();const ticket=++generation,id=props.resultId;loading.value=true;error.value='';rows.value=[];
  try{
   const data=await listActionHistory(id);
   if(!Array.isArray(data)||data.length>100||data.some(row=>!row||typeof row.id!=='string'||typeof row.actionId!=='string'||typeof row.type!=='string'||typeof row.status!=='string'||row.version!=null&&(!Number.isInteger(row.version)||row.version<0)||row.attemptCount!==null&&(!Number.isInteger(row.attemptCount)||row.attemptCount<0)))throw Error('Invalid action records');
@@ -130,13 +149,14 @@ async function requestCheck(){
  }catch{if(alive&&ticket===requestGeneration)requestError.value='动作检查请求失败，请确认该结果属于您且动作处理已启用。';}
  finally{if(alive&&ticket===requestGeneration)requesting.value=false;}
 }
+watch([()=>props.resultId,allowed,canFailureReview],closeFailureReview);
 watch([()=>props.resultId,allowed],()=>{closeJournal();closeObservations();});
 watch([()=>props.resultId,allowed,canReconcile,canRecover],()=>{reconciliationGeneration++;selected.value=null;reason.value='';reconciling.value=false;reconcileMessage.value='';reconcileError.value='';});
 watch([()=>props.resultId,allowed,canRequest],()=>{requestGeneration++;requesting.value=false;requestMessage.value='';requestError.value='';});
 watch([()=>props.resultId,allowed],()=>{generation++;rows.value=[];error.value='';loading.value=false;if(allowed.value)void refresh();},{immediate:true});
-onBeforeUnmount(()=>{closeJournal();closeObservations();alive=false;generation++;requestGeneration++;reconciliationGeneration++;rows.value=[];});
+onBeforeUnmount(()=>{closeFailureReview();closeJournal();closeObservations();alive=false;generation++;requestGeneration++;reconciliationGeneration++;rows.value=[];});
 </script>
-<template><section v-if="allowed" class="action-history"><a-space><h3>动作执行记录</h3><a-button :loading="loading" :disabled="reconciling" @click="refresh">刷新</a-button><a-button v-if="canRequest" :loading="requesting" @click="requestCheck">检查结果动作</a-button></a-space><p>动作状态与机器分析结论分别记录。</p><a-alert v-if="requestMessage" type="info" :message="requestMessage"/><a-alert v-if="requestError" type="error" :message="requestError"/><a-alert v-if="reconcileMessage" type="info" :message="reconcileMessage"/><a-alert v-if="reconcileError" type="error" :message="reconcileError"/><a-alert v-if="error" type="error" :message="error"/><a-table v-else :loading="loading" :data-source="rows" :columns="columns" row-key="id" size="small" :pagination="false" :scroll="{x:1540}" :locale="{emptyText:loading?'加载中':'暂无动作记录'}"><template #bodyCell="{column,record,text}"><template v-if="column.key==='status'">{{labels[record.status]||record.status}}</template><template v-else-if="column.key==='operation'"><a-button :disabled="reconciling||loading" @click="openJournal(record)">查看历史</a-button><a-button :disabled="reconciling||loading" @click="openObservations(record)">查看核对尝试</a-button><a-button v-if="recoverable(record)" :disabled="reconciling||loading" @click="openRecovery(record)">恢复阻塞动作</a-button><a-button v-if="eligible(record)" :disabled="reconciling||loading" @click="openReconciliation(record)">核对实际产物</a-button></template><template v-else>{{text ?? '—'}}</template></template></a-table><a-modal :open="!!selected" :title="operation==='recover'?'恢复阻塞动作':'核对实际产物'" :confirm-loading="reconciling" :closable="!reconciling" :keyboard="!reconciling" :mask-closable="false" :cancel-button-props="{disabled:reconciling}" :ok-text="operation==='recover'?'恢复':'核对'" cancel-text="取消" @ok="confirmReconciliation" @cancel="cancelReconciliation"><p>动作：{{selected?.actionId}}</p><p v-if="operation==='recover'">重新检查原始动作的来源、授权和政策；恢复后由后台继续处理，原回执保留。</p><p v-else>仅查询您原始动作的已保存产物；没有确认产物时保持待核对。</p><label for="action-reconciliation-reason">{{operation==='recover'?'恢复原因':'核对原因'}}</label><a-textarea id="action-reconciliation-reason" v-model:value="reason" :maxlength="1000" :disabled="reconciling" :rows="3"/><a-alert v-if="reconcileError" type="error" :message="reconcileError"/></a-modal><a-modal :open="!!journalAction" :title="`动作历史：${journalName}`" :footer="null" @cancel="closeJournal">
+<template><section v-if="allowed" class="action-history"><a-space><h3>动作执行记录</h3><a-button :loading="loading" :disabled="reconciling" @click="refresh">刷新</a-button><a-button v-if="canRequest" :loading="requesting" @click="requestCheck">检查结果动作</a-button></a-space><p>动作状态与机器分析结论分别记录。</p><a-alert v-if="requestMessage" type="info" :message="requestMessage"/><a-alert v-if="requestError" type="error" :message="requestError"/><a-alert v-if="reconcileMessage" type="info" :message="reconcileMessage"/><a-alert v-if="reconcileError" type="error" :message="reconcileError"/><a-alert v-if="error" type="error" :message="error"/><a-table v-else :loading="loading" :data-source="rows" :columns="columns" row-key="id" size="small" :pagination="false" :scroll="{x:1540}" :locale="{emptyText:loading?'加载中':'暂无动作记录'}"><template #bodyCell="{column,record,text}"><template v-if="column.key==='status'">{{labels[record.status]||record.status}}</template><template v-else-if="column.key==='operation'"><a-button :disabled="reconciling||loading" @click="openJournal(record)">查看历史</a-button><a-button :disabled="reconciling||loading" @click="openObservations(record)">查看核对尝试</a-button><a-button v-if="recoverable(record)" :disabled="reconciling||loading" @click="openRecovery(record)">恢复阻塞动作</a-button><a-button v-if="failureEligible(record)" :disabled="loading||reconciling" @click="openFailureReview(record)">升级复核关联</a-button><a-button v-if="eligible(record)" :disabled="reconciling||loading" @click="openReconciliation(record)">核对实际产物</a-button></template><template v-else>{{text ?? '—'}}</template></template></a-table><a-modal :open="!!selected" :title="operation==='recover'?'恢复阻塞动作':'核对实际产物'" :confirm-loading="reconciling" :closable="!reconciling" :keyboard="!reconciling" :mask-closable="false" :cancel-button-props="{disabled:reconciling}" :ok-text="operation==='recover'?'恢复':'核对'" cancel-text="取消" @ok="confirmReconciliation" @cancel="cancelReconciliation"><p>动作：{{selected?.actionId}}</p><p v-if="operation==='recover'">重新检查原始动作的来源、授权和政策；恢复后由后台继续处理，原回执保留。</p><p v-else>仅查询您原始动作的已保存产物；没有确认产物时保持待核对。</p><label for="action-reconciliation-reason">{{operation==='recover'?'恢复原因':'核对原因'}}</label><a-textarea id="action-reconciliation-reason" v-model:value="reason" :maxlength="1000" :disabled="reconciling" :rows="3"/><a-alert v-if="reconcileError" type="error" :message="reconcileError"/></a-modal><a-modal :open="!!journalAction" :title="`动作历史：${journalName}`" :footer="null" @cancel="closeJournal">
 <p>以下记录按变更顺序由新到旧展示。领取次数不证明动作已经发送。</p>
 <a-alert v-if="journalError" type="error" :message="journalError"/>
 <p v-if="journalLoading">加载中</p>
@@ -172,5 +192,10 @@ onBeforeUnmount(()=>{closeJournal();closeObservations();alive=false;generation++
 <a-button v-if="observationNext" :loading="observationLoading" :disabled="observationLoading" @click="loadObservations(true)">加载更早核对</a-button>
 <a-button v-if="observationError" :disabled="observationLoading" @click="loadObservations(!!observationNext)">重试核对记录</a-button>
 <a-button @click="closeObservations">关闭核对记录</a-button>
+</a-modal><a-modal :open="!!failureAction" :title="`升级复核关联：${failureName}`" :footer="null" @cancel="closeFailureReview">
+<p>仅核对本人原动作的已保存复核，不创建复核或重发动作。</p>
+<a-spin v-if="failureLoading"/>
+<a-alert v-if="failureError" type="error" :message="failureError"/>
+<template v-if="failureEvidence"><p>{{ failureStates[failureEvidence.state] }}</p><p v-if="failureEvidence.reviewId">复核记录 {{ failureEvidence.reviewId }}</p><router-link v-if="failureEvidence.reviewId && can('iqc:review:view')" to="/quality-operations">查看业务复核队列</router-link></template>
 </a-modal></section></template>
 <style scoped>.action-history{margin:20px 0}.action-history p{overflow-wrap:anywhere}.action-history .ant-alert{margin:8px 0}.journal-events,.observation-events{padding-left:24px;max-height:55vh;overflow:auto}.journal-events li,.observation-events li{margin:16px 0;overflow-wrap:anywhere}.journal-events p,.observation-events p{margin:4px 0}</style>
