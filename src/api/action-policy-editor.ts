@@ -2,7 +2,7 @@ import type { ActionCondition, ActionPolicy } from './pipelines';
 import { validateAutomaticRetry } from './automatic-retry';
 export type PolicyAction = ActionPolicy['actions'][number];
 export const supportedActionNames = { SAVE_RESULT:'保存分析结果', UPDATE_LABEL:'更新标签', CREATE_RISK_EVENT:'创建风险事件', SEND_ALERT:'发送告警', CREATE_REVIEW:'发起业务复核', ADD_TO_EVALUATION_CANDIDATE:'加入评测候选' } as const;
-export const conditionNames:Record<ActionCondition['kind'],string> = {ALWAYS:'每份生产结果',ALL:'全部条件满足',ANY:'任一条件满足',NOT:'条件取反',FINDING_EQUALS:'Finding 值相等',FINDING_STATE:'Finding 状态',ITEM_STATUS:'质检项状态',RISK_AT_LEAST:'风险等级不低于',FINAL_SCORE_BELOW:'最终评分低于',RESULT_STATUS:'结果状态'};
+export const conditionNames:Record<ActionCondition['kind'],string> = {ALWAYS:'每份生产结果',ALL:'全部条件满足',ANY:'任一条件满足',NOT:'条件取反',FINDING_EQUALS:'Finding 值相等',FINDING_STATE:'Finding 状态',ITEM_STATUS:'质检项状态',RISK_AT_LEAST:'风险等级不低于',FINAL_SCORE_BELOW:'最终评分低于',RESULT_STATUS:'结果状态',LABEL_EQUALS:'冻结标签值相等',BUSINESS_EQUALS:'冻结业务字段相等'};
 export const findingStates=['KNOWN','UNKNOWN','CONFLICT','ERROR','NOT_EVALUATED'];
 export const itemStates=['PASS','FAIL','NOT_APPLICABLE','REVIEW_REQUIRED','ERROR','NOT_EVALUATED'];
 export const riskLevels=['NONE','LOW','MEDIUM','HIGH','CRITICAL'];
@@ -28,6 +28,10 @@ export function validateCondition(condition:ActionCondition,depth:number,count:{
     else {
       if(!isActionScalar(condition.value) || JSON.stringify(condition.value).length>4096)throw Error('条件值须为有效文本、布尔值或可精确表达的数值');
       if(['FINDING_EQUALS','FINDING_STATE','ITEM_STATUS'].includes(condition.kind)){if(typeof condition.code!=='string' || !/^[A-Za-z0-9][A-Za-z0-9:_./@+-]{0,127}$/.test(condition.code))throw Error('请选择条件引用的事实或质检项');}
+      else if(['LABEL_EQUALS','BUSINESS_EQUALS'].includes(condition.kind)){
+        if(typeof condition.code!=='string' || condition.code.length>512 || !condition.code.startsWith('/') || /~(?![01])|[\u0000-\u001f\u007f-\u009f]/.test(condition.code))throw Error('请输入有效的冻结上下文路径');
+        const parts=condition.code.slice(1).split('/');if(parts.some(part=>!part)||parts.length>16 || condition.kind==='LABEL_EQUALS'&&parts.length!==2)throw Error('标签路径须引用标签和值，业务路径最多16层且不能包含空段');
+      }
       else if(condition.code!=null)throw Error('此条件不能引用事实编码');
       const choices=condition.kind==='FINDING_STATE'?findingStates:condition.kind==='ITEM_STATUS'?itemStates:condition.kind==='RISK_AT_LEAST'?riskLevels:condition.kind==='RESULT_STATUS'?resultStates:undefined;
       if(choices && (typeof condition.value!=='string' || !choices.includes(condition.value)))throw Error('条件状态或风险等级无效');
@@ -75,6 +79,7 @@ export function validateActionPolicy(policy?:ActionPolicy|null):ActionPolicy|und
     if(action.adapterVersion!=null && !boundedInteger(action.adapterVersion,1,2147483647) || action.idempotency!=='PRODUCTION_SOURCE_V1' || !['RECORD_ONLY','ESCALATE_REVIEW'].includes(action.failureHandling))throw Error('动作版本、幂等或失败政策无效');
     if(action.configuration==null || typeof action.configuration!=='object' || Array.isArray(action.configuration) || JSON.stringify(action.configuration).length>65536)throw Error('动作配置须为有界对象');
     validateCondition(action.condition,1,{value:0});
+    const pending=[action.condition];while(pending.length){const condition=pending.pop()!;if(['LABEL_EQUALS','BUSINESS_EQUALS'].includes(condition.kind))throw Error('标签和业务字段条件目前仅用于独立风险政策');pending.push(...condition.children);}
     if(editableAction(action)){action.retry=validateAutomaticRetry(action.retry);configuration(action);}
   }
   return copy;

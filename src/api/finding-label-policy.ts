@@ -30,3 +30,8 @@ export function validateLabelActionTargets(actions: ActionPolicy | null | undefi
       throw Error(`打标动作 ${action.actionId} 必须引用已声明的标签值绑定`);
   }
 }
+
+export function labelBindingAddress(binding:FindingLabelPolicy["bindings"][number]):string {
+ const escape=(value:string)=>value.replace(/~/g,"~0").replace(/\//g,"~1");
+ return `/${escape(binding.labelId)}/${escape(binding.valueCode)}`;
+}
