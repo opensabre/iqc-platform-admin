@@ -126,3 +126,7 @@ I5：结果动作面板已增加检查请求入口，独立enqueue权限、请�
 ## 指标与离线金标整合（2026-10-12）
 
 1580f43原编辑器METRIC四指标/显式角色与冻结引用；4424abd整合B已提交金标冻结区间/置信度显示及会话详情请求代次隔离，未知值仍省略。29351整合vue-tsc/Vite build退出0（原大chunk提示），日志/tmp/iqc-metric-audio-integrated-ui-build.log。后台已整合音频v3独立身份及候选/金标/评测时间坐标，上传HTTP/Range/播放器尚未合入；未运行测试、浏览器或部署，完整I6及PRD继续。
+
+## Session配置首批（2026-10-13）
+
+原PipelineReleaseEditor/API类型增加SESSION，固定dls-session-v1，沿原发布引用选择DLS规则及BOOLEAN/NUMBER事实定义，支持流程满足与指定RULE子规则命中消息数；切换引擎清除阶段/Agent相斥配置，不支持输入裁剪。80808 vue-tsc/Vite构建退出0，日志/tmp/iqc-session-engine-ui-build.log（原大chunk提示）。真实发布/任务/评测/浏览器验收尚待；未新增运行测试、SQL或部署，不标记完整I6完成。
