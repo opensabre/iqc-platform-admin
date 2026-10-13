@@ -134,3 +134,7 @@ I5：结果动作面板已增加检查请求入口，独立enqueue权限、请�
 ## 并行ALL配置首批（2026-10-13）
 
 原PipelineReleaseEditor加入顺序/并行模式，独立iqc-pipeline-parallel-v1保留原版本可读语义；输出声明模板复用原高级schema配置，节点编码/聚合变化后需手动更新，服务端独立校验归属及依赖读取。UI96151 vue-tsc/Vite退出0（原chunk提示），日志/tmp/iqc-parallel-dag-ui-build.log。实际并发/停止/预算/租约和浏览器、满足策略汇聚/可视化DAG仍待，未新增运行测试、SQL或部署，不标记完整I6完成。
+
+## 数值业务比较配置（2026-10-13）
+
+原业务映射表单增加可选数值与适用比较，复用六种Pipeline运算符，阈值文本直接保存并校验38位精度/18小数/64字符，不走JS Number转换；启用后阈值默认空要求明确输入，清空适用code同步清除谓词。旧布尔映射无需启用，原事实数值/证据不变。69278最终vue-tsc/Vite退出0（原chunk提示），日志/tmp/iqc-numeric-decisions-ui-final-build.log；配套后台ce01863/17518最终编译通过。未新增运行测试、SQL、浏览器或部署，完整评分/风险政策与真实运行验收仍待。
