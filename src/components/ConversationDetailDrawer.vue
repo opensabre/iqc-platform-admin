@@ -55,7 +55,7 @@ onBeforeUnmount(() => { generation++; });
         <div class="chat-panel">
           <div v-for="item in detail.messages" :key="item.id" class="chat-row" :class="{ agent: isAgent(item.speakerRole), active: item.id===activeMessage }">
             <a-avatar :class="isAgent(item.speakerRole) ? 'agent-avatar' : 'user-avatar'">{{ roleLabel(item.speakerRole).slice(0, 1) }}</a-avatar>
-            <div class="chat-body"><div class="chat-info"><span>{{ roleLabel(item.speakerRole) }}</span><time>{{ item.relativeTime }}</time></div><div v-if="segmentRange(item) || confidenceLabel(item.confidence)" class="segment-meta"><button v-if="segmentRange(item)" type="button" @click="audioPanel?.seek(item)">转写区间 {{ segmentRange(item) }}</button><span v-if="confidenceLabel(item.confidence)">置信度 {{ confidenceLabel(item.confidence) }}</span></div><div class="bubble">{{ item.content }}</div></div>
+            <div class="chat-body"><div class="chat-info"><span>{{ roleLabel(item.speakerRole) }}</span><time>{{ item.relativeTime }}</time></div><div v-if="segmentRange(item) || confidenceLabel(item.confidence)" class="segment-meta"><button v-if="segmentRange(item) && audioPanel?.canSeek" type="button" @click="audioPanel?.seek(item)">转写区间 {{ segmentRange(item) }}</button><span v-else-if="segmentRange(item)">转写区间 {{ segmentRange(item) }}</span><span v-if="confidenceLabel(item.confidence)">置信度 {{ confidenceLabel(item.confidence) }}</span></div><div class="bubble">{{ item.content }}</div></div>
           </div>
           <a-empty v-if="!detail.messages.length" description="暂无会话消息" />
         </div>

@@ -22,7 +22,8 @@ async function upload(event:Event){const input=event.target as HTMLInputElement,
   finally{if(uploadTicket===uploadGeneration)busy.value=false;}}
 function seek(message:ConversationMessage){if(can("iqc:audio:read")&&player.value&&metadata.value&&typeof message.startMs==="number"&&Number.isSafeInteger(message.startMs)&&message.startMs>=0&&message.startMs<=metadata.value.durationMs){player.value.currentTime=message.startMs/1000;}}
 function position(){if(!player.value)return;const current=player.value.currentTime*1000;const message=props.messages.find(item=>typeof item.startMs==="number"&&typeof item.endMs==="number"&&item.startMs<=current&&current<item.endMs);if(message)emit("position",message.id);}
-defineExpose({seek});
+const canSeek=computed(()=>Boolean(playbackUrl.value));
+defineExpose({seek,canSeek});
 </script>
 <template><section v-if="can('iqc:audio:view')||can('iqc:audio:upload')" class="audio-panel">
   <p v-if="loading">正在加载音频信息…</p><p v-if="error" role="alert">{{error}}</p>
