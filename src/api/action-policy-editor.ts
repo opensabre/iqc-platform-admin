@@ -2,7 +2,7 @@ import type { ActionCondition, ActionPolicy } from './pipelines';
 import { validateAutomaticRetry } from './automatic-retry';
 export type PolicyAction = ActionPolicy['actions'][number];
 export const supportedActionNames = { SAVE_RESULT:'保存分析结果', UPDATE_LABEL:'更新标签', CREATE_RISK_EVENT:'创建风险事件', SEND_ALERT:'发送告警', CREATE_REVIEW:'发起业务复核', ADD_TO_EVALUATION_CANDIDATE:'加入评测候选' } as const;
-export const conditionNames:Record<ActionCondition['kind'],string> = {ALWAYS:'每份生产结果',ALL:'全部条件满足',ANY:'任一条件满足',NOT:'条件取反',FINDING_EQUALS:'Finding 值相等',FINDING_STATE:'Finding 状态',ITEM_STATUS:'质检项状态',RISK_AT_LEAST:'风险等级不低于',FINAL_SCORE_BELOW:'最终评分低于',RESULT_STATUS:'结果状态'};
+export const conditionNames:Record<ActionCondition['kind'],string> = {ALWAYS:'每份生产结果',ALL:'全部条件满足',ANY:'任一条件满足',NOT:'条件取反',FINDING_EQUALS:'Finding 值相等',FINDING_STATE:'Finding 状态',ITEM_STATUS:'质检项状态',RISK_AT_LEAST:'风险等级不低于',FINAL_SCORE_BELOW:'最终评分低于',RESULT_STATUS:'结果状态',LABEL_EQUALS:'冻结标签值相等',BUSINESS_EQUALS:'冻结业务字段相等'};
 export const findingStates=['KNOWN','UNKNOWN','CONFLICT','ERROR','NOT_EVALUATED'];
 export const itemStates=['PASS','FAIL','NOT_APPLICABLE','REVIEW_REQUIRED','ERROR','NOT_EVALUATED'];
 export const riskLevels=['NONE','LOW','MEDIUM','HIGH','CRITICAL'];
@@ -18,20 +18,34 @@ export function conditionCount(condition:ActionCondition):number {
 export function editableAction(action:PolicyAction):boolean {return (action.adapterVersion??1)===1 && Object.hasOwn(supportedActionNames,action.type) && ['RECORD_ONLY','ESCALATE_REVIEW'].includes(action.failureHandling);}
 function boundedInteger(value:unknown,min:number,max:number){return typeof value==='number' && Number.isSafeInteger(value) && value>=min && value<=max;}
 export function isActionScalar(value:unknown){return typeof value==='string' || typeof value==='boolean' || typeof value==='number' && Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value));}
+export const decimalConditionKinds:ActionCondition['kind'][]=['FINDING_EQUALS','LABEL_EQUALS','BUSINESS_EQUALS','FINAL_SCORE_BELOW'];
+export function validateDecimalOperand(value:unknown):asserts value is string {
+  if(typeof value!=='string' || value.length>64 || !/^[-+]?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(value))throw Error('请输入精确十进制字符串，不使用科学记数或空值');
+  const decimal=value.replace(/^[+-]/,'');const precision=(decimal.replace('.','').replace(/^0+/,'')||'0').length;
+  if(precision>38 || (decimal.split('.')[1]?.length??0)>18)throw Error('数值最多38位有效数字及18位小数');
+}
 export function validateCondition(condition:ActionCondition,depth:number,count:{value:number}) {
   if(!condition || depth>16 || ++count.value>100 || !Object.hasOwn(conditionNames,condition.kind) || !Array.isArray(condition.children))throw Error('动作条件最多16层、100个节点，且必须使用支持的条件种类');
+  if(condition.decimalOperand!=null){
+    if(!decimalConditionKinds.includes(condition.kind) || condition.value!=null)throw Error('精确数值只用于数值比较，普通条件值须为空');
+    validateDecimalOperand(condition.decimalOperand);
+  }
   const group=['ALL','ANY','NOT'].includes(condition.kind);
   if(group){if(condition.code!=null || condition.value!=null || !condition.children.length || condition.kind==='NOT' && condition.children.length!==1)throw Error('条件组不能为空，取反条件只能有一个子条件');}
   else {
     if(condition.children.length)throw Error('单项条件不能包含子条件');
     if(condition.kind==='ALWAYS'){if(condition.code!=null || condition.value!=null)throw Error('每份结果条件不能携带操作数');}
     else {
-      if(!isActionScalar(condition.value) || JSON.stringify(condition.value).length>4096)throw Error('条件值须为有效文本、布尔值或可精确表达的数值');
+      if(condition.decimalOperand==null && (!isActionScalar(condition.value) || JSON.stringify(condition.value).length>4096))throw Error('条件值须为有效文本、布尔值或可精确表达的数值');
       if(['FINDING_EQUALS','FINDING_STATE','ITEM_STATUS'].includes(condition.kind)){if(typeof condition.code!=='string' || !/^[A-Za-z0-9][A-Za-z0-9:_./@+-]{0,127}$/.test(condition.code))throw Error('请选择条件引用的事实或质检项');}
+      else if(['LABEL_EQUALS','BUSINESS_EQUALS'].includes(condition.kind)){
+        if(typeof condition.code!=='string' || condition.code.length>512 || !condition.code.startsWith('/') || /~(?![01])|[\u0000-\u001f\u007f-\u009f]/.test(condition.code))throw Error('请输入有效的冻结上下文路径');
+        const parts=condition.code.slice(1).split('/');if(parts.some(part=>!part)||parts.length>16 || condition.kind==='LABEL_EQUALS'&&parts.length!==2)throw Error('标签路径须引用标签和值，业务路径最多16层且不能包含空段');
+      }
       else if(condition.code!=null)throw Error('此条件不能引用事实编码');
       const choices=condition.kind==='FINDING_STATE'?findingStates:condition.kind==='ITEM_STATUS'?itemStates:condition.kind==='RISK_AT_LEAST'?riskLevels:condition.kind==='RESULT_STATUS'?resultStates:undefined;
       if(choices && (typeof condition.value!=='string' || !choices.includes(condition.value)))throw Error('条件状态或风险等级无效');
-      if(condition.kind==='FINAL_SCORE_BELOW' && typeof condition.value!=='number')throw Error('评分阈值须为数值');
+      if(condition.kind==='FINAL_SCORE_BELOW' && condition.decimalOperand==null && typeof condition.value!=='number')throw Error('评分阈值须为数值');
     }
   }
   for(const child of condition.children)validateCondition(child,depth+1,count);
@@ -75,6 +89,7 @@ export function validateActionPolicy(policy?:ActionPolicy|null):ActionPolicy|und
     if(action.adapterVersion!=null && !boundedInteger(action.adapterVersion,1,2147483647) || action.idempotency!=='PRODUCTION_SOURCE_V1' || !['RECORD_ONLY','ESCALATE_REVIEW'].includes(action.failureHandling))throw Error('动作版本、幂等或失败政策无效');
     if(action.configuration==null || typeof action.configuration!=='object' || Array.isArray(action.configuration) || JSON.stringify(action.configuration).length>65536)throw Error('动作配置须为有界对象');
     validateCondition(action.condition,1,{value:0});
+    const pending=[action.condition];while(pending.length){const condition=pending.pop()!;if(['LABEL_EQUALS','BUSINESS_EQUALS'].includes(condition.kind))throw Error('标签和业务字段条件目前仅用于独立风险政策');pending.push(...condition.children);}
     if(editableAction(action)){action.retry=validateAutomaticRetry(action.retry);configuration(action);}
   }
   return copy;
