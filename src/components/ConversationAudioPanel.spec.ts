@@ -4,14 +4,15 @@ import Panel from "./ConversationAudioPanel.vue";
 import type { ConversationMessage } from "@/api/conversations";
 import { getAudioMetadata } from "@/api/conversationAudio";
 const grants=vi.hoisted(()=>({view:true,read:true,upload:false}));
-vi.mock("@/composables/permission",()=>({usePermission:()=>({can:(code:string)=>grants[code.split(":").pop() as keyof typeof grants]})}));
+const reactiveGrants=reactive(grants);
+vi.mock("@/composables/permission",()=>({usePermission:()=>({can:(code:string)=>reactiveGrants[code.split(":").pop() as keyof typeof grants]})}));
 vi.mock("@/api/conversationAudio",()=>({getAudioMetadata:vi.fn(),uploadConversationAudio:vi.fn(),audioContentUrl:(id:string)=>`/api/iqc/conversations/${id}/audio/content`}));
 let app:App,host:HTMLDivElement,root:ReturnType<App["mount"]>;
 const positioned=vi.fn();
 async function settle(){for(let i=0;i<8;i++){await Promise.resolve();await nextTick();}}
 function metadata(id:string){return {conversationId:id,mediaType:"audio/wav",sizeBytes:16044,durationMs:1000};}
 function mount(){const props=reactive({conversationId:"first",messages:[] as ConversationMessage[]});host=document.createElement("div");document.body.append(host);app=createApp({render:()=>h(Panel,{...props,ref:"panel",onPosition:positioned})});root=app.mount(host);return props;}
-afterEach(()=>{app?.unmount();host?.remove();vi.clearAllMocks();grants.view=true;grants.read=true;grants.upload=false;});
+afterEach(()=>{app?.unmount();host?.remove();vi.clearAllMocks();reactiveGrants.view=true;reactiveGrants.read=true;reactiveGrants.upload=false;});
 it("does not fetch metadata or expose playback without permission",async()=>{grants.view=false;grants.read=false;mount();await settle();expect(getAudioMetadata).not.toHaveBeenCalled();expect(host.querySelector("audio")).toBeNull();});
 it("requires the separate byte permission for playback",async()=>{grants.read=false;vi.mocked(getAudioMetadata).mockResolvedValueOnce(metadata("first"));mount();await settle();expect(host.textContent).toContain("1.000");expect(host.querySelector("audio")).toBeNull();});
 it("uses the authorized content route without preloading bytes",async()=>{vi.mocked(getAudioMetadata).mockResolvedValueOnce(metadata("first"));mount();await settle();const audio=host.querySelector("audio")!;expect(audio.getAttribute("src")).toBe("/api/iqc/conversations/first/audio/content");expect(audio.preload).toBe("none");});
@@ -23,5 +24,11 @@ it("seeks to the transcript timestamp and maps playback back to its message",asy
  vi.mocked(getAudioMetadata).mockResolvedValueOnce(metadata("first"));const props=mount();props.messages=[{id:"segment",sequenceNo:1,speakerRole:"agent",relativeTime:"00:00:00",content:"speech",startMs:250,endMs:750}];await settle();
  const panel=root.$refs.panel as {seek:(message:ConversationMessage)=>void};panel.seek(props.messages[0]);const audio=host.querySelector("audio")!;expect(audio.currentTime).toBe(0.25);
  audio.currentTime=0.5;audio.dispatchEvent(new Event("timeupdate"));expect(positioned).toHaveBeenCalledWith("segment");
- audio.currentTime=0.75;positioned.mockClear();audio.dispatchEvent(new Event("timeupdate"));expect(positioned).not.toHaveBeenCalled();
+ audio.currentTime=0.75;positioned.mockClear();audio.dispatchEvent(new Event("timeupdate"));expect(positioned).toHaveBeenCalledWith("");
+ positioned.mockClear();audio.dispatchEvent(new Event("ended"));expect(positioned).toHaveBeenCalledWith("");
+});
+
+it("pauses playback and clears positioning when byte permission is revoked",async()=>{
+ vi.mocked(getAudioMetadata).mockResolvedValueOnce(metadata("first"));mount();await settle();const audio=host.querySelector("audio")!;const pause=vi.spyOn(audio,"pause").mockImplementation(()=>{});positioned.mockClear();
+ reactiveGrants.read=false;await settle();expect(pause).toHaveBeenCalled();expect(positioned).toHaveBeenCalledWith("");expect(host.querySelector("audio")).toBeNull();
 });
