@@ -18,7 +18,7 @@ export function conditionCount(condition:ActionCondition):number {
 export function editableAction(action:PolicyAction):boolean {return (action.adapterVersion??1)===1 && Object.hasOwn(supportedActionNames,action.type) && ['RECORD_ONLY','ESCALATE_REVIEW'].includes(action.failureHandling);}
 function boundedInteger(value:unknown,min:number,max:number){return typeof value==='number' && Number.isSafeInteger(value) && value>=min && value<=max;}
 export function isActionScalar(value:unknown){return typeof value==='string' || typeof value==='boolean' || typeof value==='number' && Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value));}
-function validateCondition(condition:ActionCondition,depth:number,count:{value:number}) {
+export function validateCondition(condition:ActionCondition,depth:number,count:{value:number}) {
   if(!condition || depth>16 || ++count.value>100 || !Object.hasOwn(conditionNames,condition.kind) || !Array.isArray(condition.children))throw Error('动作条件最多16层、100个节点，且必须使用支持的条件种类');
   const group=['ALL','ANY','NOT'].includes(condition.kind);
   if(group){if(condition.code!=null || condition.value!=null || !condition.children.length || condition.kind==='NOT' && condition.children.length!==1)throw Error('条件组不能为空，取反条件只能有一个子条件');}
