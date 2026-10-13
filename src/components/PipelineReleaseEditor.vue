@@ -4,7 +4,7 @@ import PublishedAssetReference from './PublishedAssetReference.vue';
 import FindingLabelPolicyEditor from './FindingLabelPolicyEditor.vue';
 import ActionPolicyEditor from './ActionPolicyEditor.vue';
 import ActionConditionEditor from './ActionConditionEditor.vue';
-import {validateActionPolicy,validateCondition,conditionCount,blankCondition,riskLevels} from '@/api/action-policy-editor';
+import {validateActionPolicy,validateCondition,conditionCount,blankCondition,riskLevels,validateDecimalOperand} from '@/api/action-policy-editor';
 import {validateFindingLabelPolicy,validateLabelActionTargets,labelBindingAddress} from '@/api/finding-label-policy';
 import type {PipelineRelease,PipelineNode,NumericPredicate} from '@/api/pipelines';
 const props=defineProps<{initial:PipelineRelease;disabled?:boolean}>();
@@ -68,9 +68,8 @@ function numeric(item:ItemDraft,gate:boolean,checked:boolean){const key=gate?'ap
 function clearNumericGate(item:ItemDraft,value?:string|null){if(!value?.trim())delete item.appliesWhenNumericPredicate;}
 function validateNumeric(predicate?:NumericPredicate|null){
  if(!predicate)return;
- if(!numericOperators.includes(predicate.operator) || typeof predicate.threshold!=='string' || predicate.threshold.length>64 || !/^[-+]?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/.test(predicate.threshold))throw Error('数值比较须选择运算符及精确十进制阈值，不使用科学记数或空值');
- const decimal=predicate.threshold.replace(/^[+-]/,'');const precision=(decimal.replace('.','').replace(/^0+/,'')||'0').length;
- if(precision>38 || (decimal.split('.')[1]?.length??0)>18)throw Error('阈值最多38位有效数字及18位小数');
+ if(!numericOperators.includes(predicate.operator))throw Error('请选择数值比较运算符');
+ validateDecimalOperand(predicate.threshold);
 }
 function condition(node:NodeDraft,checked:boolean) {node.condition=checked?{pointer:'/input/messages',operator:'EXISTS',value:null}:null;}
 function object(raw:string,label:string):Record<string,unknown> {const value=JSON.parse(raw);if(value===null||typeof value!=='object'||Array.isArray(value))throw Error(`${label}必须为对象`);return value;}
