@@ -9,7 +9,7 @@ export interface FusedFinding {
  severity:TraceFinding['severity'];rawFindings:TraceFinding[];selectedIds:string[];rejectedIds:string[];
  evidence:TraceFinding['evidence'];explanation:string;policyId:string;policyVersion:number;
 }
-export interface ReviewDecision {schemaVersion:'iqc-review-decision-v1';inputHash:string;status:'REQUIRED'|'NOT_REQUIRED'|'UNKNOWN';rules:Array<{ruleId:string;conditionMatch:'MATCH'|'NO_MATCH'|'UNKNOWN';confidenceMatch:'MATCH'|'NO_MATCH'|'UNKNOWN';calibratedConfidence:number|null;bucket:number;selected:boolean;suppressed:boolean;effectiveMatch:'MATCH'|'NO_MATCH'|'UNKNOWN'}>}
+export interface ReviewDecision {schemaVersion:'iqc-review-decision-v1'|'iqc-review-decision-v2';inputHash:string;samplingInputHash?:string|null;status:'REQUIRED'|'NOT_REQUIRED'|'UNKNOWN';rules:Array<{ruleId:string;conditionMatch:'MATCH'|'NO_MATCH'|'UNKNOWN';confidenceMatch:'MATCH'|'NO_MATCH'|'UNKNOWN';calibratedConfidence:number|null;bucket:number|null;selected:boolean|null;suppressed:boolean;effectiveMatch:'MATCH'|'NO_MATCH'|'UNKNOWN'}>}
 export interface PipelineTrace {
  reviewDecision?:ReviewDecision|null;schemaVersion:'iqc-pipeline-execution-v1';inputHash:string;mode:'PRODUCTION'|'EVALUATION';riskLevel:string;
  run:{status:string;trace:PipelineNodeTrace[];findings:TraceFinding[];variables:Record<string,unknown>;reviewRequired:boolean};
@@ -80,10 +80,13 @@ function consistentAdvanced(trace:PipelineTrace):boolean {
  return s.vetoTriggered===a.lines.some(l=>l.vetoTriggered)&&(s.vetoTriggered?s.conclusion==='UNQUALIFIED'&&(s.scoreStatus!=='FINAL'||s.finalScore===0):s.scoreStatus==='FINAL'?['QUALIFIED','UNQUALIFIED'].includes(s.conclusion):s.conclusion===s.scoreStatus);
 }
 function consistentReview(value:unknown,inputHash:string):boolean {
- if(value==null)return true;if(!object(value)||value.schemaVersion!=='iqc-review-decision-v1'||value.inputHash!==inputHash||!['REQUIRED','NOT_REQUIRED','UNKNOWN'].includes(String(value.status))||!Array.isArray(value.rules)||!value.rules.length||value.rules.length>100)return false;
+ if(value==null)return true;if(!object(value)||!['iqc-review-decision-v1','iqc-review-decision-v2'].includes(String(value.schemaVersion))||value.inputHash!==inputHash||!['REQUIRED','NOT_REQUIRED','UNKNOWN'].includes(String(value.status))||!Array.isArray(value.rules)||!value.rules.length||value.rules.length>100)return false;
+ const exact=value.schemaVersion==='iqc-review-decision-v2';
+ if(value.samplingInputHash!=null&&(!exact||typeof value.samplingInputHash!=='string'||!/^[a-f0-9]{64}$/.test(value.samplingInputHash)))return false;
+ const knownIdentity=!exact||value.samplingInputHash!=null;
  const ids=new Set<string>();let required=false,unknown=false;
- for(const rule of value.rules){if(!object(rule)||!text(rule.ruleId)||ids.has(rule.ruleId)||!['MATCH','NO_MATCH','UNKNOWN'].includes(String(rule.conditionMatch))||!['MATCH','NO_MATCH','UNKNOWN'].includes(String(rule.confidenceMatch))||!count(rule.bucket)||rule.bucket>=10000||typeof rule.selected!=='boolean'||typeof rule.suppressed!=='boolean'||!(rule.calibratedConfidence==null||number(rule.calibratedConfidence)&&rule.calibratedConfidence>=0&&rule.calibratedConfidence<=1))return false;ids.add(rule.ruleId);
-  const match=rule.suppressed||!rule.selected||rule.conditionMatch==='NO_MATCH'||rule.confidenceMatch==='NO_MATCH'?'NO_MATCH':rule.conditionMatch==='UNKNOWN'||rule.confidenceMatch==='UNKNOWN'?'UNKNOWN':'MATCH';if(rule.effectiveMatch!==match)return false;required||=match==='MATCH';unknown||=match==='UNKNOWN';
+ for(const rule of value.rules){if(!object(rule)||!text(rule.ruleId)||ids.has(rule.ruleId)||!['MATCH','NO_MATCH','UNKNOWN'].includes(String(rule.conditionMatch))||!['MATCH','NO_MATCH','UNKNOWN'].includes(String(rule.confidenceMatch))||(knownIdentity? !count(rule.bucket)||rule.bucket>=10000||typeof rule.selected!=='boolean':rule.bucket!=null||!(rule.selected==null||typeof rule.selected==='boolean'))||typeof rule.suppressed!=='boolean'||!(rule.calibratedConfidence==null||number(rule.calibratedConfidence)&&rule.calibratedConfidence>=0&&rule.calibratedConfidence<=1))return false;ids.add(rule.ruleId);
+  const match=rule.suppressed||rule.selected===false||rule.conditionMatch==='NO_MATCH'||rule.confidenceMatch==='NO_MATCH'?'NO_MATCH':rule.selected==null||rule.conditionMatch==='UNKNOWN'||rule.confidenceMatch==='UNKNOWN'?'UNKNOWN':'MATCH';if(rule.effectiveMatch!==match)return false;required||=match==='MATCH';unknown||=match==='UNKNOWN';
  }
  return required?value.status==='REQUIRED':unknown?['REQUIRED','UNKNOWN'].includes(String(value.status)):value.status==='NOT_REQUIRED';
 }
