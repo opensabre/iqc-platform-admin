@@ -9,8 +9,9 @@ export interface FusedFinding {
  severity:TraceFinding['severity'];rawFindings:TraceFinding[];selectedIds:string[];rejectedIds:string[];
  evidence:TraceFinding['evidence'];explanation:string;policyId:string;policyVersion:number;
 }
+export interface ReviewDecision {schemaVersion:'iqc-review-decision-v1'|'iqc-review-decision-v2';inputHash:string;samplingInputHash?:string|null;status:'REQUIRED'|'NOT_REQUIRED'|'UNKNOWN';rules:Array<{ruleId:string;conditionMatch:'MATCH'|'NO_MATCH'|'UNKNOWN';confidenceMatch:'MATCH'|'NO_MATCH'|'UNKNOWN';calibratedConfidence:number|null;bucket:number|null;selected:boolean|null;suppressed:boolean;effectiveMatch:'MATCH'|'NO_MATCH'|'UNKNOWN'}>}
 export interface PipelineTrace {
- schemaVersion:'iqc-pipeline-execution-v1';inputHash:string;mode:'PRODUCTION'|'EVALUATION';riskLevel:string;
+ reviewDecision?:ReviewDecision|null;schemaVersion:'iqc-pipeline-execution-v1';inputHash:string;mode:'PRODUCTION'|'EVALUATION';riskLevel:string;
  run:{status:string;trace:PipelineNodeTrace[];findings:TraceFinding[];variables:Record<string,unknown>;reviewRequired:boolean};
  fusion:FusedFinding[];items:Array<{itemCode:string;name:string;ruleId:string;ruleVersionNo:number;status:string;matchedMessageIds:string[]}>;
  scoring:{advanced?:AdvancedScoringResult|null;policyVersion:string;mode:string;scoreStatus:string;finalScore:number|null;conclusion:string;vetoTriggered:boolean;
@@ -78,6 +79,17 @@ function consistentAdvanced(trace:PipelineTrace):boolean {
  if(a.lines.some(l=>l.dimensionCode!=null&&!dims.has(l.dimensionCode)))return false;
  return s.vetoTriggered===a.lines.some(l=>l.vetoTriggered)&&(s.vetoTriggered?s.conclusion==='UNQUALIFIED'&&(s.scoreStatus!=='FINAL'||s.finalScore===0):s.scoreStatus==='FINAL'?['QUALIFIED','UNQUALIFIED'].includes(s.conclusion):s.conclusion===s.scoreStatus);
 }
+function consistentReview(value:unknown,inputHash:string):boolean {
+ if(value==null)return true;if(!object(value)||!['iqc-review-decision-v1','iqc-review-decision-v2'].includes(String(value.schemaVersion))||value.inputHash!==inputHash||!['REQUIRED','NOT_REQUIRED','UNKNOWN'].includes(String(value.status))||!Array.isArray(value.rules)||!value.rules.length||value.rules.length>100)return false;
+ const exact=value.schemaVersion==='iqc-review-decision-v2';
+ if(value.samplingInputHash!=null&&(!exact||typeof value.samplingInputHash!=='string'||!/^[a-f0-9]{64}$/.test(value.samplingInputHash)))return false;
+ const knownIdentity=!exact||value.samplingInputHash!=null;
+ const ids=new Set<string>();let required=false,unknown=false;
+ for(const rule of value.rules){if(!object(rule)||!text(rule.ruleId)||ids.has(rule.ruleId)||!['MATCH','NO_MATCH','UNKNOWN'].includes(String(rule.conditionMatch))||!['MATCH','NO_MATCH','UNKNOWN'].includes(String(rule.confidenceMatch))||(knownIdentity? !count(rule.bucket)||rule.bucket>=10000||typeof rule.selected!=='boolean':rule.bucket!=null||!(rule.selected==null||typeof rule.selected==='boolean'))||typeof rule.suppressed!=='boolean'||!(rule.calibratedConfidence==null||number(rule.calibratedConfidence)&&rule.calibratedConfidence>=0&&rule.calibratedConfidence<=1))return false;ids.add(rule.ruleId);
+  const match=rule.suppressed||rule.selected===false||rule.conditionMatch==='NO_MATCH'||rule.confidenceMatch==='NO_MATCH'?'NO_MATCH':rule.selected==null||rule.conditionMatch==='UNKNOWN'||rule.confidenceMatch==='UNKNOWN'?'UNKNOWN':'MATCH';if(rule.effectiveMatch!==match)return false;required||=match==='MATCH';unknown||=match==='UNKNOWN';
+ }
+ return required?value.status==='REQUIRED':unknown?['REQUIRED','UNKNOWN'].includes(String(value.status)):value.status==='NOT_REQUIRED';
+}
 export function parsePipelineExecutionTrace(raw:string|null|undefined):PipelineParseResult {
  if(!raw)return{status:'OTHER'};
  try {
@@ -87,7 +99,7 @@ export function parsePipelineExecutionTrace(raw:string|null|undefined):PipelineP
   if(!text(v.inputHash)||!['PRODUCTION','EVALUATION'].includes(String(v.mode))||!['NONE','LOW','MEDIUM','HIGH','CRITICAL','UNKNOWN'].includes(String(v.riskLevel))||!object(v.run)||!object(v.scoring))throw Error();
   const r=v.run,s=v.scoring;
   if(!['SUCCESS','PARTIAL_SUCCESS','FAILED','CANCELLED'].includes(String(r.status))||typeof r.reviewRequired!=='boolean'||!Array.isArray(r.trace)||r.trace.length>10_000||!r.trace.every(node)||!Array.isArray(r.findings)||!r.findings.every(finding)||!object(r.variables)||Object.keys(r.variables).some(k=>k.startsWith('__'))||!Array.isArray(v.fusion)||!v.fusion.every(fused))throw Error();
-  if(!Array.isArray(v.items)||!v.items.every(i=>object(i)&&text(i.itemCode)&&text(i.name)&&typeof i.ruleId==='string'&&count(i.ruleVersionNo)&&(text(i.ruleId)&&i.ruleVersionNo>0||i.ruleId===''&&i.ruleVersionNo===0&&(v.fusion as FusedFinding[]).some(f=>f.rawFindings.some(raw=>['METRIC','LLM'].includes(raw.source.engineType))))&&itemStatuses.includes(String(i.status))&&strings(i.matchedMessageIds)))throw Error();
+  if(!Array.isArray(v.items)||!v.items.every(i=>object(i)&&text(i.itemCode)&&text(i.name)&&typeof i.ruleId==='string'&&count(i.ruleVersionNo)&&(text(i.ruleId)&&i.ruleVersionNo>0||i.ruleId===''&&i.ruleVersionNo===0&&(v.fusion as FusedFinding[]).some(f=>f.rawFindings.some(raw=>['METRIC','LLM','SKILL_API'].includes(raw.source.engineType))))&&itemStatuses.includes(String(i.status))&&strings(i.matchedMessageIds)))throw Error();
   if(!['iqc-score-v2','iqc-score-v3'].includes(String(s.policyVersion))||!['DEDUCTION','POINTS'].includes(String(s.mode))||!['FINAL','PENDING','NOT_APPLICABLE'].includes(String(s.scoreStatus))||!['QUALIFIED','UNQUALIFIED','PENDING','NOT_APPLICABLE'].includes(String(s.conclusion))||typeof s.vetoTriggered!=='boolean'||!(s.finalScore==null||number(s.finalScore)&&s.finalScore>=0&&s.finalScore<=100)||!Array.isArray(s.lines)||!s.lines.every(l=>object(l)&&text(l.itemCode)&&itemStatuses.includes(String(l.status))&&count(l.configuredPoints)&&l.configuredPoints<=100&&(l.contribution==null||count(l.contribution))&&typeof l.vetoTriggered==='boolean')||!object(s.coverage)||!['expected','completed','notApplicable','pending'].every(k=>count((s.coverage as Record<string,unknown>)[k])))throw Error();
   const trace=v as unknown as PipelineTrace;
   const items=new Map(trace.items.map(i=>[i.itemCode,i]));
@@ -96,6 +108,7 @@ export function parsePipelineExecutionTrace(raw:string|null|undefined):PipelineP
   if(c.expected!==items.size||c.completed+c.notApplicable+c.pending!==c.expected||c.pending!==trace.scoring.lines.filter(i=>['REVIEW_REQUIRED','ERROR','NOT_EVALUATED'].includes(i.status)).length||c.completed!==trace.scoring.lines.filter(i=>['PASS','FAIL'].includes(i.status)).length||c.notApplicable!==trace.scoring.lines.filter(i=>i.status==='NOT_APPLICABLE').length||(s.scoreStatus==='FINAL')!==(s.finalScore!=null))throw Error();
   if(s.scoreStatus!==(c.pending>0?'PENDING':c.completed===0?'NOT_APPLICABLE':'FINAL'))throw Error();
   if(trace.scoring.policyVersion==='iqc-score-v3'?!consistentAdvanced(trace):trace.scoring.advanced!=null||!consistentScoring(trace.scoring))throw Error();
+  if(!consistentReview(trace.reviewDecision,trace.inputHash))throw Error();
   return{status:'AVAILABLE',trace};
  }catch{return{status:'INVALID',message:'流水线轨迹格式无效，无法可靠展示执行数据'};}
 }

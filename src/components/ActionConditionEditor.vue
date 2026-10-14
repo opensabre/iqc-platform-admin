@@ -40,7 +40,7 @@ function update(patch:Partial<ActionCondition>){if(!props.disabled)emit('update:
 function changeKind(kind:ActionCondition['kind']){
   if(props.disabled || props.excludedKinds?.includes(kind) || !props.allowContextConditions && ['LABEL_EQUALS','BUSINESS_EQUALS'].includes(kind))return;
   if(['ALL','ANY','NOT'].includes(kind)){update({kind,code:null,value:null,decimalOperand:null,children:group.value?props.modelValue.children:[blankCondition()]});return;}
-  const value=kind==='FINDING_STATE'?'KNOWN':kind==='ITEM_STATUS'?'FAIL':kind==='RISK_AT_LEAST'?'HIGH':kind==='RESULT_STATUS'?'UNQUALIFIED':['FINDING_EQUALS','LABEL_EQUALS','BUSINESS_EQUALS'].includes(kind)?false:null;
+  const value=kind==='REVIEW_REQUIRED'?true:kind==='FINDING_STATE'?'KNOWN':kind==='ITEM_STATUS'?'FAIL':kind==='RISK_AT_LEAST'?'HIGH':kind==='RESULT_STATUS'?'UNQUALIFIED':['FINDING_EQUALS','LABEL_EQUALS','BUSINESS_EQUALS'].includes(kind)?false:null;
   update({kind,decimalOperand:null,code:['FINDING_EQUALS','FINDING_STATE','ITEM_STATUS','LABEL_EQUALS','BUSINESS_EQUALS'].includes(kind)?'':null,value,children:[]});
 }
 function changeChild(index:number,value:ActionCondition){update({children:props.modelValue.children.map((child,i)=>i===index?value:child)});}

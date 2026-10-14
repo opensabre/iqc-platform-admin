@@ -17,7 +17,7 @@ export function parseExternalActionPayload(raw:string):Record<string,unknown> {
   if(new TextEncoder().encode(JSON.stringify(payload)).length>16384)throw Error('业务载荷最多16KiB');
   return payload as Record<string,unknown>;
 }
-export const conditionNames:Record<ActionCondition['kind'],string> = {ALWAYS:'每份生产结果',ALL:'全部条件满足',ANY:'任一条件满足',NOT:'条件取反',FINDING_EQUALS:'Finding 值相等',FINDING_STATE:'Finding 状态',ITEM_STATUS:'质检项状态',RISK_AT_LEAST:'风险等级不低于',FINAL_SCORE_BELOW:'最终评分低于',RESULT_STATUS:'结果状态',LABEL_EQUALS:'冻结标签值相等',BUSINESS_EQUALS:'冻结业务字段相等'};
+export const conditionNames:Record<ActionCondition['kind'],string> = {ALWAYS:'每份生产结果',ALL:'全部条件满足',ANY:'任一条件满足',NOT:'条件取反',FINDING_EQUALS:'Finding 值相等',FINDING_STATE:'Finding 状态',ITEM_STATUS:'质检项状态',RISK_AT_LEAST:'风险等级不低于',FINAL_SCORE_BELOW:'最终评分低于',RESULT_STATUS:'结果状态',LABEL_EQUALS:'冻结标签值相等',BUSINESS_EQUALS:'冻结业务字段相等',REVIEW_REQUIRED:'复核政策要求'};
 export const findingStates=['KNOWN','UNKNOWN','CONFLICT','ERROR','NOT_EVALUATED'];
 export const itemStates=['PASS','FAIL','NOT_APPLICABLE','REVIEW_REQUIRED','ERROR','NOT_EVALUATED'];
 export const riskLevels=['NONE','LOW','MEDIUM','HIGH','CRITICAL'];
@@ -60,6 +60,7 @@ export function validateCondition(condition:ActionCondition,depth:number,count:{
       else if(condition.code!=null)throw Error('此条件不能引用事实编码');
       const choices=condition.kind==='FINDING_STATE'?findingStates:condition.kind==='ITEM_STATUS'?itemStates:condition.kind==='RISK_AT_LEAST'?riskLevels:condition.kind==='RESULT_STATUS'?resultStates:undefined;
       if(choices && (typeof condition.value!=='string' || !choices.includes(condition.value)))throw Error('条件状态或风险等级无效');
+      if(condition.kind==='REVIEW_REQUIRED'&&typeof condition.value!=='boolean')throw Error('复核要求条件须为布尔值');
       if(condition.kind==='FINAL_SCORE_BELOW' && condition.decimalOperand==null && typeof condition.value!=='number')throw Error('评分阈值须为数值');
     }
   }

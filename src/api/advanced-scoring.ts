@@ -7,7 +7,7 @@ function range(value:unknown,min:bigint,max:bigint,exclusive=false){const d=deci
 function bounds(lower:string,upper:string){range(lower,0n,100n*scale);range(upper,0n,100n*scale);if(decimal(lower)>decimal(upper)||(lower.split('.')[1]?.length??0)>2||(upper.split('.')[1]?.length??0)>2)throw Error('评分上下限须按顺序且最多2位小数');}
 function id(value:string){if(typeof value!=='string'||!/^[A-Za-z0-9][A-Za-z0-9:_./@+-]{0,127}$/.test(value))throw Error('评分编码须为有效稳定编码');}
 function inputs(c:ActionCondition,findings:string[],items:string[],labels:string[]){
- if(['FINAL_SCORE_BELOW','RISK_AT_LEAST','RESULT_STATUS'].includes(c.kind))throw Error('计分条件不能引用评分、风险或最终结果');
+ if(['FINAL_SCORE_BELOW','RISK_AT_LEAST','RESULT_STATUS','REVIEW_REQUIRED'].includes(c.kind))throw Error('计分条件不能引用评分、风险或最终结果');
  if(['FINDING_EQUALS','FINDING_STATE'].includes(c.kind)&&!findings.includes(c.code||'')||c.kind==='ITEM_STATUS'&&!items.includes(c.code||'')||c.kind==='LABEL_EQUALS'&&!labels.includes(c.code||''))throw Error('计分条件引用未声明的事实、项目或标签');
  c.children.forEach(child=>inputs(child,findings,items,labels));
 }
