@@ -4,6 +4,8 @@ import PublishedAssetReference from './PublishedAssetReference.vue';
 import FindingLabelPolicyEditor from './FindingLabelPolicyEditor.vue';
 import ActionPolicyEditor from './ActionPolicyEditor.vue';
 import AdvancedScoringEditor from './AdvancedScoringEditor.vue';
+import ReviewPolicyEditor from './ReviewPolicyEditor.vue';
+import {validateReviewPolicy} from '@/api/review-policy';
 import {validateScoringPolicy} from '@/api/advanced-scoring';
 import ActionConditionEditor from './ActionConditionEditor.vue';
 import PipelineDependencyGraph from './PipelineDependencyGraph.vue';
@@ -17,6 +19,7 @@ type ItemDraft=PipelineRelease['items'][number] & {points:number;veto:boolean};
 const publicationGate=ref<PipelineRelease['publicationGate']>();
 const actionPolicy=ref<PipelineRelease['actionPolicy']>();
 const riskPolicy=ref<PipelineRelease['riskPolicy']>();
+const reviewPolicy=ref<PipelineRelease['reviewPolicy']>();
 function configureRisk(enabled:boolean){riskPolicy.value=enabled?{schemaVersion:'iqc-risk-policy-v1',defaultLevel:'NONE',rules:[]}:undefined;}
 function addRiskRule(){if(!riskPolicy.value || props.disabled || riskPolicy.value.rules.length>=100)return;let i=1;while(riskPolicy.value.rules.some(r=>r.ruleId===`risk_${i}`))i++;riskPolicy.value.rules.push({ruleId:`risk_${i}`,level:'LOW',condition:blankCondition()});}
 function validatedRisk(){
@@ -24,7 +27,7 @@ function validatedRisk(){
  const policy=JSON.parse(JSON.stringify(riskPolicy.value)) as NonNullable<PipelineRelease['riskPolicy']>;
  if(policy.schemaVersion!=='iqc-risk-policy-v1'||!riskLevels.includes(policy.defaultLevel)||!policy.rules.length||policy.rules.length>100)throw Error('独立风险政策须配置1至100条规则及默认等级');
  const ids=new Set<string>();let count=0;
- const check=(c:typeof policy.rules[number]['condition'])=>{if(['RISK_AT_LEAST','RESULT_STATUS'].includes(c.kind))throw Error('风险条件不能引用风险或最终结果状态');if(['FINDING_EQUALS','FINDING_STATE'].includes(c.kind)&&!nodes.value.some(n=>n.factCode===c.code)||c.kind==='ITEM_STATUS'&&!items.value.some(i=>i.itemCode===c.code))throw Error('风险条件引用的事实或质检项不存在');if(c.kind==='LABEL_EQUALS'&&!labelPolicy.value?.bindings.some(binding=>labelBindingAddress(binding)===c.code))throw Error('风险条件引用的冻结标签值未声明');for(const child of c.children)check(child);};
+ const check=(c:typeof policy.rules[number]['condition'])=>{if(['RISK_AT_LEAST','RESULT_STATUS','REVIEW_REQUIRED'].includes(c.kind))throw Error('风险条件不能引用风险或最终结果状态');if(['FINDING_EQUALS','FINDING_STATE'].includes(c.kind)&&!nodes.value.some(n=>n.factCode===c.code)||c.kind==='ITEM_STATUS'&&!items.value.some(i=>i.itemCode===c.code))throw Error('风险条件引用的事实或质检项不存在');if(c.kind==='LABEL_EQUALS'&&!labelPolicy.value?.bindings.some(binding=>labelBindingAddress(binding)===c.code))throw Error('风险条件引用的冻结标签值未声明');for(const child of c.children)check(child);};
  for(const rule of policy.rules){if(!/^[A-Za-z0-9][A-Za-z0-9:_./@+-]{0,127}$/.test(rule.ruleId)||ids.has(rule.ruleId)||!riskLevels.includes(rule.level))throw Error('风险规则编码或等级无效');ids.add(rule.ruleId);validateCondition(rule.condition,1,{value:0});count+=conditionCount(rule.condition);check(rule.condition);}
  if(count>1000)throw Error('风险政策最多1000个条件节点');return policy;
 }
@@ -40,7 +43,7 @@ watch(()=>props.initial,value=>{
  const copy=JSON.parse(JSON.stringify(value)) as PipelineRelease;
  parallel.value=copy.pipeline.schemaVersion==='iqc-pipeline-parallel-v1';
  policyEditorGeneration.value++;actionError.value='';
- riskPolicy.value=copy.riskPolicy;publicationGate.value=copy.publicationGate;actionPolicy.value=copy.actionPolicy;labelPolicy.value=copy.labelPolicy;
+ reviewPolicy.value=copy.reviewPolicy;riskPolicy.value=copy.riskPolicy;publicationGate.value=copy.publicationGate;actionPolicy.value=copy.actionPolicy;labelPolicy.value=copy.labelPolicy;
  nodes.value=copy.pipeline.nodes.map(n=>({...n,inputJson:JSON.stringify(n.inputMapping,null,2),outputJson:JSON.stringify(n.outputSchema,null,2),conditionJson:JSON.stringify(n.condition?.value ?? null),factCode:String((n.config.findingDefinition as {code?:string}|undefined)?.code || '')}));
  items.value=copy.items.map(i=>({...i,points:copy.scoring.items.find(s=>s.itemCode===i.itemCode)?.points ?? 0,veto:copy.scoring.items.find(s=>s.itemCode===i.itemCode)?.veto ?? false}));
  fusion.value=copy.fusion;scoring.value=copy.scoring;priorities.value=JSON.stringify(copy.fusion.nodePriority,null,2);overrides.value=JSON.stringify(copy.fusion.overrideNodeByCode,null,2);
@@ -127,8 +130,9 @@ function release():PipelineRelease {
  const labels=validateFindingLabelPolicy(labelPolicy.value);
  const risk=validatedRisk();
  const actions=validateActionPolicy(actionPolicy.value);
+ const review=validateReviewPolicy(reviewPolicy.value,nodes.value.map(n=>n.factCode).filter(Boolean),items.value.map(i=>i.itemCode),labels,actions);
  validateLabelActionTargets(actions,labels);
- return {...(risk?{riskPolicy:risk}:{}),...(labels?{labelPolicy:labels}:{}),...(actions?{actionPolicy:actions}:{}),...(publicationGate.value?{publicationGate:{...publicationGate.value}}:{}),schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:parallel.value?'iqc-pipeline-parallel-v1':'iqc-pipeline-v1',nodes:converted},fusion:{...fusion.value,nodePriority:priority as Record<string,number>,overrideNodeByCode:override as Record<string,string>},items:items.value.map(({points,veto,...i})=>({...i,appliesWhenFindingCode:i.appliesWhenFindingCode?.trim()||null})),scoring:validateScoringPolicy(scoring.value,items.value.map(i=>({itemCode:i.itemCode,points:i.points,veto:i.veto})),nodes.value.map(n=>n.factCode).filter(Boolean),labels)};
+ return {...(review?{reviewPolicy:review}:{}),...(risk?{riskPolicy:risk}:{}),...(labels?{labelPolicy:labels}:{}),...(actions?{actionPolicy:actions}:{}),...(publicationGate.value?{publicationGate:{...publicationGate.value}}:{}),schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:parallel.value?'iqc-pipeline-parallel-v1':'iqc-pipeline-v1',nodes:converted},fusion:{...fusion.value,nodePriority:priority as Record<string,number>,overrideNodeByCode:override as Record<string,string>},items:items.value.map(({points,veto,...i})=>({...i,appliesWhenFindingCode:i.appliesWhenFindingCode?.trim()||null})),scoring:validateScoringPolicy(scoring.value,items.value.map(i=>({itemCode:i.itemCode,points:i.points,veto:i.veto})),nodes.value.map(n=>n.factCode).filter(Boolean),labels)};
 }
 defineExpose({release});
 </script>
@@ -170,7 +174,8 @@ defineExpose({release});
 <FindingLabelPolicyEditor :key="policyEditorGeneration" v-model="labelPolicy" :finding-codes="nodes.map(node=>node.factCode).filter(Boolean)" :disabled="disabled" @action="addLabelAction"/>
 <a-alert v-if="actionError" type="error" :message="actionError" show-icon/><ActionPolicyEditor :key="`actions-${policyEditorGeneration}`" v-model="actionPolicy" :labels="labelPolicy" :finding-codes="nodes.map(node=>node.factCode).filter(Boolean)" :item-codes="items.map(item=>item.itemCode).filter(Boolean)" :disabled="disabled"/>
 <h3>独立风险政策</h3><a-switch :checked="!!riskPolicy" :disabled="disabled" @change="configureRisk"/><p>匹配规则取最高风险等级。未知条件可能提高等级时保留未知。标签来自本政策的标签绑定，业务字段使用会话执行时保存的上下文；缺失字段保持未知。</p>
-<template v-if="riskPolicy"><a-form-item label="默认风险等级"><a-select v-model:value="riskPolicy.defaultLevel" :options="options(riskLevels)" :disabled="disabled"/></a-form-item><a-button :disabled="disabled || riskPolicy.rules.length>=100" @click="addRiskRule">添加风险规则</a-button><a-card v-for="(rule,index) in riskPolicy.rules" :key="index" style="margin:12px 0"><a-input v-model:value="rule.ruleId" :disabled="disabled" placeholder="规则编码"/><a-select v-model:value="rule.level" :options="options(riskLevels)" :disabled="disabled"/><ActionConditionEditor v-model="rule.condition" :finding-codes="nodes.map(n=>n.factCode).filter(Boolean)" :item-codes="items.map(i=>i.itemCode).filter(Boolean)" :node-count="conditionCount(rule.condition)" :excluded-kinds="['RISK_AT_LEAST','RESULT_STATUS']" :allow-context-conditions="true" :label-codes="labelPolicy?.bindings.map(labelBindingAddress) || []" :disabled="disabled"/><a-button danger :disabled="disabled" @click="riskPolicy.rules.splice(index,1)">删除规则</a-button></a-card></template>
+<template v-if="riskPolicy"><a-form-item label="默认风险等级"><a-select v-model:value="riskPolicy.defaultLevel" :options="options(riskLevels)" :disabled="disabled"/></a-form-item><a-button :disabled="disabled || riskPolicy.rules.length>=100" @click="addRiskRule">添加风险规则</a-button><a-card v-for="(rule,index) in riskPolicy.rules" :key="index" style="margin:12px 0"><a-input v-model:value="rule.ruleId" :disabled="disabled" placeholder="规则编码"/><a-select v-model:value="rule.level" :options="options(riskLevels)" :disabled="disabled"/><ActionConditionEditor v-model="rule.condition" :finding-codes="nodes.map(n=>n.factCode).filter(Boolean)" :item-codes="items.map(i=>i.itemCode).filter(Boolean)" :node-count="conditionCount(rule.condition)" :excluded-kinds="['RISK_AT_LEAST','RESULT_STATUS','REVIEW_REQUIRED']" :allow-context-conditions="true" :label-codes="labelPolicy?.bindings.map(labelBindingAddress) || []" :disabled="disabled"/><a-button danger :disabled="disabled" @click="riskPolicy.rules.splice(index,1)">删除规则</a-button></a-card></template>
+<ReviewPolicyEditor v-model="reviewPolicy" v-model:actions="actionPolicy" :finding-codes="nodes.map(n=>n.factCode).filter(Boolean)" :item-codes="items.map(i=>i.itemCode).filter(Boolean)" :labels="labelPolicy" :disabled="disabled"/>
 <h3>发布门禁政策</h3><a-switch :checked="!!publicationGate" :disabled="disabled" @change="configurePublicationGate"/> 自定义阈值；未启用时采用95%风险召回、92%F1、100%回归、99.5%结构化成功和5000ms P95默认值。
 <a-form v-if="publicationGate" layout="vertical"><a-form-item label="风险召回 / Overall F1 最低比率（0–1）"><a-space><a-input-number v-model:value="publicationGate.minimumRiskRecall" :min="0" :max="1" :step="0.01" :disabled="disabled"/><a-input-number v-model:value="publicationGate.minimumOverallF1" :min="0" :max="1" :step="0.01" :disabled="disabled"/></a-space></a-form-item><a-form-item label="回归通过 / 结构化输出最低比率（0–1）"><a-space><a-input-number v-model:value="publicationGate.minimumRegressionPass" :min="0" :max="1" :step="0.01" :disabled="disabled"/><a-input-number v-model:value="publicationGate.minimumStructuredSuccess" :min="0" :max="1" :step="0.001" :disabled="disabled"/></a-space></a-form-item><a-form-item label="评测计算P95毫秒 / 每类金标最少样本"><a-space><a-input-number v-model:value="publicationGate.maximumP95Ms" :min="1" :max="300000" :precision="0" :disabled="disabled"/><a-input-number v-model:value="publicationGate.minimumSamples" :min="1" :max="1000" :precision="0" :disabled="disabled"/></a-space></a-form-item></a-form>
 <h3>业务映射与评分</h3><a-form v-if="scoring" layout="vertical"><a-form-item label="计分方式"><a-select v-model:value="scoring.mode" :options="options(['DEDUCTION','POINTS'])" :disabled="disabled"/></a-form-item><a-form-item label="基础分 / 合格线"><a-space><a-input-number v-model:value="scoring.baseScore" :min="1" :max="100" :precision="0" :disabled="disabled || scoring.mode==='POINTS'"/><a-input-number v-model:value="scoring.passingScore" :min="0" :max="100" :precision="0" :disabled="disabled"/></a-space></a-form-item></a-form>

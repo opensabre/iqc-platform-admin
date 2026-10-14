@@ -9,8 +9,9 @@ export interface FusedFinding {
  severity:TraceFinding['severity'];rawFindings:TraceFinding[];selectedIds:string[];rejectedIds:string[];
  evidence:TraceFinding['evidence'];explanation:string;policyId:string;policyVersion:number;
 }
+export interface ReviewDecision {schemaVersion:'iqc-review-decision-v1';inputHash:string;status:'REQUIRED'|'NOT_REQUIRED'|'UNKNOWN';rules:Array<{ruleId:string;conditionMatch:'MATCH'|'NO_MATCH'|'UNKNOWN';confidenceMatch:'MATCH'|'NO_MATCH'|'UNKNOWN';calibratedConfidence:number|null;bucket:number;selected:boolean;suppressed:boolean;effectiveMatch:'MATCH'|'NO_MATCH'|'UNKNOWN'}>}
 export interface PipelineTrace {
- schemaVersion:'iqc-pipeline-execution-v1';inputHash:string;mode:'PRODUCTION'|'EVALUATION';riskLevel:string;
+ reviewDecision?:ReviewDecision|null;schemaVersion:'iqc-pipeline-execution-v1';inputHash:string;mode:'PRODUCTION'|'EVALUATION';riskLevel:string;
  run:{status:string;trace:PipelineNodeTrace[];findings:TraceFinding[];variables:Record<string,unknown>;reviewRequired:boolean};
  fusion:FusedFinding[];items:Array<{itemCode:string;name:string;ruleId:string;ruleVersionNo:number;status:string;matchedMessageIds:string[]}>;
  scoring:{advanced?:AdvancedScoringResult|null;policyVersion:string;mode:string;scoreStatus:string;finalScore:number|null;conclusion:string;vetoTriggered:boolean;
@@ -78,6 +79,14 @@ function consistentAdvanced(trace:PipelineTrace):boolean {
  if(a.lines.some(l=>l.dimensionCode!=null&&!dims.has(l.dimensionCode)))return false;
  return s.vetoTriggered===a.lines.some(l=>l.vetoTriggered)&&(s.vetoTriggered?s.conclusion==='UNQUALIFIED'&&(s.scoreStatus!=='FINAL'||s.finalScore===0):s.scoreStatus==='FINAL'?['QUALIFIED','UNQUALIFIED'].includes(s.conclusion):s.conclusion===s.scoreStatus);
 }
+function consistentReview(value:unknown,inputHash:string):boolean {
+ if(value==null)return true;if(!object(value)||value.schemaVersion!=='iqc-review-decision-v1'||value.inputHash!==inputHash||!['REQUIRED','NOT_REQUIRED','UNKNOWN'].includes(String(value.status))||!Array.isArray(value.rules)||!value.rules.length||value.rules.length>100)return false;
+ const ids=new Set<string>();let required=false,unknown=false;
+ for(const rule of value.rules){if(!object(rule)||!text(rule.ruleId)||ids.has(rule.ruleId)||!['MATCH','NO_MATCH','UNKNOWN'].includes(String(rule.conditionMatch))||!['MATCH','NO_MATCH','UNKNOWN'].includes(String(rule.confidenceMatch))||!count(rule.bucket)||rule.bucket>=10000||typeof rule.selected!=='boolean'||typeof rule.suppressed!=='boolean'||!(rule.calibratedConfidence==null||number(rule.calibratedConfidence)&&rule.calibratedConfidence>=0&&rule.calibratedConfidence<=1))return false;ids.add(rule.ruleId);
+  const match=rule.suppressed||!rule.selected||rule.conditionMatch==='NO_MATCH'||rule.confidenceMatch==='NO_MATCH'?'NO_MATCH':rule.conditionMatch==='UNKNOWN'||rule.confidenceMatch==='UNKNOWN'?'UNKNOWN':'MATCH';if(rule.effectiveMatch!==match)return false;required||=match==='MATCH';unknown||=match==='UNKNOWN';
+ }
+ return required?value.status==='REQUIRED':unknown?['REQUIRED','UNKNOWN'].includes(String(value.status)):value.status==='NOT_REQUIRED';
+}
 export function parsePipelineExecutionTrace(raw:string|null|undefined):PipelineParseResult {
  if(!raw)return{status:'OTHER'};
  try {
@@ -96,6 +105,7 @@ export function parsePipelineExecutionTrace(raw:string|null|undefined):PipelineP
   if(c.expected!==items.size||c.completed+c.notApplicable+c.pending!==c.expected||c.pending!==trace.scoring.lines.filter(i=>['REVIEW_REQUIRED','ERROR','NOT_EVALUATED'].includes(i.status)).length||c.completed!==trace.scoring.lines.filter(i=>['PASS','FAIL'].includes(i.status)).length||c.notApplicable!==trace.scoring.lines.filter(i=>i.status==='NOT_APPLICABLE').length||(s.scoreStatus==='FINAL')!==(s.finalScore!=null))throw Error();
   if(s.scoreStatus!==(c.pending>0?'PENDING':c.completed===0?'NOT_APPLICABLE':'FINAL'))throw Error();
   if(trace.scoring.policyVersion==='iqc-score-v3'?!consistentAdvanced(trace):trace.scoring.advanced!=null||!consistentScoring(trace.scoring))throw Error();
+  if(!consistentReview(trace.reviewDecision,trace.inputHash))throw Error();
   return{status:'AVAILABLE',trace};
  }catch{return{status:'INVALID',message:'流水线轨迹格式无效，无法可靠展示执行数据'};}
 }
