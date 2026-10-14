@@ -4,10 +4,12 @@ import PublishedAssetReference from './PublishedAssetReference.vue';
 import FindingLabelPolicyEditor from './FindingLabelPolicyEditor.vue';
 import ActionPolicyEditor from './ActionPolicyEditor.vue';
 import ActionConditionEditor from './ActionConditionEditor.vue';
+import PipelineDependencyGraph from './PipelineDependencyGraph.vue';
 import {validateActionPolicy,validateCondition,conditionCount,blankCondition,riskLevels,validateDecimalOperand} from '@/api/action-policy-editor';
 import {validateFindingLabelPolicy,validateLabelActionTargets,labelBindingAddress} from '@/api/finding-label-policy';
 import type {PipelineRelease,PipelineNode,NumericPredicate} from '@/api/pipelines';
 const props=defineProps<{initial:PipelineRelease;disabled?:boolean}>();
+const openNodes=ref<Array<string|number>>([]);
 type NodeDraft=PipelineNode & {inputJson:string;outputJson:string;conditionJson:string;factCode:string};
 type ItemDraft=PipelineRelease['items'][number] & {points:number;veto:boolean};
 const publicationGate=ref<PipelineRelease['publicationGate']>();
@@ -133,7 +135,8 @@ defineExpose({release});
 <a-form layout="vertical"><a-form-item label="并行执行"><a-switch v-model:checked="parallel" :disabled="disabled"/></a-form-item></a-form>
 <p v-if="!parallel">按顺序执行，依赖必须指向前序节点。错误和未执行保留状态。</p>
 <template v-else><p>按依赖波次并发，等待全部终态后汇总。只读取显式依赖祖先的输出；变量名称不得跨分支重复。依赖仍指向列表前序节点。</p><a-button :disabled="disabled" @click="initializeParallelSchemas">按当前节点生成输出声明（覆盖现有声明）</a-button><p>修改节点编码或事实类型后需更新声明；自定义输出可在高级配置编辑。服务器会校验变量归属和读取依赖。</p></template><a-button :disabled="disabled || nodes.length>=200" @click="addNode">添加节点</a-button>
-<a-collapse><a-collapse-panel v-for="(node,index) in nodes" :key="index" :header="`${index+1}. ${node.name} (${node.nodeId})`">
+<PipelineDependencyGraph :nodes="nodes" @select="index=>openNodes=[index]"/>
+<a-collapse v-model:active-key="openNodes"><a-collapse-panel v-for="(node,index) in nodes" :key="index" :header="`${index+1}. ${node.name} (${node.nodeId})`">
 <a-space wrap><a-button :disabled="disabled || index===0" @click="move(index,-1)">上移</a-button><a-button :disabled="disabled || index===nodes.length-1" @click="move(index,1)">下移</a-button><a-button danger :disabled="disabled" @click="remove(index)">移除</a-button><a-switch v-model:checked="node.enabled" :disabled="disabled"/> <span>正常执行（关闭后可作备用节点）</span></a-space>
 <a-form layout="vertical"><a-form-item label="节点编码 / 名称"><a-space><a-input v-model:value="node.nodeId" :disabled="disabled"/><a-input v-model:value="node.name" :disabled="disabled"/></a-space></a-form-item>
 <a-form-item label="引擎"><a-select v-model:value="node.type" :options="options(['RULE','DLS','LLM','METRIC','SESSION'])" :disabled="disabled" @change="changeEngine(node)"/></a-form-item>
