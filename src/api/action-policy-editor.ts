@@ -1,7 +1,22 @@
 import type { ActionCondition, ActionPolicy } from './pipelines';
 import { validateAutomaticRetry } from './automatic-retry';
+import { selectorJsonNeedsExactEditor } from './selectors';
 export type PolicyAction = ActionPolicy['actions'][number];
-export const supportedActionNames = { SAVE_RESULT:'保存分析结果', UPDATE_LABEL:'更新标签', CREATE_RISK_EVENT:'创建风险事件', SEND_ALERT:'发送告警', CREATE_REVIEW:'发起业务复核', ADD_TO_EVALUATION_CANDIDATE:'加入评测候选' } as const;
+export const supportedActionNames = { SAVE_RESULT:'保存分析结果', UPDATE_LABEL:'更新标签', CREATE_RISK_EVENT:'创建风险事件', SEND_ALERT:'发送告警', CREATE_REVIEW:'发起业务复核', ADD_TO_EVALUATION_CANDIDATE:'加入评测候选', WEBHOOK:'发送 Webhook', CREATE_WORK_ORDER:'创建工单', CREATE_COACHING_TASK:'创建辅导任务' } as const;
+export function isExternalAction(type:PolicyAction['type']):boolean {return ['WEBHOOK','CREATE_WORK_ORDER','CREATE_COACHING_TASK'].includes(type);}
+function validateExternalPayload(payload:unknown,depth=0):void {
+  if(depth>16)throw Error('业务载荷最多嵌套16层');
+  if(payload && typeof payload==='object')for(const child of Object.values(payload))validateExternalPayload(child,depth+1);
+}
+export function parseExternalActionPayload(raw:string):Record<string,unknown> {
+  if(new TextEncoder().encode(raw).length>65536)throw Error('业务载荷输入过长');
+  const payload:unknown=JSON.parse(raw);
+  if(selectorJsonNeedsExactEditor(raw))throw Error('载荷数值无法精确保存，请将精确值表示为文本');
+  if(!payload || typeof payload!=='object' || Array.isArray(payload))throw Error('业务载荷须为 JSON 对象');
+  validateExternalPayload(payload);
+  if(new TextEncoder().encode(JSON.stringify(payload)).length>16384)throw Error('业务载荷最多16KiB');
+  return payload as Record<string,unknown>;
+}
 export const conditionNames:Record<ActionCondition['kind'],string> = {ALWAYS:'每份生产结果',ALL:'全部条件满足',ANY:'任一条件满足',NOT:'条件取反',FINDING_EQUALS:'Finding 值相等',FINDING_STATE:'Finding 状态',ITEM_STATUS:'质检项状态',RISK_AT_LEAST:'风险等级不低于',FINAL_SCORE_BELOW:'最终评分低于',RESULT_STATUS:'结果状态',LABEL_EQUALS:'冻结标签值相等',BUSINESS_EQUALS:'冻结业务字段相等'};
 export const findingStates=['KNOWN','UNKNOWN','CONFLICT','ERROR','NOT_EVALUATED'];
 export const itemStates=['PASS','FAIL','NOT_APPLICABLE','REVIEW_REQUIRED','ERROR','NOT_EVALUATED'];
@@ -52,8 +67,14 @@ export function validateCondition(condition:ActionCondition,depth:number,count:{
 }
 function configuration(action:PolicyAction){
   const c=action.configuration;
-  const keys=action.type==='SAVE_RESULT'?[]:action.type==='UPDATE_LABEL'?['labelId','valueCode']:action.type==='CREATE_RISK_EVENT'?['category','title','description']:action.type==='CREATE_REVIEW'?['reason','expectedRevision']:action.type==='SEND_ALERT'?['sceneCode','channel','target','args']:['sampleType','name','tags','reviewRevision'];
+  const keys=isExternalAction(action.type)?['destinationId','destinationVersion','payload']:action.type==='SAVE_RESULT'?[]:action.type==='UPDATE_LABEL'?['labelId','valueCode']:action.type==='CREATE_RISK_EVENT'?['category','title','description']:action.type==='CREATE_REVIEW'?['reason','expectedRevision']:action.type==='SEND_ALERT'?['sceneCode','channel','target','args']:['sampleType','name','tags','reviewRevision'];
   if(Object.keys(c).some(key=>!keys.includes(key)))throw Error(`动作 ${action.actionId} 包含不支持的配置字段`);
+  if(isExternalAction(action.type)){
+    if(typeof c.destinationId!=='string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(c.destinationId))throw Error('目的地编码须为1到64位字母、数字、下划线或短横线');
+    if(!boundedInteger(c.destinationVersion,1,2147483647))throw Error('请选择目的地精确版本');
+    if(!c.payload || typeof c.payload!=='object' || Array.isArray(c.payload))throw Error('业务载荷须为有效 JSON 对象');
+    parseExternalActionPayload(JSON.stringify(c.payload));
+  }
   if(action.type==='CREATE_RISK_EVENT'){
     if(typeof c.category!=='string' || !/^[A-Za-z0-9][A-Za-z0-9:_./@+-]{0,63}$/.test(c.category))throw Error('风险类别须为有效稳定编码，最多64字');
     for(const [key,max] of [['title',128],['description',1000]] as const){const value=c[key];if(typeof value!=='string' || !value.trim() || value.length>max || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/.test(value))throw Error(`风险${key==='title'?'标题':'描述'}必填，最多${max}字且不能含控制字符`);}

@@ -36,6 +36,12 @@
             <a-form-item label="复核原因"><a-textarea :value="text(action,'reason')" :disabled="disabled" :maxlength="1000" @update:value="(value:string)=>config(index,{reason:value})"/></a-form-item>
             <a-form-item label="预期已有复核轮次"><a-input-number :value="number(action,'expectedRevision',0)" :disabled="disabled" :min="0" :max="2147483646" :precision="0" @change="(value:unknown)=>config(index,{expectedRevision:value})"/></a-form-item>
           </template>
+          <template v-if="isExternalAction(action.type)">
+            <p>选择已配置的接收目的地及精确版本。业务载荷随策略冻结；未确认的回执进入核对，不自动重复发送。</p>
+            <a-form-item label="目的地编码"><a-input :value="text(action,'destinationId')" :disabled="disabled" :maxlength="64" @update:value="(value:string)=>config(index,{destinationId:value})"/></a-form-item>
+            <a-form-item label="目的地版本"><a-input-number :value="number(action,'destinationVersion',1)" :disabled="disabled" :min="1" :max="2147483647" :precision="0" @change="(value:unknown)=>config(index,{destinationVersion:value})"/></a-form-item>
+            <a-form-item label="业务载荷（JSON 对象）"><a-textarea :value="payloadDrafts[index] ?? JSON.stringify(action.configuration.payload,null,2)" :disabled="disabled" :rows="5" @update:value="(value:string)=>setPayload(index,value)"/><a-alert v-if="payloadErrors[index]" type="error" :message="payloadErrors[index]"/></a-form-item>
+          </template>
           <template v-if="action.type==='ADD_TO_EVALUATION_CANDIDATE'">
             <p>指定业务复核轮次完成后创建候选；候选仍需原标注和独立审核才能进入金标集。</p>
             <a-form-item label="样本类型"><a-select :value="text(action,'sampleType')" :options="sampleOptions" :disabled="disabled" @change="(value:string)=>config(index,{sampleType:value})"/></a-form-item>
@@ -57,7 +63,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import type {ActionPolicy,FindingLabelPolicy} from '@/api/pipelines';
-import {always,conditionCount,editableAction,supportedActionNames,type PolicyAction} from '@/api/action-policy-editor';
+import {always,conditionCount,editableAction,isExternalAction,parseExternalActionPayload,supportedActionNames,type PolicyAction} from '@/api/action-policy-editor';
 import ActionConditionEditor from './ActionConditionEditor.vue';
 import AutomaticRetryPolicyEditor from './AutomaticRetryPolicyEditor.vue';
 const props=defineProps<{modelValue?:ActionPolicy|null;labels?:FindingLabelPolicy|null;findingCodes:string[];itemCodes:string[];disabled?:boolean}>();
@@ -65,6 +71,12 @@ const emit=defineEmits<{'update:modelValue':[value:ActionPolicy]}>();
 const newType=ref<keyof typeof supportedActionNames>('SAVE_RESULT');
 const actionOptions=Object.entries(supportedActionNames).map(([value,label])=>({value,label}));
 const argumentNames=ref<Record<number,string>>({}),argumentErrors=ref<Record<number,string>>({});
+const payloadDrafts=ref<Record<number,string>>({}),payloadErrors=ref<Record<number,string>>({});
+function setPayload(index:number,value:string){
+  if(props.disabled)return;payloadDrafts.value[index]=value;
+  try{config(index,{payload:parseExternalActionPayload(value)});payloadErrors.value[index]='';}
+  catch(error){config(index,{payload:value});payloadErrors.value[index]=error instanceof Error?error.message:'业务载荷无效';}
+}
 const sampleOptions=[{value:'POSITIVE',label:'正样本'},{value:'NEGATIVE',label:'负样本'},{value:'FALSE_POSITIVE',label:'误报'},{value:'FALSE_NEGATIVE',label:'漏报'}];
 function actionName(action:PolicyAction){return Object.hasOwn(supportedActionNames,action.type)?supportedActionNames[action.type as keyof typeof supportedActionNames]:action.type;}
 function update(actions:PolicyAction[]){if(!props.disabled)emit('update:modelValue',{schemaVersion:'iqc-action-policy-v1',actions});}
@@ -89,8 +101,8 @@ function setTarget(index:number,value:string){const binding=(props.labels?.bindi
 function add(){
   if(props.disabled)return;const actions=props.modelValue?.actions || [];if(actions.length>=100)return;
   let id=1;while(actions.some(action=>action.actionId===`action_${id}`))id++;
-  const configuration:Record<string,unknown>=newType.value==='SEND_ALERT'?{sceneCode:'',channel:'EMAIL',target:'',args:{}}:newType.value==='CREATE_RISK_EVENT'?{category:'',title:'',description:''}:newType.value==='CREATE_REVIEW'?{reason:'',expectedRevision:0}:newType.value==='ADD_TO_EVALUATION_CANDIDATE'?{sampleType:'POSITIVE',reviewRevision:1}:{};
+  const configuration:Record<string,unknown>=isExternalAction(newType.value)?{destinationId:'',destinationVersion:1,payload:{}}:newType.value==='SEND_ALERT'?{sceneCode:'',channel:'EMAIL',target:'',args:{}}:newType.value==='CREATE_RISK_EVENT'?{category:'',title:'',description:''}:newType.value==='CREATE_REVIEW'?{reason:'',expectedRevision:0}:newType.value==='ADD_TO_EVALUATION_CANDIDATE'?{sampleType:'POSITIVE',reviewRevision:1}:{};
   update([...actions,{actionId:`action_${id}`,type:newType.value,adapterVersion:1,condition:['CREATE_RISK_EVENT','SEND_ALERT'].includes(newType.value)?{kind:'RISK_AT_LEAST',code:null,value:'LOW',children:[]}:always(),idempotency:'PRODUCTION_SOURCE_V1',retry:null,failureHandling:'RECORD_ONLY',configuration}]);
 }
-function remove(index:number){argumentNames.value={};argumentErrors.value={};update((props.modelValue?.actions||[]).filter((_,i)=>i!==index));}
+function remove(index:number){argumentNames.value={};argumentErrors.value={};payloadDrafts.value={};payloadErrors.value={};update((props.modelValue?.actions||[]).filter((_,i)=>i!==index));}
 </script>

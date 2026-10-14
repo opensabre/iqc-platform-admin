@@ -1,3 +1,4 @@
+vi.mock("./ConversationAudioPanel.vue",()=>({default:{template:"<div />"}}));
 import { afterEach, expect, it, vi } from "vitest";
 import { createApp, defineComponent, h, nextTick, reactive, type App } from "vue";
 import ConversationDetailDrawer from "./ConversationDetailDrawer.vue";
