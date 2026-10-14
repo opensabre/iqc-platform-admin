@@ -194,6 +194,8 @@ async function decide(rejected: boolean) {
               <a-alert v-if="candidateError && candidateCommand?.body.reviewId === row.review.id" type="warning" :message="candidateError" />
               <a-button v-if="candidateCommand?.body.reviewId === row.review.id" :loading="candidateBusy" @click="submitCandidate">重试候选原提交</a-button>
               <p>机器分数：{{ score(row.projection.original.scoring) }} → 本轮人工复核分数：{{ score(row.projection.reviewed.scoring) }}</p>
+              <p v-if="row.projection.original.scoring.advanced || row.projection.reviewed.scoring.advanced">机器等级：{{row.projection.original.scoring.advanced?.grade ?? '待定 / 未配置'}} → 本轮等级：{{row.projection.reviewed.scoring.advanced?.grade ?? '待定 / 未配置'}}</p>
+              <details v-if="row.projection.reviewed.scoring.advanced"><summary>本轮维度分</summary><p v-for="dimension in row.projection.reviewed.scoring.advanced.dimensions" :key="dimension.code">{{dimension.code}} · {{dimension.scoreStatus}} · {{dimension.finalScore ?? '待定 / 不适用'}} · {{dimension.conclusion}}</p></details>
               <p>本轮有效项目结论：未裁决项目沿用机器或前轮结果。</p>
               <ul>
                 <li v-for="item in row.projection.reviewed.items" :key="item.itemCode">
