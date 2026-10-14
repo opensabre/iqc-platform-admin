@@ -28,7 +28,17 @@ describe('manual action reconciliation',()=>{
  it('requires history and operation permission',async()=>{state.permissions.splice(1);mount();await settle();expect(button('核对实际产物')).toBeUndefined();expect(listActionHistory).toHaveBeenCalledOnce();});
  it('does not load records without history permission',async()=>{state.permissions.splice(0,1);mount();await settle();expect(listActionHistory).not.toHaveBeenCalled();expect(reconcileAction).not.toHaveBeenCalled();});
  it('keeps old-backend records readable without offering an unversioned operation',async()=>{vi.mocked(listActionHistory).mockResolvedValue([{...observed,version:undefined}]);mount();await settle();expect(host.textContent).toContain('REQUIRES_RECONCILIATION');expect(button('核对实际产物')).toBeUndefined();});
- it('does not offer unsupported remote or unsafe numeric versions',async()=>{vi.mocked(listActionHistory).mockResolvedValue([{...observed,type:'WEBHOOK'},{...observed,id:'large-version',version:Number.MAX_SAFE_INTEGER+1}]);mount();await settle();expect(button('核对实际产物')).toBeUndefined();});
+ it('does not offer unsupported types or unsafe numeric versions',async()=>{vi.mocked(listActionHistory).mockResolvedValue([{...observed,type:'UNSUPPORTED_REMOTE'},{...observed,id:'large-version',version:Number.MAX_SAFE_INTEGER+1}]);mount();await settle();expect(button('核对实际产物')).toBeUndefined();});
+ it.each(['WEBHOOK','CREATE_WORK_ORDER','CREATE_COACHING_TASK'])('queries %s through the original audited reconciliation API',async(type)=>{
+  vi.mocked(listActionHistory).mockResolvedValue([{...observed,type}]);vi.mocked(reconcileAction).mockResolvedValue({id:'action-1',state:'UNCONFIRMED'});
+  mount();await settle();await open();await reason();button('核对').click();await settle();
+  expect(reconcileAction).toHaveBeenCalledExactlyOnceWith('result-1','action-1',3,'确认原始复核产物');
+  expect(recoverAction).not.toHaveBeenCalled();expect(host.textContent).toContain('继续等待核对');
+ });
+ it('keeps external receipt lookup hidden without reconciliation permission',async()=>{
+  state.permissions.splice(1);vi.mocked(listActionHistory).mockResolvedValue([{...observed,type:'WEBHOOK'}]);
+  mount();await settle();expect(button('核对实际产物')).toBeUndefined();expect(reconcileAction).not.toHaveBeenCalled();
+ });
  it('requires an audit reason and sends only the observed version and reason once',async()=>{
   let finish!:(data:unknown)=>void;vi.mocked(reconcileAction).mockImplementation(()=>new Promise(resolve=>{finish=resolve;}) as never);
   mount();await settle();await open();button('核对').click();await settle();expect(reconcileAction).not.toHaveBeenCalled();expect(host.textContent).toContain('请填写');
