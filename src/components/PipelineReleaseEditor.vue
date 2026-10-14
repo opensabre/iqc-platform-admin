@@ -56,6 +56,7 @@ function changeEngine(node:NodeDraft){
  if(props.disabled)return;
  const findingReference=node.config.findingReference;
  if(node.type==='METRIC'){node.version='transcript-timing-v1';node.config={findingReference,metric:'TRANSCRIPT_GAP_MS',agentRole:'agent',customerRole:'customer'};}
+ else if(node.type==='SMALL_MODEL'){node.version='small-model-v1';node.config={findingReference,agentReference:node.config.agentReference,operation:'CLASSIFICATION',inputSchema:{type:'object'},outputSchema:{type:'object'},toolInputSchema:{type:'object'},toolOutputSchema:{type:'object'}};}
  else if(node.type==='SKILL_API'){node.version='skill-api-v1';node.config={findingReference,agentReference:node.config.agentReference,toolInputSchema:{type:'object'},toolOutputSchema:{type:'object'}};}
  else if(node.type==='SESSION'){node.version='dls-session-v1';node.config={findingReference,ruleReference:node.config.ruleReference,aggregation:'DLS_ENTRY_MATCH'};}
  else {node.version='1';node.config={findingReference,ruleReference:node.config.ruleReference,inputScope:node.type==='RULE'?'MESSAGE':'CONVERSATION',phase:'DIRECT',...(node.type==='LLM'?{agentReference:node.config.agentReference}:{})};}
@@ -102,12 +103,18 @@ function release():PipelineRelease {
       || !n.config.agentRole.trim() || !n.config.customerRole.trim() || n.config.agentRole.length>64 || n.config.customerRole.length>64 || n.config.agentRole===n.config.customerRole)throw Error('请选择指标和不同的显式参与者角色（最多64字）');
    if(n.version!=='transcript-timing-v1')throw Error('转写指标版本须为transcript-timing-v1');
    config={metric:n.config.metric,agentRole:n.config.agentRole,customerRole:n.config.customerRole,findingReference:n.config.findingReference};
-  }else if(n.type==='SKILL_API'){
-   if(n.version!=='skill-api-v1')throw Error('Skill/API引擎版本无效');
-   for(const reference of [n.config.agentReference,n.config.skillReference,n.config.mcpReference])if(!reference?.id||!Number.isInteger(reference.versionNo)||reference.versionNo<1||reference.versionNo>2147483647)throw Error('Skill/API须选择明确的冻结能力版本');
+  }else if(n.type==='SKILL_API'||n.type==='SMALL_MODEL'){
+   const inference=n.type==='SMALL_MODEL';
+   if(n.version!==(inference?'small-model-v1':'skill-api-v1'))throw Error('Skill/API引擎版本无效');
+   for(const reference of [n.config.agentReference,inference?n.config.modelReference:n.config.skillReference,n.config.mcpReference])if(!reference?.id||!Number.isInteger(reference.versionNo)||reference.versionNo<1||reference.versionNo>2147483647)throw Error('Skill/API须选择明确的冻结能力版本');
    if(!n.config.toolName?.trim())throw Error('请选择只读检测工具');
    for(const schema of [n.config.toolInputSchema,n.config.toolOutputSchema])if(!schema||typeof schema!=='object'||Array.isArray(schema))throw Error('Skill/API工具Schema须为有效JSON对象');
    config={findingReference:n.config.findingReference,agentReference:n.config.agentReference,skillReference:n.config.skillReference,mcpReference:n.config.mcpReference,toolName:n.config.toolName,toolInputSchema:n.config.toolInputSchema,toolOutputSchema:n.config.toolOutputSchema};
+   if(inference){
+    if(!['CLASSIFICATION','NER','EMOTION','INTENT','SEMANTIC_MATCHING'].includes(String(n.config.operation)))throw Error('请选择专用推理操作');
+    for(const schema of [n.config.inputSchema,n.config.outputSchema])if(!schema||typeof schema!=='object'||Array.isArray(schema))throw Error('推理Schema须为有效JSON对象');
+    delete config.skillReference;Object.assign(config,{modelReference:n.config.modelReference,operation:n.config.operation,inputSchema:n.config.inputSchema,outputSchema:n.config.outputSchema});
+   }
   }else if(n.type==='SESSION'){
    if(n.version!=='dls-session-v1' || !sessionOptions.some(option=>option.value===n.config.aggregation))throw Error('请选择会话聚合和dls-session-v1版本');
    if(n.config.aggregation==='MATCHED_MESSAGE_COUNT' && (typeof n.config.countDefinition!=='string' || !n.config.countDefinition.trim() || n.config.countDefinition.length>256))throw Error('计数须声明已发布DLS中的RULE子规则名称');
@@ -149,8 +156,8 @@ defineExpose({release});
 <a-collapse v-model:active-key="openNodes"><a-collapse-panel v-for="(node,index) in nodes" :key="index" :header="`${index+1}. ${node.name} (${node.nodeId})`">
 <a-space wrap><a-button :disabled="disabled || index===0" @click="move(index,-1)">上移</a-button><a-button :disabled="disabled || index===nodes.length-1" @click="move(index,1)">下移</a-button><a-button danger :disabled="disabled" @click="remove(index)">移除</a-button><a-switch v-model:checked="node.enabled" :disabled="disabled"/> <span>正常执行（关闭后可作备用节点）</span></a-space>
 <a-form layout="vertical"><a-form-item label="节点编码 / 名称"><a-space><a-input v-model:value="node.nodeId" :disabled="disabled"/><a-input v-model:value="node.name" :disabled="disabled"/></a-space></a-form-item>
-<a-form-item label="引擎"><a-select v-model:value="node.type" :options="options(['RULE','DLS','LLM','METRIC','SESSION','SKILL_API'])" :disabled="disabled" @change="changeEngine(node)"/></a-form-item>
-<a-form-item v-if="node.type!=='METRIC' && node.type!=='SKILL_API'" label="已发布规则"><PublishedAssetReference v-model="node.config.ruleReference" kind="RULE" :disabled="disabled"/></a-form-item>
+<a-form-item label="引擎"><a-select v-model:value="node.type" :options="options(['RULE','DLS','LLM','METRIC','SESSION','SKILL_API','SMALL_MODEL'])" :disabled="disabled" @change="changeEngine(node)"/></a-form-item>
+<a-form-item v-if="node.type!=='METRIC' && node.type!=='SKILL_API' && node.type!=='SMALL_MODEL'" label="已发布规则"><PublishedAssetReference v-model="node.config.ruleReference" kind="RULE" :disabled="disabled"/></a-form-item>
 <a-form-item label="已发布事实定义"><PublishedAssetReference v-model="node.config.findingReference" kind="FINDING" :disabled="disabled" @code="node.factCode=$event"/><p v-if="node.factCode">输出事实编码：{{node.factCode}}</p></a-form-item>
 <template v-if="node.type==='METRIC'">
 <p>选择NUMBER且允许METRIC证据的已发布事实定义。使用完整冻结转写区间；缺坐标保留未知，不推断声学静默或真实抢话。</p>
@@ -164,9 +171,9 @@ defineExpose({release});
 <a-form-item v-if="node.config.aggregation==='MATCHED_MESSAGE_COUNT'" label="DLS RULE子规则名称"><a-input v-model:value="node.config.countDefinition" :maxlength="256" :disabled="disabled" placeholder="rule_example"/></a-form-item>
 <p>固定版本：{{node.version}}。使用完整冻结会话；同消息重复命中只计一次，消息数不等于真实行为次数。空会话或规则参与者缺失保留未知。</p>
 </template>
-<a-form-item v-if="node.type==='LLM' || node.type==='SKILL_API'" label="已发布智能体"><PublishedAssetReference v-model="node.config.agentReference" kind="AGENT" :disabled="disabled"/></a-form-item>
-<SkillApiConfigurationEditor v-if="node.type==='SKILL_API'" :config="node.config" :disabled="disabled"/>
-<a-form-item v-if="node.type!=='METRIC' && node.type!=='SESSION' && node.type!=='SKILL_API'" label="阶段 / 输入范围"><a-space><a-select v-model:value="node.config.phase" :options="options(['DIRECT','REVIEW','VERIFY'])" :disabled="disabled" style="width:150px"/><a-select v-model:value="node.config.inputScope" :options="options(['MESSAGE','CONVERSATION'])" :disabled="disabled" style="width:180px"/></a-space></a-form-item>
+<a-form-item v-if="node.type==='LLM' || node.type==='SKILL_API' || node.type==='SMALL_MODEL'" label="已发布智能体"><PublishedAssetReference v-model="node.config.agentReference" kind="AGENT" :disabled="disabled"/></a-form-item>
+<SkillApiConfigurationEditor v-if="node.type==='SKILL_API' || node.type==='SMALL_MODEL'" :inference="node.type==='SMALL_MODEL'" :config="node.config" :disabled="disabled"/>
+<a-form-item v-if="node.type!=='METRIC' && node.type!=='SESSION' && node.type!=='SKILL_API' && node.type!=='SMALL_MODEL'" label="阶段 / 输入范围"><a-space><a-select v-model:value="node.config.phase" :options="options(['DIRECT','REVIEW','VERIFY'])" :disabled="disabled" style="width:150px"/><a-select v-model:value="node.config.inputScope" :options="options(['MESSAGE','CONVERSATION'])" :disabled="disabled" style="width:180px"/></a-space></a-form-item>
 <a-form-item label="依赖节点"><a-select v-model:value="node.dependsOn" mode="multiple" :options="options(nodes.slice(0,index).map(n=>n.nodeId))" :disabled="disabled"/></a-form-item>
 <a-form-item label="条件执行"><a-switch :checked="!!node.condition" :disabled="disabled" @change="condition(node,Boolean($event))"/></a-form-item>
 <template v-if="node.condition"><a-form-item label="条件路径"><a-input v-model:value="node.condition.pointer" :disabled="disabled" placeholder="/variables/node_1_value"/></a-form-item><a-form-item label="比较"><a-select v-model:value="node.condition.operator" :options="options(['EXISTS',...numericOperators])" :disabled="disabled"/></a-form-item><a-form-item v-if="node.condition.operator!=='EXISTS'" label="比较值（JSON）"><a-input v-model:value="node.conditionJson" :disabled="disabled" placeholder="true"/></a-form-item></template>
