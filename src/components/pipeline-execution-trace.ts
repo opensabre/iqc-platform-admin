@@ -1,4 +1,4 @@
-import type {TraceFinding} from '@/api/results';
+import type {AdvancedScoringResult,TraceFinding} from '@/api/results';
 import {finding} from './route-execution-trace';
 export interface PipelineNodeTrace {
  nodeId:string;attempt:number;startedAt:string;durationMs:number;
@@ -13,7 +13,7 @@ export interface PipelineTrace {
  schemaVersion:'iqc-pipeline-execution-v1';inputHash:string;mode:'PRODUCTION'|'EVALUATION';riskLevel:string;
  run:{status:string;trace:PipelineNodeTrace[];findings:TraceFinding[];variables:Record<string,unknown>;reviewRequired:boolean};
  fusion:FusedFinding[];items:Array<{itemCode:string;name:string;ruleId:string;ruleVersionNo:number;status:string;matchedMessageIds:string[]}>;
- scoring:{policyVersion:string;mode:string;scoreStatus:string;finalScore:number|null;conclusion:string;vetoTriggered:boolean;
+ scoring:{advanced?:AdvancedScoringResult|null;policyVersion:string;mode:string;scoreStatus:string;finalScore:number|null;conclusion:string;vetoTriggered:boolean;
  lines:Array<{itemCode:string;status:string;configuredPoints:number;contribution:number|null;vetoTriggered:boolean}>;
  coverage:{expected:number;completed:number;notApplicable:number;pending:number}};
 }
@@ -60,6 +60,24 @@ function consistentScoring(s:PipelineTrace['scoring']):boolean {
  // baseScore (1..100) and passingScore are not in the trace: validate only provable bounds.
  return Number.isInteger(s.finalScore)&&s.finalScore>=Math.max(0,1-total)&&s.finalScore<=Math.max(0,100-total);
 }
+// V3 validates source/status structure; formulas require the server's frozen policy and exact decimals.
+function consistentAdvanced(trace:PipelineTrace):boolean {
+ const s=trace.scoring,a=s.advanced;
+ if(!a||a.schemaVersion!=='iqc-score-result-v3'||!Array.isArray(a.lines)||a.lines.length!==s.lines.length||a.lines.length>200||!Array.isArray(a.dimensions)||a.dimensions.length>100||!(a.grade==null||text(a.grade))||!(s.scoreStatus==='FINAL'?number(a.rawScore)&&number(a.rawNumerator)&&number(a.rawDenominator)&&a.rawDenominator>0:a.rawScore==null&&a.rawNumerator==null&&a.rawDenominator==null&&a.grade==null))return false;
+ const items=new Map(trace.items.map(i=>[i.itemCode,i])),legacy=new Map(s.lines.map(i=>[i.itemCode,i]));
+ if(new Set(a.lines.map(line=>line.itemCode)).size!==a.lines.length)return false;
+ for(const line of a.lines){if(!object(line)||!text(line.itemCode)||!itemStatuses.includes(line.originalStatus)||!itemStatuses.includes(line.status)||!['MATCH','NO_MATCH','UNKNOWN'].includes(line.applicability)||!count(line.configuredPoints)||!number(line.weight)||line.weight<=0||line.weight>100||!(line.baseContribution==null||number(line.baseContribution))||!(line.adjustment==null||number(line.adjustment))||typeof line.vetoTriggered!=='boolean'||!(line.dimensionCode==null||text(line.dimensionCode)))return false;
+  const status=line.originalStatus==='NOT_APPLICABLE'?line.originalStatus:line.applicability==='NO_MATCH'?'NOT_APPLICABLE':line.applicability==='UNKNOWN'?'REVIEW_REQUIRED':line.originalStatus;
+  const base=legacy.get(line.itemCode);if(items.get(line.itemCode)?.status!==line.originalStatus||line.status!==status||!base||base.status!==status||base.configuredPoints!==line.configuredPoints||base.vetoTriggered!==line.vetoTriggered)return false;
+  const expected=['PASS','FAIL'].includes(status)?(status===(s.mode==='DEDUCTION'?'FAIL':'PASS')?line.configuredPoints:0):status==='NOT_APPLICABLE'?0:null;if(base.contribution!==expected||line.vetoTriggered&&status!=='FAIL')return false;
+  if(['PASS','FAIL'].includes(status)?line.baseContribution==null||line.adjustment==null:status==='NOT_APPLICABLE'?line.baseContribution!==0||line.adjustment!==0:line.baseContribution!=null||line.adjustment!=null)return false;
+ }
+ const dims=new Set<string>();for(const d of a.dimensions){if(!object(d)||!text(d.code)||dims.has(d.code)||!object(d.coverage)||!['FINAL','PENDING','NOT_APPLICABLE'].includes(d.scoreStatus)||!['QUALIFIED','UNQUALIFIED','PENDING','NOT_APPLICABLE'].includes(d.conclusion)||typeof d.vetoTriggered!=='boolean'||!(d.finalScore==null||number(d.finalScore)&&d.finalScore>=0&&d.finalScore<=100))return false;dims.add(d.code);
+  const lines=a.lines.filter(l=>l.dimensionCode===d.code),c=d.coverage;if(c.expected!==lines.length||c.completed!==lines.filter(l=>['PASS','FAIL'].includes(l.status)).length||c.notApplicable!==lines.filter(l=>l.status==='NOT_APPLICABLE').length||c.pending!==lines.filter(l=>['REVIEW_REQUIRED','ERROR','NOT_EVALUATED'].includes(l.status)).length||d.scoreStatus!==(c.pending>0?'PENDING':c.completed===0?'NOT_APPLICABLE':'FINAL')||!(d.scoreStatus==='FINAL'?number(d.rawScore)&&number(d.rawNumerator)&&number(d.rawDenominator)&&d.rawDenominator>0&&d.finalScore!=null:d.rawScore==null&&d.rawNumerator==null&&d.rawDenominator==null&&d.finalScore==null)||d.vetoTriggered!==lines.some(l=>l.vetoTriggered)||d.vetoTriggered&&(d.conclusion!=='UNQUALIFIED'||d.scoreStatus==='FINAL'&&d.finalScore!==0))return false;
+ }
+ if(a.lines.some(l=>l.dimensionCode!=null&&!dims.has(l.dimensionCode)))return false;
+ return s.vetoTriggered===a.lines.some(l=>l.vetoTriggered)&&(s.vetoTriggered?s.conclusion==='UNQUALIFIED'&&(s.scoreStatus!=='FINAL'||s.finalScore===0):s.scoreStatus==='FINAL'?['QUALIFIED','UNQUALIFIED'].includes(s.conclusion):s.conclusion===s.scoreStatus);
+}
 export function parsePipelineExecutionTrace(raw:string|null|undefined):PipelineParseResult {
  if(!raw)return{status:'OTHER'};
  try {
@@ -69,15 +87,15 @@ export function parsePipelineExecutionTrace(raw:string|null|undefined):PipelineP
   if(!text(v.inputHash)||!['PRODUCTION','EVALUATION'].includes(String(v.mode))||!['NONE','LOW','MEDIUM','HIGH','CRITICAL','UNKNOWN'].includes(String(v.riskLevel))||!object(v.run)||!object(v.scoring))throw Error();
   const r=v.run,s=v.scoring;
   if(!['SUCCESS','PARTIAL_SUCCESS','FAILED','CANCELLED'].includes(String(r.status))||typeof r.reviewRequired!=='boolean'||!Array.isArray(r.trace)||r.trace.length>10_000||!r.trace.every(node)||!Array.isArray(r.findings)||!r.findings.every(finding)||!object(r.variables)||Object.keys(r.variables).some(k=>k.startsWith('__'))||!Array.isArray(v.fusion)||!v.fusion.every(fused))throw Error();
-  if(!Array.isArray(v.items)||!v.items.every(i=>object(i)&&text(i.itemCode)&&text(i.name)&&text(i.ruleId)&&count(i.ruleVersionNo)&&i.ruleVersionNo>0&&itemStatuses.includes(String(i.status))&&strings(i.matchedMessageIds)))throw Error();
-  if(s.policyVersion!=='iqc-score-v2'||!['DEDUCTION','POINTS'].includes(String(s.mode))||!['FINAL','PENDING','NOT_APPLICABLE'].includes(String(s.scoreStatus))||!['QUALIFIED','UNQUALIFIED','PENDING','NOT_APPLICABLE'].includes(String(s.conclusion))||typeof s.vetoTriggered!=='boolean'||!(s.finalScore==null||number(s.finalScore)&&s.finalScore>=0&&s.finalScore<=100)||!Array.isArray(s.lines)||!s.lines.every(l=>object(l)&&text(l.itemCode)&&itemStatuses.includes(String(l.status))&&count(l.configuredPoints)&&l.configuredPoints<=100&&(l.contribution==null||count(l.contribution))&&typeof l.vetoTriggered==='boolean')||!object(s.coverage)||!['expected','completed','notApplicable','pending'].every(k=>count((s.coverage as Record<string,unknown>)[k])))throw Error();
+  if(!Array.isArray(v.items)||!v.items.every(i=>object(i)&&text(i.itemCode)&&text(i.name)&&typeof i.ruleId==='string'&&count(i.ruleVersionNo)&&(text(i.ruleId)&&i.ruleVersionNo>0||i.ruleId===''&&i.ruleVersionNo===0&&(v.fusion as FusedFinding[]).some(f=>f.rawFindings.some(raw=>['METRIC','LLM'].includes(raw.source.engineType))))&&itemStatuses.includes(String(i.status))&&strings(i.matchedMessageIds)))throw Error();
+  if(!['iqc-score-v2','iqc-score-v3'].includes(String(s.policyVersion))||!['DEDUCTION','POINTS'].includes(String(s.mode))||!['FINAL','PENDING','NOT_APPLICABLE'].includes(String(s.scoreStatus))||!['QUALIFIED','UNQUALIFIED','PENDING','NOT_APPLICABLE'].includes(String(s.conclusion))||typeof s.vetoTriggered!=='boolean'||!(s.finalScore==null||number(s.finalScore)&&s.finalScore>=0&&s.finalScore<=100)||!Array.isArray(s.lines)||!s.lines.every(l=>object(l)&&text(l.itemCode)&&itemStatuses.includes(String(l.status))&&count(l.configuredPoints)&&l.configuredPoints<=100&&(l.contribution==null||count(l.contribution))&&typeof l.vetoTriggered==='boolean')||!object(s.coverage)||!['expected','completed','notApplicable','pending'].every(k=>count((s.coverage as Record<string,unknown>)[k])))throw Error();
   const trace=v as unknown as PipelineTrace;
   const items=new Map(trace.items.map(i=>[i.itemCode,i]));
-  if(items.size!==trace.items.length||new Set(trace.fusion.map(f=>f.code)).size!==trace.fusion.length||new Set(trace.scoring.lines.map(l=>l.itemCode)).size!==trace.scoring.lines.length||trace.scoring.lines.length!==items.size||trace.scoring.lines.some(l=>items.get(l.itemCode)?.status!==l.status))throw Error();
+  if(items.size!==trace.items.length||new Set(trace.fusion.map(f=>f.code)).size!==trace.fusion.length||new Set(trace.scoring.lines.map(l=>l.itemCode)).size!==trace.scoring.lines.length||trace.scoring.lines.length!==items.size||trace.scoring.policyVersion==='iqc-score-v2'&&trace.scoring.lines.some(l=>items.get(l.itemCode)?.status!==l.status))throw Error();
   const c=trace.scoring.coverage;
-  if(c.expected!==items.size||c.completed+c.notApplicable+c.pending!==c.expected||c.pending!==trace.items.filter(i=>['REVIEW_REQUIRED','ERROR','NOT_EVALUATED'].includes(i.status)).length||c.completed!==trace.items.filter(i=>['PASS','FAIL'].includes(i.status)).length||c.notApplicable!==trace.items.filter(i=>i.status==='NOT_APPLICABLE').length||(s.scoreStatus==='FINAL')!==(s.finalScore!=null))throw Error();
+  if(c.expected!==items.size||c.completed+c.notApplicable+c.pending!==c.expected||c.pending!==trace.scoring.lines.filter(i=>['REVIEW_REQUIRED','ERROR','NOT_EVALUATED'].includes(i.status)).length||c.completed!==trace.scoring.lines.filter(i=>['PASS','FAIL'].includes(i.status)).length||c.notApplicable!==trace.scoring.lines.filter(i=>i.status==='NOT_APPLICABLE').length||(s.scoreStatus==='FINAL')!==(s.finalScore!=null))throw Error();
   if(s.scoreStatus!==(c.pending>0?'PENDING':c.completed===0?'NOT_APPLICABLE':'FINAL'))throw Error();
-  if(!consistentScoring(trace.scoring))throw Error();
+  if(trace.scoring.policyVersion==='iqc-score-v3'?!consistentAdvanced(trace):trace.scoring.advanced!=null||!consistentScoring(trace.scoring))throw Error();
   return{status:'AVAILABLE',trace};
  }catch{return{status:'INVALID',message:'流水线轨迹格式无效，无法可靠展示执行数据'};}
 }
