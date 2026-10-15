@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import HumanFindingReviewEditor from "./HumanFindingReviewEditor.vue";
-import type {HumanFindingDecision} from "@/api/quality";
+import ManualScoreReviewEditor from "./ManualScoreReviewEditor.vue";
+import type {ScoreAdjustment,HumanFindingDecision} from "@/api/quality";
 import { message, Modal } from "ant-design-vue";
 import { usePermission } from "@/composables/permission";
 import type { BusinessItemResult, BusinessScoringResult } from "@/api/results";
@@ -93,6 +94,12 @@ const rows = computed(() => history.value.map(review => {
       if (!parsed || parsed.sourceResultId !== props.resultId || !Array.isArray(parsed.reviewed?.items)
           || !parsed.reviewed.scoring || !parsed.original?.scoring
           || !Array.isArray(parsed.decisions) || parsed.reviewed.items.some(item => !Array.isArray(item.matchedMessageIds))) throw new Error();
+      if(parsed.manualScore){const manual=parsed.manualScore;
+       if(!['APPLIED','STALE'].includes(manual.status)||manual.adjustment?.sourceResultId!==props.resultId
+        ||typeof manual.adjustment?.reason!=='string'||!manual.adjustment.reason.trim()
+        ||!/^[a-f0-9]{64}$/.test(manual.computedScoringHash)||!/^[a-f0-9]{64}$/.test(manual.adjustment.expectedScoringHash)
+        ||(manual.status==='APPLIED'?(typeof manual.effectiveScore!=='number'||!Number.isFinite(manual.effectiveScore)||manual.effectiveScore<0||manual.effectiveScore>100||manual.computedScoringHash!==manual.adjustment.expectedScoringHash):manual.effectiveScore!=null||manual.computedScoringHash===manual.adjustment.expectedScoringHash))throw Error();
+      }
       projection = parsed;
     } catch { /* Malformed history is visible as an error, never a guessed score. */ }
   }
@@ -158,6 +165,11 @@ async function decideFinding(decision:HumanFindingDecision){
  command.value={kind:'DECIDE',id:pending.value.id,payload:{expectedRevision:pending.value.reviewRevision,decision:'COMPLETED',
   items:[],findingDecisions:[decision],comment:decision.reason}};await submit();
 }
+async function decideScore(adjustment:ScoreAdjustment){
+ if(!editable.value||damaged.value||!pending.value||!can('iqc:review:decide'))return;
+ command.value={kind:'DECIDE',id:pending.value.id,payload:{expectedRevision:pending.value.reviewRevision,decision:'COMPLETED',
+  items:[],scoreAdjustment:adjustment,comment:adjustment.reason}};await submit();
+}
 </script>
 
 <template>
@@ -196,6 +208,7 @@ async function decideFinding(decision:HumanFindingDecision){
           </a-form>
           <p v-else-if="!readOnly">当前账号没有裁决权限，请交由有权限的复核人员处理。</p>
           <HumanFindingReviewEditor v-if="!readOnly&&can('iqc:review:decide')" :result-id="resultId" :disabled="!editable||damaged" :refresh-token="latestRevision" @save="decideFinding"/>
+          <ManualScoreReviewEditor v-if="!readOnly&&can('iqc:review:decide')" :result-id="resultId" :disabled="!editable||damaged" :refresh-token="latestRevision" @save="decideScore"/>
         </a-card>
         <a-collapse v-if="rows.length">
           <a-collapse-panel v-for="row in rows" :key="row.review.id" :header="`第 ${row.review.reviewRevision} 轮 · ${{PENDING:'待复核',COMPLETED:'已完成',REJECTED:'已退回'}[row.review.status]}`">
@@ -210,7 +223,8 @@ async function decideFinding(decision:HumanFindingDecision){
               </a-space>
               <a-alert v-if="candidateError && candidateCommand?.body.reviewId === row.review.id" type="warning" :message="candidateError" />
               <a-button v-if="candidateCommand?.body.reviewId === row.review.id" :loading="candidateBusy" @click="submitCandidate">重试候选原提交</a-button>
-              <p>机器分数：{{ score(row.projection.original.scoring) }} → 本轮人工复核分数：{{ score(row.projection.reviewed.scoring) }}</p>
+              <p>机器分数：{{ score(row.projection.original.scoring) }} → {{row.projection.manualScore?'复核计算分数':'本轮人工复核分数'}}：{{ score(row.projection.reviewed.scoring) }}</p>
+              <p v-if="row.projection.manualScore">人工改分：{{row.projection.manualScore.status==='APPLIED'&&row.projection.manualScore.effectiveScore!=null?Number(row.projection.manualScore.effectiveScore).toFixed(2):'基准变化，待重新确认'}} · 原因：{{row.projection.manualScore.adjustment.reason}}</p>
               <p v-if="row.projection.original.scoring.advanced || row.projection.reviewed.scoring.advanced">机器等级：{{row.projection.original.scoring.advanced?.grade ?? '待定 / 未配置'}} → 本轮等级：{{row.projection.reviewed.scoring.advanced?.grade ?? '待定 / 未配置'}}</p>
               <details v-if="row.projection.reviewed.scoring.advanced"><summary>本轮维度分</summary><p v-for="dimension in row.projection.reviewed.scoring.advanced.dimensions" :key="dimension.code">{{dimension.code}} · {{dimension.scoreStatus}} · {{dimension.finalScore ?? '待定 / 不适用'}} · {{dimension.conclusion}}</p></details>
               <p>本轮有效项目结论：未裁决项目沿用机器或前轮结果。</p>

@@ -60,10 +60,10 @@ export interface BusinessReviewProjection {
   sourceResultId: string;
   original: { items: BusinessItemResult[]; scoring: BusinessScoringResult };
   reviewed: { items: BusinessItemResult[]; scoring: BusinessScoringResult };
-  decisions: BusinessReviewDecision[];
+  decisions: BusinessReviewDecision[]; manualScore?:ManualScoreProjection|null;
 }
 export interface BusinessReviewRequest { expectedRevision: number; requestId: string; comment: string }
-export interface BusinessReviewVerdict { expectedRevision: number; decision: "COMPLETED" | "REJECTED"; items: BusinessReviewDecision[]; findingDecisions?:HumanFindingDecision[]; comment: string }
+export interface BusinessReviewVerdict { expectedRevision: number; decision: "COMPLETED" | "REJECTED"; items: BusinessReviewDecision[]; findingDecisions?:HumanFindingDecision[]; scoreAdjustment?:ScoreAdjustment; comment: string }
 export const listBusinessReviews = (resultId: string) => http.get<BusinessReview[]>("/iqc/quality-operations/reviews", { params: { targetType: "BUSINESS", resultId } }).then(r => r.data);
 export const requestBusinessReview = (resultId: string, data: BusinessReviewRequest) => http.post<BusinessReview>(`/iqc/quality-operations/results/${resultId}/reviews`, { ...data, targetType: "BUSINESS" }).then(r => r.data);
 export const decideBusinessReview = (reviewId: string, data: BusinessReviewVerdict) => http.post<BusinessReview>(`/iqc/quality-operations/reviews/${reviewId}/decision`, { ...data, targetType: "BUSINESS" }).then(r => r.data);
@@ -121,3 +121,9 @@ export interface HumanFindingContext {
 }
 export const getHumanFindingContext=(resultId:string)=>http.get<HumanFindingContext>('/iqc/quality-operations/reviews',
  {params:{targetType:'BUSINESS',resultId,view:'FINDING_CONTEXT'}}).then(response=>response.data);
+
+export interface ScoreAdjustment {sourceResultId:string;expectedScoringHash:string;finalScore:string;reason:string}
+export interface ManualScoreProjection {adjustment:ScoreAdjustment;status:'APPLIED'|'STALE';computedScoringHash:string;effectiveScore:number|null}
+export interface ScoreReviewContext {sourceResultId:string;sourceHash:string;computedScoringHash:string;computedScoreStatus:string;computedScore:string|null;manualScore:ManualScoreProjection|null}
+export const getScoreReviewContext=(resultId:string)=>http.get<ScoreReviewContext>('/iqc/quality-operations/reviews',
+ {params:{targetType:'BUSINESS',resultId,view:'SCORE_CONTEXT'}}).then(response=>response.data);
