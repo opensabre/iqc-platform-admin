@@ -2,7 +2,7 @@
 import { computed, ref, watch } from "vue";
 import HumanFindingReviewEditor from "./HumanFindingReviewEditor.vue";
 import ManualScoreReviewEditor from "./ManualScoreReviewEditor.vue";
-import type {ScoreAdjustment,HumanFindingDecision} from "@/api/quality";
+import type {ReviewStage,ReviewWorkflow,ScoreAdjustment,HumanFindingDecision} from "@/api/quality";
 import { message, Modal } from "ant-design-vue";
 import { usePermission } from "@/composables/permission";
 import type { BusinessItemResult, BusinessScoringResult } from "@/api/results";
@@ -15,6 +15,7 @@ const props = defineProps<{ resultId: string; taskStatus: string; readOnly?: boo
 const emit = defineEmits<{ locate: [sequenceNo: number] }>();
 const { can } = usePermission();
 const history = ref<BusinessReview[]>([]), loaded = ref(false), loading = ref(false), busy = ref(false), error = ref("");
+const requestStage=ref<ReviewStage>('INITIAL');
 const requestComment = ref(""), comment = ref(""), itemCode = ref<string>(), finalStatus = ref<"PASS" | "FAIL" | "NOT_APPLICABLE">();
 const evidence = ref<string[]>([]);
 const feedbackCategory=ref<ReviewFeedbackCategory>();
@@ -87,7 +88,7 @@ const editable = computed(() => !props.readOnly && loaded.value && terminal.valu
 const selected = computed(() => props.items.find(item => item.itemCode === itemCode.value));
 const messageOptions = computed(() => props.messages.map(item => ({ value: item.id, label: `#${item.sequenceNo} ${item.speakerRole || ""} ${item.content.slice(0, 60)}` })));
 const rows = computed(() => history.value.map(review => {
-  let projection: BusinessReviewProjection | undefined;
+  let projection: BusinessReviewProjection | undefined; let workflow:ReviewWorkflow|undefined,workflowInvalid=false;
   if (review.status === "COMPLETED") {
     try {
       const parsed = JSON.parse(review.reviewedResultJson || "null") as BusinessReviewProjection | null;
@@ -103,9 +104,27 @@ const rows = computed(() => history.value.map(review => {
       projection = parsed;
     } catch { /* Malformed history is visible as an error, never a guessed score. */ }
   }
-  return { review, projection };
+  try{
+   const metadata=review.status==='COMPLETED'?projection?.workflow:review.reviewedResultJson?JSON.parse(review.reviewedResultJson):null;
+   if(metadata!=null){
+    if(metadata.schemaVersion!=='iqc-review-workflow-v1'||!['SECOND_REVIEW','ARBITRATION'].includes(metadata.stage)
+      ||typeof metadata.parentReviewId!=='string'||!metadata.parentReviewId.trim()||metadata.parentReviewId.length>64
+      ||!Number.isSafeInteger(metadata.parentRevision)||metadata.parentRevision<1||metadata.parentRevision>=review.reviewRevision
+      ||typeof metadata.parentDecisionHash!=='string'||!/^[a-f0-9]{64}$/.test(metadata.parentDecisionHash))throw Error();
+    workflow=metadata;
+   }
+  }catch{workflowInvalid=true;}
+  return { review, projection,workflow,workflowInvalid };
 }));
-const damaged = computed(() => rows.value.some(row => row.review.status === "COMPLETED" && !row.projection));
+const damaged = computed(() => rows.value.some(row => row.workflowInvalid||row.review.status === "COMPLETED" && !row.projection));
+const latestCompleted=computed(()=>rows.value.filter(row=>row.review.status==='COMPLETED').sort((a,b)=>b.review.reviewRevision-a.review.reviewRevision)[0]);
+const finalArbitration=computed(()=>latestCompleted.value?.workflow?.stage==='ARBITRATION');
+const stageOptions=computed(()=>finalArbitration.value?[]:[{value:'INITIAL' as ReviewStage,label:'普通复核'},
+ ...(latestCompleted.value?[{value:(latestCompleted.value.workflow?.stage==='SECOND_REVIEW'?'ARBITRATION':'SECOND_REVIEW') as ReviewStage,
+ label:latestCompleted.value.workflow?.stage==='SECOND_REVIEW'?'提交仲裁':'提交二审'}]:[])]);
+watch(stageOptions,options=>{if(!options.some(option=>option.value===requestStage.value))requestStage.value='INITIAL';});
+const pendingWorkflow=computed(()=>rows.value.find(row=>row.review.id===pending.value?.id)?.workflow);
+function stageLabel(stage:string|undefined){return ({INITIAL:'普通复核',SECOND_REVIEW:'二审',ARBITRATION:'仲裁'} as Record<string,string>)[stage??'INITIAL']??'阶段损坏';}
 function label(status: string) { return ({ PASS: "满足", FAIL: "不满足", NOT_APPLICABLE: "不适用", ERROR: "执行错误", REVIEW_REQUIRED: "待复核", NOT_EVALUATED: "未评估" } as Record<string, string>)[status] || status; }
 function score(scoring: BusinessScoringResult) {
   return scoring.scoreStatus === "FINAL" && scoring.finalScore != null ? Number(scoring.finalScore).toFixed(2)
@@ -124,7 +143,7 @@ async function refresh() {
 }
 watch(() => props.resultId, () => {
   generation++; candidateEpoch++; history.value = []; loaded.value = false; command.value = undefined;
-  requestComment.value = ""; comment.value = ""; itemCode.value = undefined; finalStatus.value = undefined; evidence.value = []; feedbackCategory.value=undefined;
+  requestStage.value='INITIAL'; requestComment.value = ""; comment.value = ""; itemCode.value = undefined; finalStatus.value = undefined; evidence.value = []; feedbackCategory.value=undefined;
   candidateCommand.value = undefined; candidateBusy.value = false; candidateError.value = ""; candidateType.value = undefined;
   void refresh();
 }, { immediate: true });
@@ -146,8 +165,12 @@ async function submit() {
   } finally { busy.value = false; }
 }
 async function request() {
-  if (!editable.value || damaged.value || pending.value || !can("iqc:review:create") || !requestComment.value.trim()) return;
-  command.value = { kind: "REQUEST", id: props.resultId, payload: { expectedRevision: latestRevision.value, requestId: crypto.randomUUID(), comment: requestComment.value.trim() } };
+  if (!editable.value || damaged.value || finalArbitration.value || pending.value || !can("iqc:review:create") || !requestComment.value.trim()) return;
+  if(!stageOptions.value.some(option=>option.value===requestStage.value))return;
+  const parent=latestCompleted.value?.review;
+  if(requestStage.value!=='INITIAL'&&!parent)return;
+  command.value = { kind: "REQUEST", id: props.resultId, payload: { expectedRevision: latestRevision.value, requestId: crypto.randomUUID(), comment: requestComment.value.trim(),
+   ...(requestStage.value==='INITIAL'?{}:{stage:requestStage.value,parentReviewId:parent!.id}) } };
   await submit();
 }
 async function decide(rejected: boolean) {
@@ -170,6 +193,11 @@ async function decideScore(adjustment:ScoreAdjustment){
  command.value={kind:'DECIDE',id:pending.value.id,payload:{expectedRevision:pending.value.reviewRevision,decision:'COMPLETED',
   items:[],scoreAdjustment:adjustment,comment:adjustment.reason}};await submit();
 }
+async function acknowledgeParent(){
+ if(!editable.value||damaged.value||!pending.value||!pendingWorkflow.value||!can('iqc:review:decide')||!comment.value.trim())return;
+ command.value={kind:'DECIDE',id:pending.value.id,payload:{expectedRevision:pending.value.reviewRevision,decision:'COMPLETED',items:[],comment:comment.value.trim()}};
+ await submit();
+}
 </script>
 
 <template>
@@ -188,12 +216,16 @@ async function decideScore(adjustment:ScoreAdjustment){
       <a-alert v-if="damaged" type="error" message="历史复核快照损坏，已禁止变更，请联系管理员核对。" />
       <a-spin :spinning="loading">
         <a-empty v-if="loaded && !history.length" description="暂无复核记录，可填写原因发起复核。" />
-        <a-form v-if="!readOnly && loaded && !pending && can('iqc:review:create')" layout="vertical">
+        <a-form v-if="!readOnly && loaded && !pending && !finalArbitration && can('iqc:review:create')" layout="vertical">
+          <a-form-item label="复核阶段"><a-select v-model:value="requestStage" :disabled="!editable||damaged" :options="stageOptions"/></a-form-item>
+          <p v-if="requestStage!=='INITIAL'&&latestCompleted">引用上游：第 {{latestCompleted.review.reviewRevision}} 轮 · {{latestCompleted.review.id}}；需独立审核人处理。</p>
           <a-form-item label="申请原因"><a-textarea v-model:value="requestComment" :maxlength="1000" :disabled="!editable || damaged" :rows="2" /></a-form-item>
-          <a-button type="primary" :disabled="!editable || damaged || !requestComment.trim()" @click="request">发起业务复核</a-button>
+          <a-button type="primary" :disabled="!editable || damaged || !requestComment.trim()" @click="request">{{requestStage==='INITIAL'?'发起业务复核':requestStage==='SECOND_REVIEW'?'提交二审':'提交仲裁'}}</a-button>
         </a-form>
-        <a-card v-if="pending" size="small" :title="`第 ${pending.reviewRevision} 轮 · 待复核`">
+        <a-alert v-if="finalArbitration&&!pending" type="info" message="该结果已完成仲裁，不能再开轮次覆盖终局。"/>
+        <a-card v-if="pending" size="small" :title="`第 ${pending.reviewRevision} 轮 · ${stageLabel(pendingWorkflow?.stage)} · 待复核`">
           <p>申请原因：{{ pending.requestComment }}</p>
+          <p v-if="pendingWorkflow">上游：第 {{pendingWorkflow.parentRevision}} 轮 · {{pendingWorkflow.parentReviewId}}。当前审理人须不同于申请人与上游审核人。</p>
           <a-form v-if="!readOnly && can('iqc:review:decide')" layout="vertical">
             <a-form-item label="本轮裁决项目"><a-select v-model:value="itemCode" :disabled="!editable || damaged" :options="items.map(item => ({ value: item.itemCode, label: item.name }))" placeholder="选择一个项目，其余保留前轮裁决" /></a-form-item>
             <p v-if="selected">机器结论：{{ label(selected.status) }}</p>
@@ -202,6 +234,7 @@ async function decideScore(adjustment:ScoreAdjustment){
             <a-form-item label="反馈分类（可选）"><a-select v-model:value="feedbackCategory" allow-clear :disabled="!editable || damaged" :options="feedbackOptions" placeholder="选择问题原因，不由结论自动推断" /></a-form-item>
             <a-form-item label="裁决 / 退回原因"><a-textarea v-model:value="comment" :maxlength="1000" :disabled="!editable || damaged" :rows="2" /></a-form-item>
             <a-space>
+              <a-button v-if="pendingWorkflow" :disabled="!editable||damaged||!comment.trim()" @click="acknowledgeParent">认可上游结论并完成{{stageLabel(pendingWorkflow.stage)}}</a-button>
               <a-button type="primary" :disabled="!editable || damaged || !selected || !finalStatus || !comment.trim()" @click="decide(false)">保存项目裁决并重算</a-button>
               <a-button :disabled="!editable || damaged || !comment.trim()" @click="decide(true)">退回本轮</a-button>
             </a-space>
@@ -212,6 +245,7 @@ async function decideScore(adjustment:ScoreAdjustment){
         </a-card>
         <a-collapse v-if="rows.length">
           <a-collapse-panel v-for="row in rows" :key="row.review.id" :header="`第 ${row.review.reviewRevision} 轮 · ${{PENDING:'待复核',COMPLETED:'已完成',REJECTED:'已退回'}[row.review.status]}`">
+            <p>阶段：{{row.workflowInvalid?'阶段数据损坏':stageLabel(row.workflow?.stage)}}<span v-if="row.workflow"> · 上游第 {{row.workflow.parentRevision}} 轮 · {{row.workflow.parentReviewId}}</span></p>
             <p>申请人：{{ row.review.createdBy || '—' }} · 申请原因：{{ row.review.requestComment }}</p>
             <p>复核人：{{ row.review.reviewerId || '—' }} · {{ row.review.reviewedTime || '尚未裁决' }}</p>
             <p>裁决原因：{{ row.review.status === 'PENDING' ? '—' : row.review.reviewComment }}</p>
