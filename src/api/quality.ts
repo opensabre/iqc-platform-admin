@@ -46,9 +46,10 @@ export const getBusinessQualityReport = (taskIds: string[], executionSelections?
       ...(executionSelections ? { executionSelections: JSON.stringify(executionSelections) } : {}), ...(runPolicy ? { runPolicy } : {}) }
   }).then(r => r.data);
 
+export type ReviewFeedbackCategory='AI_FALSE_POSITIVE'|'AI_FALSE_NEGATIVE'|'EVIDENCE_WRONG'|'SCORE_POLICY_WRONG'|'DATA/ASR_ERROR'|'RULE_ERROR'|'BUSINESS_STANDARD_CHANGED';
 export interface BusinessReviewDecision {
   sourceResultId: string; itemCode: string; expectedStatus: BusinessItemResult["status"];
-  finalStatus: "PASS" | "FAIL" | "NOT_APPLICABLE"; reason: string; evidenceMessageIds: string[];
+  finalStatus: "PASS" | "FAIL" | "NOT_APPLICABLE"; reason: string; evidenceMessageIds: string[]; feedbackCategory?: ReviewFeedbackCategory | null;
 }
 export interface BusinessReview {
   id: string; targetType: "BUSINESS"; businessResultId: string; reviewRevision: number;

@@ -5,7 +5,7 @@ import { usePermission } from "@/composables/permission";
 import type { BusinessItemResult, BusinessScoringResult } from "@/api/results";
 import { exportBusinessReview } from "@/api/results";
 import { createBusinessCandidate, type BusinessCandidateRequest, listBusinessReviews, requestBusinessReview, decideBusinessReview,
-  type BusinessReview, type BusinessReviewProjection, type BusinessReviewRequest, type BusinessReviewVerdict } from "@/api/quality";
+  type ReviewFeedbackCategory, type BusinessReview, type BusinessReviewProjection, type BusinessReviewRequest, type BusinessReviewVerdict } from "@/api/quality";
 
 const props = defineProps<{ resultId: string; taskStatus: string; readOnly?: boolean; items: BusinessItemResult[];
   messages: Array<{ id: string; sequenceNo: number; content: string; speakerRole?: string }> }>();
@@ -14,6 +14,14 @@ const { can } = usePermission();
 const history = ref<BusinessReview[]>([]), loaded = ref(false), loading = ref(false), busy = ref(false), error = ref("");
 const requestComment = ref(""), comment = ref(""), itemCode = ref<string>(), finalStatus = ref<"PASS" | "FAIL" | "NOT_APPLICABLE">();
 const evidence = ref<string[]>([]);
+const feedbackCategory=ref<ReviewFeedbackCategory>();
+const feedbackOptions:Array<{value:ReviewFeedbackCategory;label:string}>=[
+ {value:'AI_FALSE_POSITIVE',label:'AI误判'},{value:'AI_FALSE_NEGATIVE',label:'AI漏判'},
+ {value:'EVIDENCE_WRONG',label:'证据错误'},{value:'SCORE_POLICY_WRONG',label:'评分政策错误'},
+ {value:'DATA/ASR_ERROR',label:'源数据错误'},{value:'RULE_ERROR',label:'规则错误'},
+ {value:'BUSINESS_STANDARD_CHANGED',label:'业务标准变化'}
+];
+function feedbackLabel(value:string){return feedbackOptions.find(option=>option.value===value)?.label??value;}
 type Command = { kind: "REQUEST"; id: string; payload: BusinessReviewRequest } | { kind: "DECIDE"; id: string; payload: BusinessReviewVerdict };
 const command = ref<Command>();
 let generation = 0, candidateEpoch = 0;
@@ -82,7 +90,7 @@ const rows = computed(() => history.value.map(review => {
       const parsed = JSON.parse(review.reviewedResultJson || "null") as BusinessReviewProjection | null;
       if (!parsed || parsed.sourceResultId !== props.resultId || !Array.isArray(parsed.reviewed?.items)
           || !parsed.reviewed.scoring || !parsed.original?.scoring
-          || parsed.reviewed.items.some(item => !Array.isArray(item.matchedMessageIds))) throw new Error();
+          || !Array.isArray(parsed.decisions) || parsed.reviewed.items.some(item => !Array.isArray(item.matchedMessageIds))) throw new Error();
       projection = parsed;
     } catch { /* Malformed history is visible as an error, never a guessed score. */ }
   }
@@ -107,7 +115,7 @@ async function refresh() {
 }
 watch(() => props.resultId, () => {
   generation++; candidateEpoch++; history.value = []; loaded.value = false; command.value = undefined;
-  requestComment.value = ""; comment.value = ""; itemCode.value = undefined; finalStatus.value = undefined; evidence.value = [];
+  requestComment.value = ""; comment.value = ""; itemCode.value = undefined; finalStatus.value = undefined; evidence.value = []; feedbackCategory.value=undefined;
   candidateCommand.value = undefined; candidateBusy.value = false; candidateError.value = ""; candidateType.value = undefined;
   void refresh();
 }, { immediate: true });
@@ -121,7 +129,7 @@ async function submit() {
     if (current.kind === "REQUEST") await requestBusinessReview(current.id, current.payload);
     else await decideBusinessReview(current.id, current.payload);
     if (resultId !== props.resultId) return;
-    command.value = undefined; requestComment.value = ""; comment.value = ""; finalStatus.value = undefined; evidence.value = [];
+    command.value = undefined; requestComment.value = ""; comment.value = ""; finalStatus.value = undefined; evidence.value = []; feedbackCategory.value=undefined;
     message.success(current.kind === "REQUEST" ? "复核已发起" : "复核裁决已保存，机器结果未被覆盖");
     await refresh();
   } catch {
@@ -139,7 +147,7 @@ async function decide(rejected: boolean) {
   command.value = { kind: "DECIDE", id: pending.value.id, payload: { expectedRevision: pending.value.reviewRevision,
     decision: rejected ? "REJECTED" : "COMPLETED", comment: comment.value.trim(), items: rejected ? [] : [{
       sourceResultId: props.resultId, itemCode: selected.value!.itemCode, expectedStatus: selected.value!.status,
-      finalStatus: finalStatus.value!, reason: comment.value.trim(), evidenceMessageIds: [...evidence.value]
+      finalStatus: finalStatus.value!, reason: comment.value.trim(), evidenceMessageIds: [...evidence.value], ...(feedbackCategory.value?{feedbackCategory:feedbackCategory.value}:{})
     }] } };
   await submit();
 }
@@ -172,6 +180,7 @@ async function decide(rejected: boolean) {
             <p v-if="selected">机器结论：{{ label(selected.status) }}</p>
             <a-form-item label="人工结论"><a-select v-model:value="finalStatus" :disabled="!editable || damaged" :options="[{value:'PASS',label:'满足'},{value:'FAIL',label:'不满足'},{value:'NOT_APPLICABLE',label:'不适用'}]" placeholder="请明确选择" /></a-form-item>
             <a-form-item label="会话证据（可选，不存在性判断可留空）"><a-select v-model:value="evidence" mode="multiple" :disabled="!editable || damaged" :options="messageOptions" option-filter-prop="label" /></a-form-item>
+            <a-form-item label="反馈分类（可选）"><a-select v-model:value="feedbackCategory" allow-clear :disabled="!editable || damaged" :options="feedbackOptions" placeholder="选择问题原因，不由结论自动推断" /></a-form-item>
             <a-form-item label="裁决 / 退回原因"><a-textarea v-model:value="comment" :maxlength="1000" :disabled="!editable || damaged" :rows="2" /></a-form-item>
             <a-space>
               <a-button type="primary" :disabled="!editable || damaged || !selected || !finalStatus || !comment.trim()" @click="decide(false)">保存项目裁决并重算</a-button>
@@ -200,6 +209,7 @@ async function decide(rejected: boolean) {
               <ul>
                 <li v-for="item in row.projection.reviewed.items" :key="item.itemCode">
                   {{ item.name }}：{{ label(item.status) }}
+                  <span v-if="row.projection.decisions.find(decision=>decision.itemCode===item.itemCode)?.feedbackCategory"> · 反馈：{{feedbackLabel(row.projection.decisions.find(decision=>decision.itemCode===item.itemCode)!.feedbackCategory!)}}</span>
                   <a-button v-for="id in item.matchedMessageIds" :key="id" type="link" size="small" :disabled="!messages.some(message => message.id === id)" @click="emit('locate', messages.find(message => message.id === id)?.sequenceNo ?? -1)">证据 {{ messages.find(message => message.id === id)?.sequenceNo ?? id }}</a-button>
                 </li>
               </ul>
