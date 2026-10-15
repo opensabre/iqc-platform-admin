@@ -26,10 +26,11 @@ async function refresh() {
 function filter() { current.value = 1; void refresh(); }
 function page(next: number, nextSize: number) { current.value = nextSize === size.value ? next : 1; size.value = nextSize; void refresh(); }
 function open(row: BusinessReviewQueueItem) {
-  if (!row.currentResult || !can("iqc:result:view")) return;
+  if (!row.currentResult || row.stage==='INVALID' || !can("iqc:result:view")) return;
   void router.push({ path: "/results", query: { taskId: row.taskId, conversationId: row.conversationId, sourceResultId: row.resultId } });
 }
 function history(row: BusinessReviewQueueItem) { selected.value = row; historyOpen.value = true; }
+function stageLabel(value:string|undefined){return ({INITIAL:'普通复核',SECOND_REVIEW:'二审',ARBITRATION:'仲裁',INVALID:'阶段数据损坏'} as Record<string,string>)[value??'INITIAL']??'阶段数据损坏';}
 function statusLabel(value: string) { return ({PENDING:"待处理",COMPLETED:"已完成",REJECTED:"已退回"} as Record<string,string>)[value] || value; }
 defineExpose({ refresh });
 onMounted(refresh);
@@ -50,6 +51,7 @@ onMounted(refresh);
         <a-table-column title="任务" data-index="taskName" />
         <a-table-column title="会话" data-index="conversationId" />
         <a-table-column title="轮次" data-index="reviewRevision" />
+        <a-table-column title="阶段"><template #default="{record}">{{stageLabel(record.stage)}}</template></a-table-column>
         <a-table-column title="复核状态"><template #default="{record}">{{ statusLabel(record.status) }}</template></a-table-column>
         <a-table-column title="申请原因" data-index="requestComment" ellipsis />
         <a-table-column title="申请人" data-index="createdBy" />

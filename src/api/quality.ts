@@ -48,6 +48,8 @@ export const getBusinessQualityReport = (taskIds: string[], executionSelections?
   }).then(r => r.data);
 
 export type ReviewFeedbackCategory='AI_FALSE_POSITIVE'|'AI_FALSE_NEGATIVE'|'EVIDENCE_WRONG'|'SCORE_POLICY_WRONG'|'DATA/ASR_ERROR'|'RULE_ERROR'|'BUSINESS_STANDARD_CHANGED';
+export type ReviewStage='INITIAL'|'SECOND_REVIEW'|'ARBITRATION';
+export interface ReviewWorkflow {schemaVersion:'iqc-review-workflow-v1';stage:'SECOND_REVIEW'|'ARBITRATION';parentReviewId:string;parentRevision:number;parentDecisionHash:string}
 export interface BusinessReviewDecision {
   sourceResultId: string; itemCode: string; expectedStatus: BusinessItemResult["status"];
   finalStatus: "PASS" | "FAIL" | "NOT_APPLICABLE"; reason: string; evidenceMessageIds: string[]; feedbackCategory?: ReviewFeedbackCategory | null;
@@ -61,9 +63,9 @@ export interface BusinessReviewProjection {
   sourceResultId: string;
   original: { items: BusinessItemResult[]; scoring: BusinessScoringResult };
   reviewed: { items: BusinessItemResult[]; scoring: BusinessScoringResult };
-  decisions: BusinessReviewDecision[]; manualScore?:ManualScoreProjection|null;
+  decisions: BusinessReviewDecision[]; manualScore?:ManualScoreProjection|null; workflow?:ReviewWorkflow|null;
 }
-export interface BusinessReviewRequest { expectedRevision: number; requestId: string; comment: string }
+export interface BusinessReviewRequest { expectedRevision: number; requestId: string; comment: string; stage?:ReviewStage; parentReviewId?:string }
 export interface BusinessReviewVerdict { expectedRevision: number; decision: "COMPLETED" | "REJECTED"; items: BusinessReviewDecision[]; findingDecisions?:HumanFindingDecision[]; scoreAdjustment?:ScoreAdjustment; comment: string }
 export const listBusinessReviews = (resultId: string) => http.get<BusinessReview[]>("/iqc/quality-operations/reviews", { params: { targetType: "BUSINESS", resultId } }).then(r => r.data);
 export const requestBusinessReview = (resultId: string, data: BusinessReviewRequest) => http.post<BusinessReview>(`/iqc/quality-operations/results/${resultId}/reviews`, { ...data, targetType: "BUSINESS" }).then(r => r.data);
@@ -98,7 +100,7 @@ export const listLabelReviewQueue = (params: { status: string; taskId?: string; 
 export interface BusinessReviewQueueItem {
   reviewId: string; resultId: string; taskId: string; taskName: string; conversationId: string;
   reviewRevision: number; status: BusinessReview["status"]; requestComment?: string; createdBy?: string;
-  createdTime?: string; taskStatus: string; currentResult: boolean;
+  createdTime?: string; taskStatus: string; currentResult: boolean; stage?:ReviewStage|'INVALID';
 }
 export const listBusinessReviewQueue = (params: { status: string; taskId?: string; current: number; size: number }) =>
   http.get<PageResult<BusinessReviewQueueItem>>("/iqc/quality-operations/reviews", {
