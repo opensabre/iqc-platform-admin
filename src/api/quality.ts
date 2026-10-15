@@ -63,7 +63,7 @@ export interface BusinessReviewProjection {
   decisions: BusinessReviewDecision[];
 }
 export interface BusinessReviewRequest { expectedRevision: number; requestId: string; comment: string }
-export interface BusinessReviewVerdict { expectedRevision: number; decision: "COMPLETED" | "REJECTED"; items: BusinessReviewDecision[]; comment: string }
+export interface BusinessReviewVerdict { expectedRevision: number; decision: "COMPLETED" | "REJECTED"; items: BusinessReviewDecision[]; findingDecisions?:HumanFindingDecision[]; comment: string }
 export const listBusinessReviews = (resultId: string) => http.get<BusinessReview[]>("/iqc/quality-operations/reviews", { params: { targetType: "BUSINESS", resultId } }).then(r => r.data);
 export const requestBusinessReview = (resultId: string, data: BusinessReviewRequest) => http.post<BusinessReview>(`/iqc/quality-operations/results/${resultId}/reviews`, { ...data, targetType: "BUSINESS" }).then(r => r.data);
 export const decideBusinessReview = (reviewId: string, data: BusinessReviewVerdict) => http.post<BusinessReview>(`/iqc/quality-operations/reviews/${reviewId}/decision`, { ...data, targetType: "BUSINESS" }).then(r => r.data);
@@ -107,3 +107,17 @@ export const listBusinessReviewQueue = (params: { status: string; taskId?: strin
 export interface BusinessCandidateRequest { reviewId: string; requestId: string; sampleType: "POSITIVE" | "NEGATIVE" | "FALSE_POSITIVE" | "FALSE_NEGATIVE"; name?: string; tagsJson?: string; }
 export const createBusinessCandidate = (resultId: string, data: BusinessCandidateRequest) =>
   http.post<QualitySample>(`/iqc/quality-operations/results/${resultId}/samples`, { ...data, targetType: "BUSINESS" }).then(r => r.data);
+
+export interface HumanFindingDecision {
+ sourceResultId:string;findingCode:string;expectedFindingHash:string;state:'KNOWN'|'UNKNOWN';valueJson:string;
+ severity:'NONE'|'LOW'|'MEDIUM'|'HIGH'|'CRITICAL';reason:string;retainedEvidenceIds:string[];addedMessageIds:string[];
+}
+export interface HumanFindingContext {
+ sourceResultId:string;sourceHash:string;available:boolean;message?:string;
+ findings:Array<{code:string;valueType:string;state:'KNOWN'|'UNKNOWN'|'CONFLICT'|'ERROR'|'NOT_EVALUATED';valueJson:string;
+ severity:HumanFindingDecision['severity'];expectedFindingHash:string;allowedValues:string[];allowedEvidenceTypes:string[];evidenceRequired:boolean;
+ evidence:Array<{id:string;type:string;reference:string}>;retainedEvidenceIds:string[];addedMessageIds:string[]}>;
+ messages:Array<{id:string;sequenceNo:number;speakerRole:string;content:string}>;
+}
+export const getHumanFindingContext=(resultId:string)=>http.get<HumanFindingContext>('/iqc/quality-operations/reviews',
+ {params:{targetType:'BUSINESS',resultId,view:'FINDING_CONTEXT'}}).then(response=>response.data);

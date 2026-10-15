@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
+import HumanFindingReviewEditor from "./HumanFindingReviewEditor.vue";
+import type {HumanFindingDecision} from "@/api/quality";
 import { message, Modal } from "ant-design-vue";
 import { usePermission } from "@/composables/permission";
 import type { BusinessItemResult, BusinessScoringResult } from "@/api/results";
@@ -151,6 +153,11 @@ async function decide(rejected: boolean) {
     }] } };
   await submit();
 }
+async function decideFinding(decision:HumanFindingDecision){
+ if(!editable.value||damaged.value||!pending.value||!can('iqc:review:decide'))return;
+ command.value={kind:'DECIDE',id:pending.value.id,payload:{expectedRevision:pending.value.reviewRevision,decision:'COMPLETED',
+  items:[],findingDecisions:[decision],comment:decision.reason}};await submit();
+}
 </script>
 
 <template>
@@ -188,6 +195,7 @@ async function decide(rejected: boolean) {
             </a-space>
           </a-form>
           <p v-else-if="!readOnly">当前账号没有裁决权限，请交由有权限的复核人员处理。</p>
+          <HumanFindingReviewEditor v-if="!readOnly&&can('iqc:review:decide')" :result-id="resultId" :disabled="!editable||damaged" :refresh-token="latestRevision" @save="decideFinding"/>
         </a-card>
         <a-collapse v-if="rows.length">
           <a-collapse-panel v-for="row in rows" :key="row.review.id" :header="`第 ${row.review.reviewRevision} 轮 · ${{PENDING:'待复核',COMPLETED:'已完成',REJECTED:'已退回'}[row.review.status]}`">
@@ -206,6 +214,7 @@ async function decide(rejected: boolean) {
               <p v-if="row.projection.original.scoring.advanced || row.projection.reviewed.scoring.advanced">机器等级：{{row.projection.original.scoring.advanced?.grade ?? '待定 / 未配置'}} → 本轮等级：{{row.projection.reviewed.scoring.advanced?.grade ?? '待定 / 未配置'}}</p>
               <details v-if="row.projection.reviewed.scoring.advanced"><summary>本轮维度分</summary><p v-for="dimension in row.projection.reviewed.scoring.advanced.dimensions" :key="dimension.code">{{dimension.code}} · {{dimension.scoreStatus}} · {{dimension.finalScore ?? '待定 / 不适用'}} · {{dimension.conclusion}}</p></details>
               <p>本轮有效项目结论：未裁决项目沿用机器或前轮结果。</p>
+              <details v-if="row.review.reviewedResultJson?.includes('&quot;findingReview&quot;')"><summary>完整人工Finding及政策投影（含精确值）</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">{{row.review.reviewedResultJson}}</pre></details>
               <ul>
                 <li v-for="item in row.projection.reviewed.items" :key="item.itemCode">
                   {{ item.name }}：{{ label(item.status) }}
