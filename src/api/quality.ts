@@ -19,9 +19,10 @@ export const getQualityReport = () => http.get<QualityReport>("/iqc/quality-oper
 export interface BusinessScoreSummary {
   resultCount: number; finalCount: number; pendingCount: number; notApplicableCount: number;
   qualifiedCount: number; averageScore: number | null; qualifiedRate: number | null;
+  manualOverrides?:{appliedCount:number;staleCount:number;averageOverrideScore:number|null;effectiveNumericCount:number;averageEffectiveScore:number|null}|null;
 }
 export interface BusinessPolicyGroup {
-  groupKey: string; schemeId: string; versionNo: string; draftRevision: string; kind: string;
+  groupKey: string; schemeId: string; pipelineId?:string|null; versionNo: string; draftRevision: string; kind: string;
   mode: string; baseScore?: number; passingScore: number; taskIds: string[]; conversationCount: number; executionIds: string[];
   missingResultCount: number; missingReviewCount: number; pendingReviewCount: number;
   machine: BusinessScoreSummary; reviewed: BusinessScoreSummary;

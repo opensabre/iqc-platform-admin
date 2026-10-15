@@ -128,23 +128,29 @@ defineExpose({ refresh });
     </a-form>
     <a-alert v-if="error" type="error" show-icon :message="error" />
     <p v-else-if="loading" role="status">正在校验任务范围并生成统计…</p>
-    <p v-else-if="!report">请选择业务模板创建的任务后查询；不会自动统计全部任务。</p>
+    <p v-else-if="!report">请选择业务方案或流水线任务后查询；不会自动统计全部任务。</p>
     <template v-if="report">
-      <p>本次范围：{{ report.taskCount }} 个任务，{{ report.conversationCount }} 次会话评估，{{ report.groups.length }} 组冻结方案。统计口径：{{ runPolicyText }}。</p>
+      <p>本次范围：{{ report.taskCount }} 个任务，{{ report.conversationCount }} 次会话评估，{{ report.groups.length }} 组冻结标准。统计口径：{{ runPolicyText }}。</p>
       <a-alert v-if="report.groups.length > 1" type="warning" show-icon
         :message="`当前按 ${report.groups.length} 个冻结标准分组，未混合计算。跨组分数不可直接比较；请逐组核对评分制、基础分、合格线、项目分值/否决及项目覆盖。`" />
-      <a-card v-for="group in report.groups" :key="group.groupKey" style="margin-top:16px" :title="`方案 ${group.schemeId || '未记录'} · ${group.versionNo ? '发布版本 ' + group.versionNo : '试跑修订 ' + (group.draftRevision || '未记录')}`">
+      <a-card v-for="group in report.groups" :key="group.groupKey" style="margin-top:16px" :title="`${group.pipelineId?'流水线':'方案'} ${group.pipelineId || group.schemeId || '未记录'} · ${group.versionNo ? '发布版本 ' + group.versionNo : '试跑修订 ' + (group.draftRevision || '未记录')}`">
         <p>{{ group.mode === 'DEDUCTION' ? '扣分制' : '得分制' }}<template v-if="group.mode === 'DEDUCTION'"> · 基础分 {{ group.baseScore ?? '—' }}</template>
           · 合格线 {{ group.passingScore }} · {{ group.conversationCount }} 次评估</p>
         <p class="task-scope">任务范围：{{ group.taskIds.join('、') }}</p>
         <p class="task-scope">执行实例：{{ group.executionIds.length ? group.executionIds.join('、') : '所选范围暂无结果' }}</p>
         <a-space wrap><a-tag>缺失机器结果：{{ group.missingResultCount }}</a-tag><a-tag>无完成复核：{{ group.missingReviewCount }}</a-tag><a-tag>最新轮次待处理：{{ group.pendingReviewCount }}</a-tag></a-space>
-        <a-table :columns="columns" :data-source="[{ ...group.machine, source: '机器评分' }, { ...group.reviewed, source: '人工复核' }]" row-key="source" :pagination="false" :scroll="{ x: 1000 }">
+        <a-table :columns="columns" :data-source="[{ ...group.machine, source: '机器评分' }, { ...group.reviewed, source: group.reviewed.manualOverrides?'复核计算评分':'人工复核' }]" row-key="source" :pagination="false" :scroll="{ x: 1000 }">
           <template #bodyCell="{ column, text }">
             <template v-if="column.dataIndex === 'averageScore'">{{ text == null ? '—' : text }}</template>
             <template v-else-if="column.dataIndex === 'qualifiedRate'">{{ text == null ? '—' : `${text}%` }}</template>
           </template>
         </a-table>
+        <a-card v-if="group.reviewed.manualOverrides" size="small" title="人工改分统计">
+          <p>已生效：{{group.reviewed.manualOverrides.appliedCount}} · 基准变化待确认：{{group.reviewed.manualOverrides.staleCount}}</p>
+          <p>已生效人工覆盖均分：{{group.reviewed.manualOverrides.averageOverrideScore??'—'}}（仅已生效覆盖进入分母）</p>
+          <p>有效数字均分（覆盖优先）：{{group.reviewed.manualOverrides.averageEffectiveScore??'—'}} · 有效数字数量：{{group.reviewed.manualOverrides.effectiveNumericCount}}</p>
+          <p>每个已完成复核优先采用已生效人工分数，否则仅纳入最终计算分数；待定、不适用和缺失计算分数不补零。数字覆盖不代表否决解除或合格率变化。</p>
+        </a-card>
         <details class="item-analysis" :open="report.groups.length > 1">
         <summary>质检项分析{{ group.items ? `（${group.items.length} 项）` : '' }}</summary>
         <p>分值和否决来自该任务冻结评分标准。不满足率 = 不满足 ÷（满足 + 不满足）；不适用、未评估、待复核、错误和缺失结论不进入分母；人工仅统计最近已完成复核，不用机器值补齐。</p>
