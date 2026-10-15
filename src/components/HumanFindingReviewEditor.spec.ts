@@ -38,3 +38,23 @@ it('does not offer saving when the context belongs to another result',async()=>{
  api.context.mockResolvedValue(context('foreign'));const save=vi.fn();mount({resultId:'result',disabled:false},save);await settle();
  expect(host.textContent).toContain('上下文加载失败');expect(host.querySelector('select')).toBeNull();expect(save).not.toHaveBeenCalled();
 });
+it('retains scientific notation but refuses out-of-range and overnested values before emitting',async()=>{
+ api.context.mockResolvedValue(context('result'));const save=vi.fn();mount({resultId:'result',disabled:false},save);await settle();
+ const select=host.querySelector('select')!;select.value='AMOUNT';select.dispatchEvent(new Event('change'));await settle();
+ const inputs=host.querySelectorAll('textarea');inputs[1].value='checked';inputs[1].dispatchEvent(new Event('input'));await settle();
+ const button=[...host.querySelectorAll('button')].find(b=>b.textContent?.includes('保存'))!;
+ for(const raw of ['{"amount":1e-19}','{"amount":1e999999}','{"amount":'+ '['.repeat(34)+'0'+']'.repeat(34)+'}']){
+  inputs[0].value=raw;inputs[0].dispatchEvent(new Event('input'));await settle();button.click();await settle();
+  expect(save).not.toHaveBeenCalled();
+ }
+ const exact='{"amount":9.999999999999999999e1}';inputs[0].value=exact;inputs[0].dispatchEvent(new Event('input'));await settle();button.click();await settle();
+ expect(save).toHaveBeenCalledWith(expect.objectContaining({valueJson:exact}));
+});
+it('refuses a value that differs from the frozen finding type',async()=>{
+ api.context.mockResolvedValue(context('result'));const save=vi.fn();mount({resultId:'result',disabled:false},save);await settle();
+ const select=host.querySelector('select')!;select.value='AMOUNT';select.dispatchEvent(new Event('change'));await settle();
+ const inputs=host.querySelectorAll('textarea');inputs[0].value='true';inputs[0].dispatchEvent(new Event('input'));
+ inputs[1].value='checked';inputs[1].dispatchEvent(new Event('input'));await settle();
+ [...host.querySelectorAll('button')].find(b=>b.textContent?.includes('保存'))!.click();await settle();
+ expect(save).not.toHaveBeenCalled();expect(host.textContent).toContain('值类型与冻结Finding定义不一致');
+});
