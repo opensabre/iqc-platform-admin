@@ -116,6 +116,10 @@ function release():PipelineRelease {
    if(!n.config.toolName?.trim())throw Error('请选择只读检测工具');
    for(const schema of [n.config.toolInputSchema,n.config.toolOutputSchema])if(!schema||typeof schema!=='object'||Array.isArray(schema))throw Error('Skill/API工具Schema须为有效JSON对象');
    config={findingReference:n.config.findingReference,agentReference:n.config.agentReference,skillReference:n.config.skillReference,mcpReference:n.config.mcpReference,toolName:n.config.toolName,toolInputSchema:n.config.toolInputSchema,toolOutputSchema:n.config.toolOutputSchema};
+   if(n.config.inputHashAlgorithm!==undefined){
+    if(!['EXACT_JSON_V1','LEGACY_JSON_V1'].includes(String(n.config.inputHashAlgorithm)))throw Error('检测请求摘要版本无效');
+    config.inputHashAlgorithm=n.config.inputHashAlgorithm;
+   }
    if(inference){
     if(!['CLASSIFICATION','NER','EMOTION','INTENT','SEMANTIC_MATCHING'].includes(String(n.config.operation)))throw Error('请选择专用推理操作');
     for(const schema of [n.config.inputSchema,n.config.outputSchema])if(!schema||typeof schema!=='object'||Array.isArray(schema))throw Error('推理Schema须为有效JSON对象');
