@@ -128,4 +128,37 @@ describe("business review detail panel", () => {
     mount(); await settle();
     expect(button("导出本轮人工复核 CSV")).toBeUndefined();
   });
+  it("binds a second-review request to the latest completed parent", async () => {
+    vi.mocked(listBusinessReviews).mockResolvedValue([{ ...pending, status: "COMPLETED", reviewedResultJson: JSON.stringify({
+      sourceResultId: "canonical", original: { scoring: { scoreStatus: "FINAL", finalScore: 80 } },
+      reviewed: { items: [], scoring: { scoreStatus: "FINAL", finalScore: 100 } }, decisions: []
+    }) }]);
+    mount(); await settle();
+    const stage=host.querySelector("select")!; stage.value="SECOND_REVIEW"; stage.dispatchEvent(new Event("change"));
+    await settle(); await type("请独立二审"); await click("提交二审");
+    expect(requestBusinessReview).toHaveBeenCalledWith("canonical",{expectedRevision:1,requestId:expect.any(String),
+      comment:"请独立二审",stage:"SECOND_REVIEW",parentReviewId:"review"});
+  });
+
+  it("acknowledges an upstream verdict with an explicit empty overlay and reason", async () => {
+    vi.mocked(listBusinessReviews).mockResolvedValue([{...pending,reviewRevision:2,reviewedResultJson:JSON.stringify({
+      schemaVersion:"iqc-review-workflow-v1",stage:"SECOND_REVIEW",parentReviewId:"first",parentRevision:1,parentDecisionHash:"a".repeat(64)
+    })}]);
+    mount(); await settle(); await type("独立核对后认可"); await click("认可上游结论并完成二审");
+    expect(decideBusinessReview).toHaveBeenCalledWith("review",expect.objectContaining({expectedRevision:2,
+      decision:"COMPLETED",comment:"独立核对后认可",items:[]}));
+  });
+
+  it("removes reopening actions after completed arbitration", async () => {
+    vi.mocked(listBusinessReviews).mockResolvedValue([{...pending,reviewRevision:3,status:"COMPLETED",reviewedResultJson:JSON.stringify({
+      sourceResultId:"canonical",original:{scoring:{scoreStatus:"FINAL",finalScore:80}},
+      reviewed:{items:[],scoring:{scoreStatus:"FINAL",finalScore:100}},decisions:[],workflow:{
+        schemaVersion:"iqc-review-workflow-v1",stage:"ARBITRATION",parentReviewId:"second",parentRevision:2,parentDecisionHash:"a".repeat(64)
+      }
+    })}]);
+    mount(); await settle(); expect(host.textContent).toContain("已完成仲裁");
+    expect(button("发起业务复核")).toBeUndefined(); expect(button("提交二审")).toBeUndefined();
+    expect(button("提交仲裁")).toBeUndefined(); expect(requestBusinessReview).not.toHaveBeenCalled();
+  });
+
 });
