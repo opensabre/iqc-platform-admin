@@ -49,6 +49,23 @@ describe("business quality report", () => {
     vi.mocked(listTasks).mockResolvedValue({ records: [{ id: "task", name: "电话销售" } as never], current: 1, size: 20, total: 1 }); });
   afterEach(() => { app?.unmount(); host?.remove(); });
 
+  it("identifies pipeline versions and separates calculated scores from manual override denominators", async () => {
+    vi.mocked(getBusinessQualityReport).mockResolvedValue({ ...report, groups: [{
+      ...report.groups[0], schemeId: "", pipelineId: "pipeline", versionNo: "2",
+      reviewed: { ...score, averageScore: 100, manualOverrides: {
+        appliedCount: 1, staleCount: 1, averageOverrideScore: 90.25,
+        effectiveNumericCount: 2, averageEffectiveScore: 95.13
+      } }
+    }] });
+    mount(); await select(["task"]); button("查询业务统计").click(); await settle();
+    expect(host.textContent).toContain("流水线 pipeline · 发布版本 2");
+    expect(host.textContent).toContain("复核计算评分");
+    expect(host.textContent).toContain("已生效：1 · 基准变化待确认：1");
+    expect(host.textContent).toContain("已生效人工覆盖均分：90.25（仅已生效覆盖进入分母）");
+    expect(host.textContent).toContain("有效数字均分（覆盖优先）：95.13 · 有效数字数量：2");
+    expect(host.textContent).toContain("待定、不适用和缺失计算分数不补零");
+  });
+
   it("waits for explicit selection and query; shows zero separately from missing scores", async () => {
     mount(); await settle(); expect(getBusinessQualityReport).not.toHaveBeenCalled(); expect(listTasks).not.toHaveBeenCalled();
     expect(button("查询业务统计").disabled).toBe(true);
