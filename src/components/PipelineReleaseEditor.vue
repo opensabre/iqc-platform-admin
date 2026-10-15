@@ -15,7 +15,7 @@ import {validateFindingLabelPolicy,validateLabelActionTargets,labelBindingAddres
 import type {PipelineRelease,PipelineNode,NumericPredicate} from '@/api/pipelines';
 const props=defineProps<{initial:PipelineRelease;disabled?:boolean}>();
 const openNodes=ref<Array<string|number>>([]);
-type NodeDraft=PipelineNode & {inputJson:string;outputJson:string;conditionJson:string;factCode:string};
+type NodeDraft=PipelineNode & {inputJson:string;outputJson:string;conditionJson:string;factCode:string;factValueType?:string};
 type ItemDraft=PipelineRelease['items'][number] & {points:number;veto:boolean};
 const publicationGate=ref<PipelineRelease['publicationGate']>();
 const actionPolicy=ref<PipelineRelease['actionPolicy']>();
@@ -45,7 +45,7 @@ watch(()=>props.initial,value=>{
  parallel.value=copy.pipeline.schemaVersion==='iqc-pipeline-parallel-v1';
  policyEditorGeneration.value++;actionError.value='';
  reviewPolicy.value=copy.reviewPolicy;riskPolicy.value=copy.riskPolicy;publicationGate.value=copy.publicationGate;actionPolicy.value=copy.actionPolicy;labelPolicy.value=copy.labelPolicy;
- nodes.value=copy.pipeline.nodes.map(n=>({...n,inputJson:JSON.stringify(n.inputMapping,null,2),outputJson:JSON.stringify(n.outputSchema,null,2),conditionJson:JSON.stringify(n.condition?.value ?? null),factCode:String((n.config.findingDefinition as {code?:string}|undefined)?.code || '')}));
+ nodes.value=copy.pipeline.nodes.map(n=>({...n,factValueType:(n.config.findingDefinition as {valueType?:string}|undefined)?.valueType,inputJson:JSON.stringify(n.inputMapping,null,2),outputJson:JSON.stringify(n.outputSchema,null,2),conditionJson:JSON.stringify(n.condition?.value ?? null),factCode:String((n.config.findingDefinition as {code?:string}|undefined)?.code || '')}));
  items.value=copy.items.map(i=>({...i,points:copy.scoring.items.find(s=>s.itemCode===i.itemCode)?.points ?? 0,veto:copy.scoring.items.find(s=>s.itemCode===i.itemCode)?.veto ?? false}));
  fusion.value=copy.fusion;scoring.value=copy.scoring;priorities.value=JSON.stringify(copy.fusion.nodePriority,null,2);overrides.value=JSON.stringify(copy.fusion.overrideNodeByCode,null,2);
 },{immediate:true});
@@ -67,7 +67,10 @@ function changeEngine(node:NodeDraft){
 function initializeParallelSchemas(){
  for(const node of nodes.value){
   const number=node.type==='METRIC' || node.type==='SESSION'&&node.config.aggregation==='MATCHED_MESSAGE_COUNT';
-  node.outputJson=JSON.stringify({type:'object',properties:{[`${node.nodeId}_state`]:{type:'string'},[`${node.nodeId}_value`]:{type:number?'number':'boolean'}},required:[`${node.nodeId}_state`],additionalProperties:false},null,2);
+  const valueType=node.factValueType;
+  const schemaType=valueType==='ENUM'?'string':valueType?.toLowerCase()||(number?'number':(['SKILL_API','SMALL_MODEL'].includes(node.type)?undefined:'boolean'));
+  if(!schemaType)continue;
+  node.outputJson=JSON.stringify({type:'object',properties:{[`${node.nodeId}_state`]:{type:'string'},[`${node.nodeId}_value`]:{type:schemaType}},required:[`${node.nodeId}_state`],additionalProperties:false},null,2);
  }
 }
 function move(index:number,delta:number) {const target=index+delta;if(target<0||target>=nodes.value.length)return;[nodes.value[index],nodes.value[target]]=[nodes.value[target]!,nodes.value[index]!];}
@@ -162,7 +165,7 @@ defineExpose({release});
 <a-form layout="vertical"><a-form-item label="节点编码 / 名称"><a-space><a-input v-model:value="node.nodeId" :disabled="disabled"/><a-input v-model:value="node.name" :disabled="disabled"/></a-space></a-form-item>
 <a-form-item label="引擎"><a-select v-model:value="node.type" :options="options(['RULE','DLS','LLM','METRIC','SESSION','SKILL_API','SMALL_MODEL'])" :disabled="disabled" @change="changeEngine(node)"/></a-form-item>
 <a-form-item v-if="node.type!=='METRIC' && node.type!=='SKILL_API' && node.type!=='SMALL_MODEL'" label="已发布规则"><PublishedAssetReference v-model="node.config.ruleReference" kind="RULE" :disabled="disabled"/></a-form-item>
-<a-form-item label="已发布事实定义"><PublishedAssetReference v-model="node.config.findingReference" kind="FINDING" :disabled="disabled" @code="node.factCode=$event"/><p v-if="node.factCode">输出事实编码：{{node.factCode}}</p></a-form-item>
+<a-form-item label="已发布事实定义"><PublishedAssetReference v-model="node.config.findingReference" kind="FINDING" :disabled="disabled" @code="node.factCode=$event" @value-type="node.factValueType=$event"/><p v-if="node.factCode">输出事实编码：{{node.factCode}}</p></a-form-item>
 <template v-if="node.type==='METRIC'">
 <p>选择NUMBER且允许METRIC证据的已发布事实定义。使用完整冻结转写区间；缺坐标保留未知，不推断声学静默或真实抢话。</p>
 <a-form-item label="指标"><a-select v-model:value="node.config.metric" :options="metricOptions" :disabled="disabled"/></a-form-item>
