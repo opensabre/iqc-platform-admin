@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed,ref,watch} from 'vue';
+import {validateDecimalOperand} from '@/api/action-policy-editor';
 import {getHumanFindingContext,type HumanFindingContext,type HumanFindingDecision} from '@/api/quality';
 const props=defineProps<{resultId:string;disabled:boolean;refreshToken?:number}>();
 const emit=defineEmits<{save:[decision:HumanFindingDecision]}>();
@@ -14,9 +15,39 @@ async function load(){const ticket=++generation,id=props.resultId;loading.value=
  finally{if(ticket===generation)loading.value=false;}}
 watch(()=>[props.resultId,props.refreshToken],()=>{void load();},{immediate:true});
 watch(selected,finding=>{reason.value='';if(!finding)return;state.value=finding.state==='KNOWN'?'KNOWN':'UNKNOWN';valueJson.value=finding.valueJson;severity.value=finding.severity;retained.value=[...finding.retainedEvidenceIds];added.value=[...finding.addedMessageIds];});
+function validateValue(raw:string){
+ if(raw.length>100000)throw Error('JSON原文最多100000字符');
+ // Inspect numeric tokens outside strings, without converting their values to browser numbers.
+ for(const match of raw.matchAll(/"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g)){
+  const token=match[0];if(token.startsWith('"'))continue;
+  const parts=/^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(token)!;
+  let digits=(parts[2]+(parts[3]??'')).replace(/^0+/,'');if(!digits){validateDecimalOperand('0');continue;}
+  const exponentText=(parts[4]??'0').replace(/^([+-]?)0+/,'$1')||'0';
+  if(exponentText.replace(/^[+-]/,'').length>5)throw Error('数值指数超出范围');
+  let exponent=BigInt(exponentText==='+'||exponentText==='-'?'0':exponentText)-BigInt((parts[3]??'').length);
+  const zeros=/0+$/.exec(digits)?.[0].length??0;digits=digits.slice(0,digits.length-zeros);exponent+=BigInt(zeros);
+  if(digits.length>38||exponent>38n||exponent< -18n)throw Error('数值最多38位有效数字及18位小数');
+  const position=digits.length+Number(exponent);
+  const plain=exponent>=0n?digits+'0'.repeat(Number(exponent)):position>0?digits.slice(0,position)+'.'+digits.slice(position):'0.'+'0'.repeat(-position)+digits;
+  validateDecimalOperand(parts[1]+plain);
+ }
+ const parsed:unknown=JSON.parse(raw);let nodes=0,characters=0;
+ const visit=(value:unknown,depth:number)=>{if(depth>32||++nodes>10000)throw Error('JSON最多32层、10000节点');
+  if(typeof value==='string')characters+=value.length;
+  else if(Array.isArray(value))value.forEach(child=>visit(child,depth+1));
+  else if(value&&typeof value==='object')for(const [key,child] of Object.entries(value)){characters+=key.length;visit(child,depth+1);}
+  if(characters>100000)throw Error('JSON文本过大');};visit(parsed,0);
+ if(state.value==='KNOWN'&&selected.value){const type=selected.value.valueType;
+  if(type==='BOOLEAN'&&typeof parsed!=='boolean'||type==='NUMBER'&&typeof parsed!=='number'
+   ||['STRING','ENUM'].includes(type)&&typeof parsed!=='string'||type==='OBJECT'&&(!parsed||typeof parsed!=='object'||Array.isArray(parsed)))throw Error('值类型与冻结Finding定义不一致');
+  if(type==='ENUM'&&!selected.value.allowedValues.includes(parsed as string))throw Error('值不在冻结枚举范围内');
+ }
+ return parsed;
+}
 function save(){if(props.disabled||loading.value||!selected.value||!context.value?.available||!reason.value.trim())return;
  // Keep the original JSON text: parsing and reserializing here would round high precision decimals.
- try{JSON.parse(state.value==='UNKNOWN'?'null':valueJson.value);}catch{error.value='值必须是合法JSON；字符串须带双引号。';return;}
+ try{validateValue(state.value==='UNKNOWN'?'null':valueJson.value);if(retained.value.length+added.value.length>100)throw Error('证据最多100条');}
+ catch(invalid){error.value=invalid instanceof Error?invalid.message:'值必须是合法JSON';return;}
  error.value='';emit('save',{sourceResultId:props.resultId,findingCode:selected.value.code,expectedFindingHash:selected.value.expectedFindingHash,
  state:state.value,valueJson:state.value==='UNKNOWN'?'null':valueJson.value,severity:severity.value,reason:reason.value.trim(),retainedEvidenceIds:[...retained.value],addedMessageIds:[...added.value]});}
 </script>
