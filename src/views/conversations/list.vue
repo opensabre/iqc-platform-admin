@@ -83,7 +83,7 @@ onMounted(() => {
 <template>
   <div class="conversation-page">
     <section class="page-intro">
-      <div><span class="section-kicker">CONVERSATION ARCHIVE</span><h2>会话列表</h2><p>查询已接入的客服会话，按归属、渠道和业务信息筛选，并查看完整对话上下文。</p></div>
+      <div><span class="section-kicker">CONVERSATION ARCHIVE</span><h2>会话列表</h2><p>查询已接入的客服会话，按归属、渠道和业务信息筛选。列表敏感字段默认脱敏；在详情中按权限查看完整内容或 PII。</p></div>
       <a-tag color="blue">共 {{ total }} 条</a-tag>
     </section>
     <a-card :bordered="false" class="list-card">
