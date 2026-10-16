@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import type {PipelineTrace} from './pipeline-execution-trace';
+import type {PipelineTrace,PipelineNodeTrace} from './pipeline-execution-trace';
 import {traceJson,traceStateLabel} from './route-execution-trace';
-defineProps<{trace:PipelineTrace}>();
+const props=defineProps<{trace:PipelineTrace}>();
+function plannedStop(node:PipelineNodeTrace){
+ return props.trace.run.completionReason==='POLICY_SATISFIED' && ['CANCELLED','SKIPPED'].includes(node.result.status) && node.result.error==='Completion policy satisfied';
+}
 const color=(s:string)=>['ERROR','CONFLICT','FAILED','TIMEOUT','CANCELLED','FAIL','UNQUALIFIED'].includes(s)?'error':['UNKNOWN','NOT_EVALUATED','SKIPPED','REVIEW_REQUIRED','PENDING','PARTIAL_SUCCESS'].includes(s)?'warning':'default';
 </script>
 <template>
 <section class="pipeline-trace"><h3>流水线执行轨迹</h3>
 <a-descriptions :column="1" size="small" bordered>
 <a-descriptions-item label="执行状态"><a-tag :color="color(trace.run.status)">{{trace.run.status}}</a-tag>{{trace.mode==='EVALUATION'?'评测执行':'生产执行'}} · {{trace.run.reviewRequired?'运行时标记需复核':'无运行时复核标记'}}</a-descriptions-item>
+<a-descriptions-item v-if="trace.run.completionReason==='POLICY_SATISFIED'" label="停止策略">已满足提前融合策略；未完成节点保留取消或未执行状态，评分及复核状态仍以实际结果为准。</a-descriptions-item>
 <a-descriptions-item label="输入摘要">{{trace.inputHash}}</a-descriptions-item>
 <a-descriptions-item label="机器评分">{{trace.scoring.finalScore ?? '待定 / 不适用'}} · {{trace.scoring.scoreStatus}} · {{trace.scoring.conclusion}}</a-descriptions-item>
 <a-descriptions-item v-if="trace.reviewDecision" label="复核政策决定">{{trace.reviewDecision.status==='REQUIRED'?'要求复核':trace.reviewDecision.status==='NOT_REQUIRED'?'本政策不要求复核':'需人工确认'}}</a-descriptions-item>
@@ -17,7 +21,7 @@ const color=(s:string)=>['ERROR','CONFLICT','FAILED','TIMEOUT','CANCELLED','FAIL
 <p>跳过、错误和未知保留各自状态；机器评分与人工复核、政策重算分别展示。</p>
 <h4>节点尝试</h4><a-empty v-if="!trace.run.trace.length" description="未记录节点尝试"/>
 <a-collapse><a-collapse-panel v-for="(node,index) in trace.run.trace" :key="index" :header="`${node.nodeId} · ${node.attempt===0?'未调用':`尝试 ${node.attempt}`}`">
-<template #extra><a-tag :color="color(node.result.status)">{{node.result.status}}</a-tag></template>
+<template #extra><a-tag :color="plannedStop(node)?'warning':color(node.result.status)">{{plannedStop(node)?(node.result.status==='CANCELLED'?'策略满足后取消':'策略满足后未执行'):node.result.status}}</a-tag></template>
 <p>{{node.startedAt}} · {{node.durationMs}} ms</p><p>{{node.result.error || '未记录错误'}}</p>
 <a-card v-for="fact in node.result.findings" :key="fact.id" size="small" class="fact"><template #title>{{fact.code}}</template><a-tag :color="color(fact.state)">{{traceStateLabel(fact.state)}}</a-tag><p>来源：{{fact.source.nodeId}} / {{fact.source.engineType}} / {{fact.source.engineVersion}}</p><p>{{fact.reason || '未记录原因'}}</p><pre>{{traceJson(fact.value)}}</pre><details><summary>证据（{{fact.evidence.length}}）</summary><pre>{{traceJson(fact.evidence)}}</pre></details></a-card>
 <details><summary>输出变量与指标</summary><pre>{{traceJson({variables:node.result.variables,metrics:node.result.metrics})}}</pre></details>
