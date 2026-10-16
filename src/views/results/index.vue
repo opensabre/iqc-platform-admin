@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { message, Modal } from "ant-design-vue";
 import { CheckOutlined, CopyOutlined } from "@ant-design/icons-vue";
@@ -34,6 +34,21 @@ const hierarchy = ref<ResultHierarchy>();
 const routeContexts = computed(() => routeContextRows(hierarchy.value?.rules ?? [], businessItems.value));
 const canonicalSummaries = ref<Record<string, BatchResultSummary>>({});
 const detailOpen = ref(false), detailLoading = ref(false); const detail = ref<any>();
+let detailRequest = 0;
+function clearDetail() {
+  detail.value = undefined; hierarchy.value = undefined;
+  conversationMessages.value = []; conversationResults.value = [];
+  highlightedSequenceNo.value = undefined;
+  if (highlightResetTimer) window.clearTimeout(highlightResetTimer);
+}
+watch(detailOpen, (open) => {
+  if (!open) { ++detailRequest; clearDetail(); detailLoading.value = false; }
+}, { flush: "sync" });
+onUnmounted(() => {
+  ++detailRequest;
+  if (highlightResetTimer) window.clearTimeout(highlightResetTimer);
+  if (copyResetTimer) window.clearTimeout(copyResetTimer);
+});
 const copiedConversationId = ref<string>(); let copyResetTimer: number | undefined;
 const highlightedSequenceNo = ref<number>(); let highlightResetTimer: number | undefined;
 const conversationDrawerOpen = ref(false), conversationDetailId = ref<string>();
@@ -139,12 +154,24 @@ async function refresh() {
 }
 function changeResultView() { filters.value.status = undefined; filters.value.agentId = undefined; page.value = 1; void refresh(); }
 async function changePage(current: number, size: number) { page.value = current; pageSize.value = size; await refresh(); }
-async function showDetail(id: string) { conversationMessages.value = []; conversationResults.value = []; hierarchy.value = undefined; detailLoading.value = true; detailOpen.value = true; try { detail.value = await getResultDetail(id); } catch { message.error("结果详情加载失败"); detailOpen.value = false; } finally { detailLoading.value = false; } }
+async function showDetail(id: string) {
+  const request = ++detailRequest;
+  clearDetail(); detailLoading.value = true; detailOpen.value = true;
+  try {
+    const data = await getResultDetail(id);
+    if (request !== detailRequest) return;
+    detail.value = data;
+  } catch {
+    if (request !== detailRequest) return;
+    message.error("结果详情加载失败"); detailOpen.value = false;
+  } finally { if (request === detailRequest) detailLoading.value = false; }
+}
 async function showConversation(row: Pick<TaskConversationResultSummary, "taskId" | "conversationId"> & { sourceResultId?: string }) {
-  detailLoading.value = true; detailOpen.value = true; hierarchy.value = undefined; detail.value = undefined;
-  conversationMessages.value = []; conversationResults.value = [];
+  const request = ++detailRequest;
+  clearDetail(); detailLoading.value = true; detailOpen.value = true;
   try {
     const [data, structured] = await Promise.all([getConversationResultDetail(row.taskId, row.conversationId), getResultHierarchy(row.taskId, row.conversationId)]);
+    if (request !== detailRequest) return;
     if (row.sourceResultId && structured?.conversation.id !== row.sourceResultId) {
       message.warning("该复核对应的结果已被新执行替代，请返回待办刷新或查看原复核历史。");
       detailOpen.value = false; return;
@@ -153,8 +180,10 @@ async function showConversation(row: Pick<TaskConversationResultSummary, "taskId
     const first = conversationResults.value[0];
     detail.value = first ? { result: first, task: data.task || { id: first.taskId, name: `会话 ${row.conversationId}` }, message: conversationMessages.value.find((item: any) => item.id === first.messageId) || conversationMessages.value[0], conversation: data.conversation, summary: data.summary }
       : { task: data.task || { name: `会话 ${row.conversationId}` }, conversation: data.conversation, summary: data.summary };
-  } catch { message.error("会话质检明细加载失败"); detailOpen.value = false; }
-  finally { detailLoading.value = false; }
+  } catch {
+    if (request !== detailRequest) return;
+    message.error("会话质检明细加载失败"); detailOpen.value = false;
+  } finally { if (request === detailRequest) detailLoading.value = false; }
 }
 function showRawConversation(conversationId?: string) { if (!conversationId) return; detailOpen.value = false; conversationDetailId.value = conversationId; conversationDrawerOpen.value = true; }
 async function exportCsv() { try { const response = await exportResults(filters.value); const url = URL.createObjectURL(response.data); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "iqc-results.csv"; anchor.click(); URL.revokeObjectURL(url); } catch { message.error("结果导出失败"); } }
