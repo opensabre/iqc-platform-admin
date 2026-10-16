@@ -215,7 +215,7 @@ async function acknowledgeParent(){
       <a-alert v-else-if="!terminal" type="info" message="任务结束后才能申请或裁决复核。" />
       <a-alert v-if="damaged" type="error" message="历史复核快照损坏，已禁止变更，请联系管理员核对。" />
       <a-spin :spinning="loading">
-        <a-empty v-if="loaded && !history.length" description="暂无复核记录，可填写原因发起复核。" />
+        <a-empty v-if="loaded && !history.length" description="暂无复核记录。" />
         <a-form v-if="!readOnly && loaded && !pending && !finalArbitration && can('iqc:review:create')" layout="vertical">
           <a-form-item label="复核阶段"><a-select v-model:value="requestStage" :disabled="!editable||damaged" :options="stageOptions"/></a-form-item>
           <p v-if="requestStage!=='INITIAL'&&latestCompleted">引用上游：第 {{latestCompleted.review.reviewRevision}} 轮 · {{latestCompleted.review.id}}；需独立审核人处理。</p>
