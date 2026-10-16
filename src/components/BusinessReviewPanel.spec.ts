@@ -161,4 +161,13 @@ describe("business review detail panel", () => {
     expect(button("提交仲裁")).toBeUndefined(); expect(requestBusinessReview).not.toHaveBeenCalled();
   });
 
+  it("blocks decisions when pending stage metadata has a nonpreceding parent revision", async () => {
+    vi.mocked(listBusinessReviews).mockResolvedValue([{...pending,reviewRevision:2,reviewedResultJson:JSON.stringify({
+      schemaVersion:"iqc-review-workflow-v1",stage:"SECOND_REVIEW",parentReviewId:"first",parentRevision:2,parentDecisionHash:"a".repeat(64)
+    })}]);
+    mount(); await settle(); expect(host.textContent).toContain("历史复核快照损坏，已禁止变更");
+    expect(button("保存项目裁决并重算").disabled).toBe(true); expect(button("退回本轮").disabled).toBe(true);
+    expect(decideBusinessReview).not.toHaveBeenCalled(); expect(requestBusinessReview).not.toHaveBeenCalled();
+  });
+
 });

@@ -25,8 +25,11 @@ async function refresh() {
 }
 function filter() { current.value = 1; void refresh(); }
 function page(next: number, nextSize: number) { current.value = nextSize === size.value ? next : 1; size.value = nextSize; void refresh(); }
+function canOpen(row: BusinessReviewQueueItem) {
+  return row.currentResult && can("iqc:result:view") && ["INITIAL", "SECOND_REVIEW", "ARBITRATION"].includes(row.stage ?? "INITIAL");
+}
 function open(row: BusinessReviewQueueItem) {
-  if (!row.currentResult || row.stage==='INVALID' || !can("iqc:result:view")) return;
+  if (!canOpen(row)) return;
   void router.push({ path: "/results", query: { taskId: row.taskId, conversationId: row.conversationId, sourceResultId: row.resultId } });
 }
 function history(row: BusinessReviewQueueItem) { selected.value = row; historyOpen.value = true; }
@@ -58,7 +61,7 @@ onMounted(refresh);
         <a-table-column title="申请时间" data-index="createdTime" />
         <a-table-column title="结果版本"><template #default="{record}"><a-tag :color="record.currentResult ? 'blue' : 'warning'">{{ record.currentResult ? '当前结果' : '已被替代' }}</a-tag></template></a-table-column>
         <a-table-column title="操作" :width="210"><template #default="{record}"><a-space>
-          <a-button v-if="can('iqc:result:view')" type="link" :disabled="!record.currentResult" @click="open(record)">打开结果</a-button>
+          <a-button v-if="can('iqc:result:view')" type="link" :disabled="!canOpen(record)" @click="open(record)">打开结果</a-button>
           <a-button type="link" @click="history(record)">复核历史</a-button>
         </a-space></template></a-table-column>
       </a-table>
