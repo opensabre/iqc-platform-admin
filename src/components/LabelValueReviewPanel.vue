@@ -12,7 +12,7 @@ const props = defineProps<{ label: LabelResult; taskId: string; taskStatus: stri
 const emit = defineEmits<{ locate: [messageId: string]; changed: [] }>();
 const { can } = usePermission();
 const history = ref<LabelValueReview[]>([]);
-const messages = ref<Array<{ id: string; sequenceNo: number; content: string; speakerRole: string }>>([]);
+const messages = ref<Array<{ id: string; sequenceNo: number; content: string | null; speakerRole: string }>>([]);
 const loaded = ref(false), loading = ref(false), busy = ref(false), error = ref("");
 const requestComment = ref(""), comment = ref(""), status = ref<"KNOWN" | "UNKNOWN">(), value = ref<string | number | boolean>();
 const evidence = ref<string[]>([]);
@@ -48,7 +48,7 @@ const damaged = computed(() => rounds.value.some(row => row.review.status === "C
 const latestCompleted = computed(() => rounds.value.find(row => row.review.status === "COMPLETED")?.projection);
 const editable = computed(() => loaded.value && eligible.value && terminal.value && !loading.value && !busy.value && !command.value && !damaged.value);
 const messageOptions = computed(() => messages.value.map(item => ({ value: item.id,
-  label: `#${item.sequenceNo} ${item.speakerRole} ${item.content.slice(0, 80)}` })));
+  label: `#${item.sequenceNo} ${item.speakerRole} ${(item.content == null ? "正文未展示" : item.content.slice(0, 80))}` })));
 function display(value: unknown) { return value === true ? "是" : value === false ? "否" : value == null ? "—" : String(value); }
 async function refresh() {
   if (!can("iqc:review:view")) return;
