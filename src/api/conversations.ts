@@ -31,7 +31,8 @@ export interface ConversationMetadata { employeeId?: string; employeeName?: stri
 export interface ConversationSummary extends ConversationMetadata { id: string; batchNo?: string; sourceType?: string; externalId?: string; sourceFileName: string; messageCount: number; errorCount: number; status: string; tagsJson?: string; businessFieldsJson?: string; createdTime?: string; }
 export interface ConversationPage { records: ConversationSummary[]; current: number; size: number; total: number; }
 export interface ConversationMessage { id: string; sequenceNo: number; speakerRole: string; relativeTime: string; content: string; startMs?: number | null; endMs?: number | null; confidence?: number | null; }
-export interface ConversationDetail { conversation: ConversationSummary; messages: ConversationMessage[]; }
+export type ConversationReadMode='PREVIEW'|'FULL'|'PII';
+export interface ConversationDetail { conversation: ConversationSummary; messages: ConversationMessage[]; privacy?:{policyVersion:string;mode:ConversationReadMode;contentLimited:boolean;piiMasked:boolean;visibleMessageCount:number;totalMessageCount:number;canReadFull:boolean;canReadPii:boolean;withheldFields:string[]}; }
 export interface ConversationBatchResult { batchNo: string; totalCount: number; successCount: number; failureCount: number; items: ConversationImportResult[]; }
 export interface ApiConversationStats { start: string; end: string; conversationCount: number; messageCount: number; batchCount: number; externalIdCount: number; }
 export interface RealtimeConversation extends ConversationMetadata { externalId?: string; batchNo?: string; title?: string; messages: Array<{ role: string; time?: string; content: string; startMs?: number | null; endMs?: number | null; confidence?: number | null }> }
@@ -52,7 +53,7 @@ export async function batchImportConversations(files: File[], metadata?: Convers
   const { data } = await http.post<ConversationBatchResult>("/iqc/conversations/batch-import", formData);
   return data;
 }
-export async function getConversation(id: string) { const { data } = await http.get<ConversationDetail>(`/iqc/conversations/${id}`); return data; }
+export async function getConversation(id: string,mode:ConversationReadMode='PREVIEW') { const suffix=mode==='FULL'?'/full-content':mode==='PII'?'/pii-content':'';const { data } = await http.get<ConversationDetail>(`/iqc/conversations/${id}${suffix}`); return data; }
 export async function importConversationZip(file: File, metadata?: ConversationMetadata) { const formData = new FormData(); formData.append("file", file); appendMetadata(formData, metadata); const { data } = await http.post<ConversationBatchResult>("/iqc/conversations/zip-import", formData); return data; }
 export async function getApiConversationStats(start: string, end: string) { const { data } = await http.get<ApiConversationStats>("/iqc/conversations/api-stats", { params: { start, end } }); return data; }
 export async function ingestConversation(conversation: RealtimeConversation) { const { data } = await http.post("/iqc/conversations/ingest", conversation); return data; }

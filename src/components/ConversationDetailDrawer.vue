@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref, watch } from "vue";
 import { message } from "ant-design-vue";
-import { getConversation, type ConversationDetail } from "@/api/conversations";
+import { getConversation, type ConversationDetail,type ConversationReadMode } from "@/api/conversations";
 import { CheckOutlined, CopyOutlined } from "@ant-design/icons-vue";
 import { segmentRange, confidenceLabel } from "@/utils/transcriptAlignment";
 import ConversationAudioPanel from "./ConversationAudioPanel.vue";
@@ -24,12 +24,12 @@ async function copyConversationId() {
   catch { message.error("复制失败，请手动选择内容复制"); }
 }
 
-async function loadDetail(id?: string) {
+async function loadDetail(id?: string,mode:ConversationReadMode='PREVIEW') {
   const request = ++generation;
   detail.value = undefined; copiedId.value = false; activeMessage.value="";
   if (!id || !props.open) { loading.value = false; return; }
   loading.value = true;
-  try { const received = await getConversation(id); if (request === generation) detail.value = received; }
+  try { const received = mode==='PREVIEW'?await getConversation(id):await getConversation(id,mode); if (request === generation) detail.value = received; }
   catch { if (request === generation) { message.error("会话详情加载失败"); emit("update:open", false); } }
   finally { if (request === generation) loading.value = false; }
 }
@@ -43,6 +43,12 @@ onBeforeUnmount(() => { generation++; });
   <a-drawer :open="open" title="会话明细" width="min(760px, 100vw)" destroy-on-close @update:open="emit('update:open', $event)">
     <a-spin :spinning="loading">
       <template v-if="detail">
+        <a-alert v-if="detail.privacy" type="info" show-icon :message="`${detail.privacy.contentLimited?'有限预览':'完整会话'} · ${detail.privacy.visibleMessageCount}/${detail.privacy.totalMessageCount} 条 · ${detail.privacy.piiMasked?'已应用脱敏投影':'本次未额外脱敏'}`"/>
+        <a-space v-if="detail.privacy" style="margin:12px 0">
+          <a-button :disabled="loading" @click="loadDetail(conversationId)">返回脱敏预览</a-button>
+          <a-button v-if="detail.privacy.canReadFull" :disabled="loading" @click="loadDetail(conversationId,'FULL')">查看完整脱敏会话</a-button>
+          <a-button v-if="detail.privacy.canReadPii" :disabled="loading" @click="loadDetail(conversationId,'PII')">按授权查看PII</a-button>
+        </a-space>
         <a-descriptions size="small" :column="2" bordered class="detail-meta">
           <a-descriptions-item label="会话 ID" :span="2"><a-space><a-typography-text>{{ detail.conversation.id }}</a-typography-text><a-tooltip :title="copiedId ? '已复制' : '复制会话 ID'"><a-button type="link" size="small" class="copy-button" :aria-label="copiedId ? '已复制会话 ID' : '复制会话 ID'" @click="copyConversationId"><CheckOutlined v-if="copiedId" class="copy-success"/><CopyOutlined v-else /></a-button></a-tooltip></a-space></a-descriptions-item>
           <a-descriptions-item label="会话">{{ detail.conversation.sourceFileName || "—" }}</a-descriptions-item><a-descriptions-item label="批次">{{ detail.conversation.batchNo || "单条接入" }}</a-descriptions-item>
