@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ref,watch} from 'vue';
+import {computed,ref,watch} from 'vue';
 import PublishedAssetReference from './PublishedAssetReference.vue';
 import FindingLabelPolicyEditor from './FindingLabelPolicyEditor.vue';
 import ActionPolicyEditor from './ActionPolicyEditor.vue';
@@ -9,10 +9,12 @@ import {validateReviewPolicy} from '@/api/review-policy';
 import {validateScoringPolicy} from '@/api/advanced-scoring';
 import ActionConditionEditor from './ActionConditionEditor.vue';
 import PipelineDependencyGraph from './PipelineDependencyGraph.vue';
+import ParallelCompletionPolicyEditor from './ParallelCompletionPolicyEditor.vue';
+import {validateParallelCompletionPolicy} from './parallel-completion-policy';
 import SkillApiConfigurationEditor from './SkillApiConfigurationEditor.vue';
 import {validateActionPolicy,validateCondition,conditionCount,blankCondition,riskLevels,validateDecimalOperand} from '@/api/action-policy-editor';
 import {validateFindingLabelPolicy,validateLabelActionTargets,labelBindingAddress} from '@/api/finding-label-policy';
-import type {PipelineRelease,PipelineNode,NumericPredicate} from '@/api/pipelines';
+import type {PipelineRelease,PipelineNode,NumericPredicate,ParallelCompletionPolicy} from '@/api/pipelines';
 const props=defineProps<{initial:PipelineRelease;disabled?:boolean}>();
 const openNodes=ref<Array<string|number>>([]);
 type NodeDraft=PipelineNode & {inputJson:string;outputJson:string;conditionJson:string;factCode:string;factValueType?:string};
@@ -39,10 +41,30 @@ function configurePublicationGate(enabled:boolean){publicationGate.value=enabled
 const nodes=ref<NodeDraft[]>([]),items=ref<ItemDraft[]>([]),fusion=ref<PipelineRelease['fusion']>(),scoring=ref<PipelineRelease['scoring']>();
 const priorities=ref('{}'),overrides=ref('{}');
 const parallel=ref(false);
+const completionMode=ref<'ALL'|'POLICY'>('ALL');
+const completionPolicy=ref<ParallelCompletionPolicy|null>(null);
+const completionEditor=ref<InstanceType<typeof ParallelCompletionPolicyEditor>>();
+const completionNodes=computed(()=>nodes.value.map(node=>{
+ let output:PipelineNode['outputSchema']=null;
+ try{const parsed=JSON.parse(node.outputJson);if(parsed && typeof parsed==='object' && !Array.isArray(parsed))output=parsed;}catch{/* Original release validation reports the schema error. */}
+ return {...node,outputSchema:output};
+}));
+function setParallel(enabled:boolean){
+ if(props.disabled)return;
+ parallel.value=enabled;
+ if(!enabled){completionMode.value='ALL';completionPolicy.value=null;}
+}
+function setCompletionMode(mode:'ALL'|'POLICY'){
+ if(props.disabled || !parallel.value)return;
+ completionMode.value=mode;
+ completionPolicy.value=mode==='POLICY'?(completionPolicy.value??{requiredNodes:[],condition:null}):null;
+}
 const options=(values:string[])=>values.map(value=>({value,label:value}));
 watch(()=>props.initial,value=>{
  const copy=JSON.parse(JSON.stringify(value)) as PipelineRelease;
- parallel.value=copy.pipeline.schemaVersion==='iqc-pipeline-parallel-v1';
+ parallel.value=['iqc-pipeline-parallel-v1','iqc-pipeline-parallel-v2'].includes(copy.pipeline.schemaVersion);
+ completionMode.value=copy.pipeline.schemaVersion==='iqc-pipeline-parallel-v2'?'POLICY':'ALL';
+ completionPolicy.value=copy.pipeline.completionPolicy??null;
  policyEditorGeneration.value++;actionError.value='';
  reviewPolicy.value=copy.reviewPolicy;riskPolicy.value=copy.riskPolicy;publicationGate.value=copy.publicationGate;actionPolicy.value=copy.actionPolicy;labelPolicy.value=copy.labelPolicy;
  nodes.value=copy.pipeline.nodes.map(n=>({...n,factValueType:(n.config.findingDefinition as {valueType?:string}|undefined)?.valueType,inputJson:JSON.stringify(n.inputMapping,null,2),outputJson:JSON.stringify(n.outputSchema,null,2),conditionJson:JSON.stringify(n.condition?.value ?? null),factCode:String((n.config.findingDefinition as {code?:string}|undefined)?.code || '')}));
@@ -154,15 +176,23 @@ function release():PipelineRelease {
  const actions=validateActionPolicy(actionPolicy.value);
  const review=validateReviewPolicy(reviewPolicy.value,nodes.value.map(n=>n.factCode).filter(Boolean),items.value.map(i=>i.itemCode),labels,actions);
  validateLabelActionTargets(actions,labels);
- return {...(review?{reviewPolicy:review}:{}),...(risk?{riskPolicy:risk}:{}),...(labels?{labelPolicy:labels}:{}),...(actions?{actionPolicy:actions}:{}),...(publicationGate.value?{publicationGate:{...publicationGate.value}}:{}),schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:parallel.value?'iqc-pipeline-parallel-v1':'iqc-pipeline-v1',nodes:converted},fusion:{...fusion.value,nodePriority:priority as Record<string,number>,overrideNodeByCode:override as Record<string,string>},items:items.value.map(({points,veto,...i})=>({...i,appliesWhenFindingCode:i.appliesWhenFindingCode?.trim()||null})),scoring:validateScoringPolicy(scoring.value,items.value.map(i=>({itemCode:i.itemCode,points:i.points,veto:i.veto})),nodes.value.map(n=>n.factCode).filter(Boolean),labels)};
+ let completion:ParallelCompletionPolicy|undefined;
+ if(completionMode.value==='POLICY'){
+  if(!parallel.value || !completionPolicy.value)throw Error('提前满足策略必须启用并行执行并配置必需节点');
+  completionEditor.value?.validated(); // Reject invalid in-progress JSON rather than saving the previous valid value.
+  completion=validateParallelCompletionPolicy(completionPolicy.value,converted);
+ }
+ return {...(review?{reviewPolicy:review}:{}),...(risk?{riskPolicy:risk}:{}),...(labels?{labelPolicy:labels}:{}),...(actions?{actionPolicy:actions}:{}),...(publicationGate.value?{publicationGate:{...publicationGate.value}}:{}),schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:parallel.value?(completion?'iqc-pipeline-parallel-v2':'iqc-pipeline-parallel-v1'):'iqc-pipeline-v1',nodes:converted,...(completion?{completionPolicy:completion}:{})},fusion:{...fusion.value,nodePriority:priority as Record<string,number>,overrideNodeByCode:override as Record<string,string>},items:items.value.map(({points,veto,...i})=>({...i,appliesWhenFindingCode:i.appliesWhenFindingCode?.trim()||null})),scoring:validateScoringPolicy(scoring.value,items.value.map(i=>({itemCode:i.itemCode,points:i.points,veto:i.veto})),nodes.value.map(n=>n.factCode).filter(Boolean),labels)};
 }
 defineExpose({release});
 </script>
 <template>
 <section><h3>检测节点</h3>
-<a-form layout="vertical"><a-form-item label="并行执行"><a-switch v-model:checked="parallel" :disabled="disabled"/></a-form-item></a-form>
+<a-form layout="vertical"><a-form-item label="并行执行"><a-switch :checked="parallel" :disabled="disabled" @change="setParallel(Boolean($event))"/><p>关闭并行执行会移除提前满足策略。</p></a-form-item></a-form>
 <p v-if="!parallel">按顺序执行，依赖必须指向前序节点。错误和未执行保留状态。</p>
-<template v-else><p>按依赖波次并发，等待全部终态后汇总。只读取显式依赖祖先的输出；变量名称不得跨分支重复。依赖仍指向列表前序节点。</p><a-button :disabled="disabled" @click="initializeParallelSchemas">按当前节点生成输出声明（覆盖现有声明）</a-button><p>修改节点编码或事实类型后需更新声明；自定义输出可在高级配置编辑。服务器会校验变量归属和读取依赖。</p></template><a-button :disabled="disabled || nodes.length>=200" @click="addNode">添加节点</a-button>
+<template v-else><a-form layout="vertical"><a-form-item label="融合时机"><a-select :value="completionMode" :disabled="disabled" :options="[{value:'ALL',label:'等待全部节点终态'},{value:'POLICY',label:'满足策略后提前融合'}]" @update:value="setCompletionMode"/></a-form-item></a-form>
+<ParallelCompletionPolicyEditor v-if="completionMode==='POLICY' && completionPolicy" ref="completionEditor" v-model="completionPolicy" :nodes="completionNodes" :disabled="disabled"/>
+<p>{{completionMode==='ALL'?'按依赖波次并发，等待全部终态后汇总。':'按依赖就绪并发，满足明确策略后停止新调用；已有错误和未评估事实仍保留。'}}只读取显式依赖祖先的输出；变量名称不得跨分支重复。依赖仍指向列表前序节点。</p><a-button :disabled="disabled" @click="initializeParallelSchemas">按当前节点生成输出声明（覆盖现有声明）</a-button><p>修改节点编码或事实类型后需更新声明；自定义输出可在高级配置编辑。服务器会校验变量归属和读取依赖。</p></template><a-button :disabled="disabled || nodes.length>=200" @click="addNode">添加节点</a-button>
 <PipelineDependencyGraph :nodes="nodes" @select="index=>openNodes=[index]"/>
 <a-collapse v-model:active-key="openNodes"><a-collapse-panel v-for="(node,index) in nodes" :key="index" :header="`${index+1}. ${node.name} (${node.nodeId})`">
 <a-space wrap><a-button :disabled="disabled || index===0" @click="move(index,-1)">上移</a-button><a-button :disabled="disabled || index===nodes.length-1" @click="move(index,1)">下移</a-button><a-button danger :disabled="disabled" @click="remove(index)">移除</a-button><a-switch v-model:checked="node.enabled" :disabled="disabled"/> <span>正常执行（关闭后可作备用节点）</span></a-space>
