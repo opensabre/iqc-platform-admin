@@ -1,12 +1,12 @@
 import http from '@/api/http';
-import type {QualitySample} from './quality';
+import type {QualitySample,SampleReadPrivacy} from './quality';
 import type {PageResult} from './tasks';
 export type JsonValue=null|boolean|number|string|JsonValue[]|{[key:string]:JsonValue};
 export interface GoldFinding {code:string;valueType:'BOOLEAN'|'STRING'|'NUMBER'|'ENUM'|'OBJECT';state:'KNOWN'|'UNKNOWN'|'CONFLICT'|'ERROR'|'NOT_EVALUATED';value:JsonValue;evidenceMessageIds:string[]}
 export interface GoldDecision {score?:number|null;scoreStatus?:'FINAL'|'PENDING'|'NOT_APPLICABLE'|null;labels?:Record<string,JsonValue>;risk?:'NONE'|'LOW'|'MEDIUM'|'HIGH'|'CRITICAL'|'UNKNOWN'|null}
 export interface GoldDraft {schemaVersion:string;sourceSampleId:string;conversationId:string;messages:Array<{id:string;role:string;content:string;sequence:number;relativeTime?:string;startMs?:number|null;endMs?:number|null;confidence?:number|null}>;businessContext?:Record<string,JsonValue>;findings:GoldFinding[];annotatorId:string;reviewerId?:string;source:string;tags:string[];difficulty:'BASIC'|'INTERMEDIATE'|'HARD';decision?:GoldDecision}
-export interface GoldSample extends QualitySample {goldDraftJson?:string;goldDraftRevision:number;goldStatus?:string;goldReviewVersion?:number}
-export interface GoldVersion {id:string;sampleId:string;versionNo:number;sourceDraftRevision:number;decision:'APPROVED'|'REJECTED';reviewerId:string;reason:string;snapshotJson?:string;contentHash:string;createdTime?:string}
+export interface GoldSample extends QualitySample {goldDraftJson?:string|null;goldDraftRevision:number;goldStatus?:string;goldReviewVersion?:number}
+export interface GoldVersion {id:string;sampleId:string;versionNo:number;sourceDraftRevision:number;decision:'APPROVED'|'REJECTED';reviewerId:string;reason:string|null;snapshotJson?:string|null;contentHash:string;privacy?:SampleReadPrivacy;createdTime?:string}
 export interface GoldAnnotation {expectedRevision:number;findings:GoldFinding[];businessContext?:Record<string,JsonValue>;tags:string[];difficulty:GoldDraft['difficulty'];decision?:GoldDecision}
 const gold=(id:string)=>`/iqc/quality-operations/samples/${encodeURIComponent(id)}/gold`;
 export const getGoldSample=(id:string)=>http.get<GoldSample>(gold(id)).then(r=>r.data);

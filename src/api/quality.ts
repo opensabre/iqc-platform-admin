@@ -4,7 +4,14 @@ import type { PageResult } from "./tasks";
 
 export interface ResultFeedback { id:string; resultId:string; feedbackType:string; comment?:string; status:string; createdTime?:string }
 export interface ResultReview { id:string; resultId:string; status:string; originalStatus:string; originalScore?:number; originalRiskLevel?:string; finalStatus?:string; finalScore?:number; finalRiskLevel?:string; reviewComment?:string; reviewerId?:string; reviewedTime?:string }
-export interface QualitySample { id:string; name:string; sampleType:string; sourceResultId?:string; contentSnapshot:string; expectedJson?:string; tagsJson?:string; status:string; createdTime?:string }
+export interface SampleReadPrivacy {
+ policyVersion:string;canonicalPayloadVisible:boolean;canReadFull:boolean;canReadPii:boolean;withheldFields:string[];candidateContentVisible?:boolean;
+ previewState?:'NOT_INCLUDED'|'INVALID_GOLD'|'AVAILABLE'|'GOLD_ENDPOINT_REQUIRED'|'RELOAD_REQUIRED'|'SUMMARY_ONLY';
+ preview?:{source:string;messages:Array<{id:string;sequenceNo:number;speakerRole:string;content:string|null}>;
+  privacy:{contentLimited:boolean;piiMasked:boolean;visibleMessageCount:number;totalMessageCount:number};
+  findings:Array<{code:string;valueType:string;state:string;evidenceMessageIds:string[]}>;findingValuesWithheld:boolean};
+}
+export interface QualitySample { id:string; name:string; sampleType:string; sourceResultId?:string; contentSnapshot:string|null; expectedJson?:string|null; tagsJson?:string|null; privacy?:SampleReadPrivacy; status:string; createdTime?:string }
 export interface QualityReport { pendingReviewCount:number; completedReviewCount:number; correctedReviewCount:number; reviewCorrectionRate:number; falsePositiveCount:number; falseNegativeCount:number; confirmedFeedbackCount:number; sampleCount:number }
 
 export const createFeedback = (resultId:string, data:{feedbackType:string;comment?:string;evidenceJson?:string}) => http.post<ResultFeedback>(`/iqc/quality-operations/results/${resultId}/feedback`,data).then(r=>r.data);
