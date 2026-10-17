@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed,ref,watch} from 'vue';
+import {computed,nextTick,ref,watch} from 'vue';
 import PublishedAssetReference from './PublishedAssetReference.vue';
 import FindingLabelPolicyEditor from './FindingLabelPolicyEditor.vue';
 import ActionPolicyEditor from './ActionPolicyEditor.vue';
@@ -78,10 +78,33 @@ watch(()=>props.initial,value=>{
  items.value=copy.items.map(i=>({...i,points:copy.scoring.items.find(s=>s.itemCode===i.itemCode)?.points ?? 0,veto:copy.scoring.items.find(s=>s.itemCode===i.itemCode)?.veto ?? false}));
  fusion.value=copy.fusion;scoring.value=copy.scoring;priorities.value=JSON.stringify(copy.fusion.nodePriority,null,2);overrides.value=JSON.stringify(copy.fusion.overrideNodeByCode,null,2);
 },{immediate:true});
-function addNode() {
- let index=nodes.value.length+1;while(nodes.value.some(n=>n.nodeId===`node_${index}`))index++;
- nodes.value.push({nodeId:`node_${index}`,type:'RULE',name:'新检测节点',version:'1',dependsOn:[],inputMapping:{},config:{inputScope:'MESSAGE',phase:'DIRECT'},condition:null,timeoutMs:30000,retries:0,onError:'FAIL_PIPELINE',fallbackNodeId:null,outputSchema:null,enabled:true,inputJson:'{}',outputJson:'null',conditionJson:'null',factCode:''});
+const nodeLibrary:Array<{type:PipelineNode['type'];label:string}>=[
+ {type:'RULE',label:'规则检测'},{type:'DLS',label:'DLS规则'},{type:'LLM',label:'大模型'},
+ {type:'METRIC',label:'会话时间指标'},{type:'SESSION',label:'会话聚合'},
+ {type:'SKILL_API',label:'Skill/API'},{type:'SMALL_MODEL',label:'小模型'}
+];
+const nodeDragType='application/x-iqc-pipeline-engine';
+const propertiesPanel=ref<HTMLElement>();
+function selectGraphNode(index:number){
+ openNodes.value=[index];
+ void nextTick(()=>{if(openNodes.value.includes(index))propertiesPanel.value?.querySelector(`[data-node-index="${index}"]`)?.scrollIntoView({block:'nearest'});});
 }
+function addNode(type:PipelineNode['type']='RULE') {
+ if(props.disabled || nodes.value.length>=200 || !nodeLibrary.some(entry=>entry.type===type))return;
+ let index=nodes.value.length+1;while(nodes.value.some(n=>n.nodeId===`node_${index}`))index++;
+ const node:NodeDraft={nodeId:`node_${index}`,type,name:'新检测节点',version:'1',dependsOn:[],inputMapping:{},config:{inputScope:'MESSAGE',phase:'DIRECT'},condition:null,timeoutMs:30000,retries:0,onError:'FAIL_PIPELINE',fallbackNodeId:null,outputSchema:null,enabled:true,inputJson:'{}',outputJson:'null',conditionJson:'null',factCode:''};
+ changeEngine(node);nodes.value.push(node);selectGraphNode(nodes.value.length-1);
+}
+function startLibraryDrag(event:DragEvent,type:PipelineNode['type']){
+ if(props.disabled || nodes.value.length>=200 || !event.dataTransfer){event.preventDefault();return;}
+ event.dataTransfer.setData(nodeDragType,type);event.dataTransfer.effectAllowed='copy';
+}
+function dropLibraryNode(event:DragEvent){
+ if(props.disabled || !event.dataTransfer)return;
+ const type=event.dataTransfer.getData(nodeDragType);
+ const entry=nodeLibrary.find(candidate=>candidate.type===type);if(entry)addNode(entry.type);
+}
+
 const metricOptions=[{value:'TRANSCRIPT_GAP_MS',label:'转写区间间隙（毫秒）'},{value:'CUSTOMER_TO_AGENT_MEAN_GAP_MS',label:'相邻客户到坐席平均间隙（毫秒）'},{value:'AGENT_TRANSCRIPT_TIME_SHARE',label:'坐席转写时间份额'},{value:'CROSS_ROLE_OVERLAP_PAIRS',label:'跨角色重叠片段对数'}];
 const sessionOptions=[{value:'DLS_ENTRY_MATCH',label:'DLS流程是否满足（布尔）'},{value:'MATCHED_MESSAGE_COUNT',label:'指定子规则命中消息数（数字）'}];
 function changeEngine(node:NodeDraft){
@@ -102,8 +125,16 @@ function initializeParallelSchemas(){
   node.outputJson=JSON.stringify({type:'object',properties:{[`${node.nodeId}_state`]:{type:'string'},[`${node.nodeId}_value`]:{type:schemaType}},required:[`${node.nodeId}_state`],additionalProperties:false},null,2);
  }
 }
-function move(index:number,delta:number) {const target=index+delta;if(target<0||target>=nodes.value.length)return;[nodes.value[index],nodes.value[target]]=[nodes.value[target]!,nodes.value[index]!];}
-function remove(index:number) {nodes.value.splice(index,1);}
+function move(index:number,delta:number) {
+ const target=index+delta;if(props.disabled || target<0||target>=nodes.value.length)return;
+ [nodes.value[index],nodes.value[target]]=[nodes.value[target]!,nodes.value[index]!];
+ openNodes.value=openNodes.value.map(key=>Number(key)===index?target:Number(key)===target?index:key);
+}
+function remove(index:number) {
+ if(props.disabled || index<0 || index>=nodes.value.length)return;
+ nodes.value.splice(index,1);
+ openNodes.value=openNodes.value.filter(key=>Number(key)!==index).map(key=>Number(key)>index?Number(key)-1:key);
+}
 function addItem() {items.value.push({itemCode:'',findingCode:'',hitMeaning:'VIOLATION',appliesWhenFindingCode:null,points:10,veto:false});}
 const numericOperators=['EQUALS','NOT_EQUALS','GREATER_OR_EQUAL','LESS_OR_EQUAL','GREATER_THAN','LESS_THAN'];
 function numeric(item:ItemDraft,gate:boolean,checked:boolean){const key=gate?'appliesWhenNumericPredicate':'numericPredicate';if(checked)item[key]={operator:'GREATER_OR_EQUAL',threshold:''};else delete item[key];}
@@ -199,13 +230,20 @@ defineExpose({release});
 <p v-if="!parallel">按顺序执行，依赖必须指向前序节点。错误和未执行保留状态。</p>
 <template v-else><a-form layout="vertical"><a-form-item label="融合时机"><a-select :value="completionMode" :disabled="disabled" :options="[{value:'ALL',label:'等待全部节点终态'},{value:'POLICY',label:'满足策略后提前融合'}]" @update:value="setCompletionMode"/></a-form-item></a-form>
 <ParallelCompletionPolicyEditor v-if="completionMode==='POLICY' && completionPolicy" ref="completionEditor" v-model="completionPolicy" :nodes="completionNodes" :disabled="disabled"/>
-<p>{{completionMode==='ALL'?'按依赖波次并发，等待全部终态后汇总。':'按依赖就绪并发，满足明确策略后停止新调用；已有错误和未评估事实仍保留。'}}只读取显式依赖祖先的输出；变量名称不得跨分支重复。依赖仍指向列表前序节点。</p><a-button :disabled="disabled" @click="initializeParallelSchemas">按当前节点生成输出声明（覆盖现有声明）</a-button><p>修改节点编码或事实类型后需更新声明；自定义输出可在高级配置编辑。服务器会校验变量归属和读取依赖。</p></template><a-button :disabled="disabled || nodes.length>=200" @click="addNode">添加节点</a-button>
+<p>{{completionMode==='ALL'?'按依赖波次并发，等待全部终态后汇总。':'按依赖就绪并发，满足明确策略后停止新调用；已有错误和未评估事实仍保留。'}}只读取显式依赖祖先的输出；变量名称不得跨分支重复。依赖仍指向列表前序节点。</p><a-button :disabled="disabled" @click="initializeParallelSchemas">按当前节点生成输出声明（覆盖现有声明）</a-button><p>修改节点编码或事实类型后需更新声明；自定义输出可在高级配置编辑。服务器会校验变量归属和读取依赖。</p></template><a-button :disabled="disabled || nodes.length>=200" @click="addNode()">添加节点</a-button>
+<div class="designer-workspace">
+<aside class="node-library" aria-label="检测节点库"><h4>节点库</h4><p>点击或拖入画布添加节点。</p>
+<button v-for="entry in nodeLibrary" :key="entry.type" type="button" class="library-node" :draggable="!disabled && nodes.length<200" :disabled="disabled || nodes.length>=200" @click="addNode(entry.type)" @dragstart="startLibraryDrag($event,entry.type)">{{entry.label}}</button>
+<p>添加后选择已发布能力和事实定义。</p></aside>
+<section class="designer-canvas" aria-label="流水线编排画布" @dragover.prevent @drop.prevent.stop="dropLibraryNode"><h4>编排画布</h4>
 <a-alert v-if="graphEditError" type="error" show-icon :message="graphEditError"/>
-<PipelineDependencyGraph :nodes="nodes" :disabled="disabled" @select="index=>openNodes=[index]" @connect="graphConnection($event)" @disconnect="graphConnection($event,true)"/>
-<a-collapse v-model:active-key="openNodes"><a-collapse-panel v-for="(node,index) in nodes" :key="index" :header="`${index+1}. ${node.name} (${node.nodeId})`">
+<PipelineDependencyGraph :nodes="nodes" :disabled="disabled" @select="selectGraphNode" @connect="graphConnection($event)" @disconnect="graphConnection($event,true)"/>
+</section>
+<section ref="propertiesPanel" class="node-properties" aria-label="节点属性"><h4>节点属性</h4><p>选择画布节点查看配置。调整顺序不会自动修改依赖或策略。</p><a-empty v-if="!nodes.length" description="从节点库添加检测节点"/>
+<a-collapse v-model:active-key="openNodes"><a-collapse-panel v-for="(node,index) in nodes" :key="index" :data-node-index="index" :header="`${index+1}. ${node.name} (${node.nodeId})`">
 <a-space wrap><a-button :disabled="disabled || index===0" @click="move(index,-1)">上移</a-button><a-button :disabled="disabled || index===nodes.length-1" @click="move(index,1)">下移</a-button><a-button danger :disabled="disabled" @click="remove(index)">移除</a-button><a-switch v-model:checked="node.enabled" :disabled="disabled"/> <span>正常执行（关闭后可作备用节点）</span></a-space>
 <a-form layout="vertical"><a-form-item label="节点编码 / 名称"><a-space><a-input v-model:value="node.nodeId" :disabled="disabled"/><a-input v-model:value="node.name" :disabled="disabled"/></a-space></a-form-item>
-<a-form-item label="引擎"><a-select v-model:value="node.type" :options="options(['RULE','DLS','LLM','METRIC','SESSION','SKILL_API','SMALL_MODEL'])" :disabled="disabled" @change="changeEngine(node)"/></a-form-item>
+<a-form-item label="引擎"><a-select v-model:value="node.type" :options="nodeLibrary.map(entry=>({value:entry.type,label:entry.label}))" :disabled="disabled" @change="changeEngine(node)"/></a-form-item>
 <a-form-item v-if="node.type!=='METRIC' && node.type!=='SKILL_API' && node.type!=='SMALL_MODEL'" label="已发布规则"><PublishedAssetReference v-model="node.config.ruleReference" kind="RULE" :disabled="disabled"/></a-form-item>
 <a-form-item label="已发布事实定义"><PublishedAssetReference v-model="node.config.findingReference" kind="FINDING" :disabled="disabled" @code="node.factCode=$event" @value-type="node.factValueType=$event"/><p v-if="node.factCode">输出事实编码：{{node.factCode}}</p></a-form-item>
 <template v-if="node.type==='METRIC'">
@@ -231,6 +269,7 @@ defineExpose({release});
 <a-form-item v-if="node.onError==='FALLBACK'" label="备用节点"><a-select v-model:value="node.fallbackNodeId" :options="options(nodes.filter(n=>!n.enabled&&n!==node).map(n=>n.nodeId))" :disabled="disabled"/></a-form-item>
 <a-collapse><a-collapse-panel key="mapping" header="高级输入映射与输出校验"><a-form-item label="输入映射（目标字段 → JSON pointer）"><a-textarea v-model:value="node.inputJson" :rows="3" :disabled="disabled"/></a-form-item><a-form-item label="输出变量 schema（JSON 或 null）"><a-textarea v-model:value="node.outputJson" :rows="3" :disabled="disabled"/></a-form-item><p>路径使用 /input、/variables、/upstream。保留空映射时使用原始输入。</p></a-collapse-panel></a-collapse>
 </a-form></a-collapse-panel></a-collapse>
+</section></div>
 <h3>事实融合</h3><a-form v-if="fusion" layout="vertical"><a-form-item label="政策标识 / 版本"><a-space><a-input v-model:value="fusion.id" :disabled="disabled"/><a-input-number v-model:value="fusion.version" :min="1" :precision="0" :disabled="disabled"/></a-space></a-form-item><a-form-item label="融合方式"><a-select v-model:value="fusion.method" :options="options(['PRIORITY','VOTING','OVERRIDE','CONFIDENCE'])" :disabled="disabled"/></a-form-item><a-form-item label="节点优先级（JSON）"><a-textarea v-model:value="priorities" :rows="2" :disabled="disabled"/></a-form-item><a-form-item v-if="fusion.method==='OVERRIDE'" label="事实编码 → 覆盖节点（JSON）"><a-textarea v-model:value="overrides" :rows="2" :disabled="disabled"/></a-form-item><template v-if="fusion.method==='CONFIDENCE'"><a-form-item label="校准标识"><a-input v-model:value="fusion.confidenceCalibrationId" :disabled="disabled"/></a-form-item><a-form-item label="已校准节点"><a-select v-model:value="fusion.calibratedNodeIds" mode="multiple" :options="options(nodes.map(n=>n.nodeId))" :disabled="disabled"/></a-form-item><a-alert type="info" message="当前RULE/DLS/LLM/METRIC适配器未输出已校准置信度，选择此政策不会产生确定的融合值。"/></template></a-form>
 <FindingLabelPolicyEditor :key="policyEditorGeneration" v-model="labelPolicy" :finding-codes="nodes.map(node=>node.factCode).filter(Boolean)" :disabled="disabled" @action="addLabelAction"/>
 <a-alert v-if="actionError" type="error" :message="actionError" show-icon/><ActionPolicyEditor :key="`actions-${policyEditorGeneration}`" v-model="actionPolicy" :labels="labelPolicy" :finding-codes="nodes.map(node=>node.factCode).filter(Boolean)" :item-codes="items.map(item=>item.itemCode).filter(Boolean)" :disabled="disabled"/>
@@ -244,3 +283,9 @@ defineExpose({release});
 <a-button :disabled="disabled" @click="addItem">添加质检项</a-button><a-card v-for="(item,index) in items" :key="index" size="small" style="margin:12px 0"><a-form layout="vertical"><a-form-item label="质检项编码"><a-input v-model:value="item.itemCode" :disabled="disabled"/></a-form-item><a-form-item label="事实编码"><a-select v-model:value="item.findingCode" show-search option-filter-prop="label" :options="options(nodes.map(n=>n.factCode).filter(Boolean))" :disabled="disabled"/></a-form-item><a-form-item label="数值事实阈值"><a-switch :checked="!!item.numericPredicate" :disabled="disabled" @change="numeric(item,false,Boolean($event))"/><p>布尔事实直接判断；NUMBER事实需启用比较。未知/冲突/错误不转换为0或false。</p></a-form-item><template v-if="item.numericPredicate"><a-form-item label="比较 / 精确阈值"><a-space><a-select v-model:value="item.numericPredicate.operator" :options="options(numericOperators)" :disabled="disabled" style="width:210px"/><a-input v-model:value="item.numericPredicate.threshold" :maxlength="64" :disabled="disabled" placeholder="十进制字符串，例如 0.500000"/></a-space></a-form-item></template><a-form-item label="命中含义"><a-select v-model:value="item.hitMeaning" :options="[{value:'VIOLATION',label:'命中代表违规'},{value:'COMPLIANCE',label:'命中代表满足'}]" :disabled="disabled"/></a-form-item><a-form-item label="适用条件事实编码（可空）"><a-input v-model:value="item.appliesWhenFindingCode" :disabled="disabled" @update:value="clearNumericGate(item,$event)"/></a-form-item><template v-if="item.appliesWhenFindingCode"><a-form-item label="适用条件使用数值阈值"><a-switch :checked="!!item.appliesWhenNumericPredicate" :disabled="disabled" @change="numeric(item,true,Boolean($event))"/></a-form-item><a-form-item v-if="item.appliesWhenNumericPredicate" label="适用比较 / 精确阈值"><a-space><a-select v-model:value="item.appliesWhenNumericPredicate.operator" :options="options(numericOperators)" :disabled="disabled" style="width:210px"/><a-input v-model:value="item.appliesWhenNumericPredicate.threshold" :maxlength="64" :disabled="disabled"/></a-space><p>已知比较不满足为不适用，未知保持待复核。</p></a-form-item></template><a-form-item label="分值 / 一票否决"><a-space><a-input-number v-model:value="item.points" :min="scoring?.mode==='POINTS'?1:0" :max="100" :precision="0" :disabled="disabled"/><a-switch v-model:checked="item.veto" :disabled="disabled"/><a-button danger :disabled="disabled" @click="items.splice(index,1)">移除</a-button></a-space></a-form-item></a-form></a-card>
 </section>
 </template>
+
+<style scoped>
+.designer-workspace{display:grid;grid-template-columns:150px minmax(340px,1fr) minmax(310px,.9fr);gap:16px;align-items:start;margin:16px 0 24px}.node-library,.designer-canvas,.node-properties{min-width:0;border:1px solid #d9d9d9;border-radius:8px;padding:12px}.node-properties{max-height:740px;overflow:auto}.library-node{display:block;width:100%;margin:8px 0;padding:10px 8px;border:1px solid #91caff;border-radius:6px;background:var(--iqc-graph-fill,#f5f9ff);color:inherit;text-align:left;cursor:grab}.library-node:focus-visible{outline:2px solid #1677ff;outline-offset:2px}.library-node:disabled{cursor:default;opacity:.5}.designer-workspace h4{margin:0 0 10px}.designer-workspace p{color:#64748b}
+@media(max-width:1200px){.designer-workspace{grid-template-columns:150px minmax(0,1fr)}.node-properties{grid-column:1/-1;max-height:none}}
+@media(max-width:680px){.designer-workspace{grid-template-columns:minmax(0,1fr)}.node-properties{grid-column:auto}.library-node{display:inline-block;width:auto;margin:4px}.node-library{position:static}}
+</style>
