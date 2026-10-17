@@ -70,10 +70,25 @@ const withheldContent = computed(() => readPrivacy.value.some(item => item.withh
 function messageContent(item: { content?: string | null }) {
   return item.content == null && contentLimited.value ? "正文未展示，可通过会话详情查看可授权内容" : item.content || "—";
 }
-const schemeTask = computed(() => { try { return Object.hasOwn(JSON.parse(detail.value?.task?.ruleSnapshotJson || "{}"), "schemeSnapshot"); } catch { return false; } });
-const pipelineTask = computed(() => { try { return Object.hasOwn(JSON.parse(detail.value?.task?.ruleSnapshotJson || "{}"), "pipelineSnapshot"); } catch { return false; } });
+const taskKind = computed(() => {
+  const presentation = detail.value?.taskPresentation;
+  if (presentation != null) {
+    if (presentation.schemaVersion !== 'iqc-task-presentation-v1' || !['LEGACY','SCHEME','PIPELINE'].includes(presentation.kind)
+      || presentation.kind === 'SCHEME' && typeof presentation.labelOnly !== 'boolean') return 'UNKNOWN';
+    return presentation.kind;
+  }
+  // Compatibility with older responses; new protected responses supply the public metadata above.
+  try {
+    const snapshot = JSON.parse(detail.value?.task?.ruleSnapshotJson || '{}');
+    return Object.hasOwn(snapshot, 'schemeSnapshot') ? 'SCHEME' : Object.hasOwn(snapshot, 'pipelineSnapshot') ? 'PIPELINE' : 'LEGACY';
+  } catch { return 'UNKNOWN'; }
+});
+const taskPresentationUnknown = computed(() => taskKind.value === 'UNKNOWN');
+const schemeTask = computed(() => taskKind.value === 'SCHEME');
+const pipelineTask = computed(() => taskKind.value === 'PIPELINE');
 const businessTask = computed(() => schemeTask.value || pipelineTask.value);
 const labelOnlyScheme = computed(() => {
+  if (detail.value?.taskPresentation != null) return schemeTask.value && detail.value.taskPresentation.labelOnly === true;
   try {
     const definition = JSON.parse(detail.value?.task?.ruleSnapshotJson || "{}").schemeSnapshot?.release?.definition;
     return Array.isArray(definition?.items) && definition.items.length === 0 && Array.isArray(definition.labels) && definition.labels.length > 0;
@@ -185,8 +200,8 @@ async function showConversation(row: Pick<TaskConversationResultSummary, "taskId
     }
     hierarchy.value = structured; conversationMessages.value = data.messages || []; conversationResults.value = data.results || [];
     const first = conversationResults.value[0];
-    detail.value = first ? { result: first, task: data.task || { id: first.taskId, name: `会话 ${row.conversationId}` }, message: conversationMessages.value.find((item: any) => item.id === first.messageId) || conversationMessages.value[0], conversation: data.conversation, summary: data.summary, privacy: data.privacy }
-      : { task: data.task || { name: `会话 ${row.conversationId}` }, conversation: data.conversation, summary: data.summary, privacy: data.privacy };
+    detail.value = first ? { result: first, task: data.task || { id: first.taskId, name: `会话 ${row.conversationId}` }, message: conversationMessages.value.find((item: any) => item.id === first.messageId) || conversationMessages.value[0], conversation: data.conversation, summary: data.summary, privacy: data.privacy, taskPresentation: data.taskPresentation }
+      : { task: data.task || { name: `会话 ${row.conversationId}` }, conversation: data.conversation, summary: data.summary, privacy: data.privacy, taskPresentation: data.taskPresentation };
   } catch {
     if (request !== detailRequest) return;
     message.error("会话质检明细加载失败"); detailOpen.value = false;
@@ -278,9 +293,10 @@ onMounted(() => {
     <a-alert v-if="contentLimited || piiMasked || withheldContent" type="info" show-icon message="内容读取范围" class="evidence-alert">
       <template #description><span v-if="contentLimited">当前正文展示受限。 </span><span v-if="piiMasked">当前内容已按脱敏规则处理。 </span><span v-if="withheldContent">部分字段未展示。 </span>正文未展示不代表没有质检结果，可通过消息编号定位；会话详情按当前权限提供可查看内容。</template>
     </a-alert>
-    <a-card :bordered="false" class="result-overview"><a-row :gutter="16"><a-col :span="6"><a-statistic v-if="detailScore != null" title="得分" :value="detailScore" :precision="businessTask ? 2 : 1" suffix="分"/><template v-else><div class="overview-label">得分</div><strong>{{labelOnlyScheme || businessScoring?.scoreStatus === "NOT_APPLICABLE" ? "不计分" : "待确认"}}</strong></template></a-col><a-col :span="6"><a-statistic v-if="!businessTask" title="总扣分" :value="detailDeduction" prefix="-"/><template v-else><div class="overview-label">方案类型</div>{{labelOnlyScheme ? "仅识别标签" : businessScoring?.mode === "POINTS" ? "得分制" : "扣分制"}}</template></a-col><a-col :span="6"><div class="overview-label">风险等级</div><a-tag :color="['HIGH','CRITICAL'].includes(detailRisk)?'error':['MEDIUM','UNKNOWN'].includes(detailRisk)?'warning':'default'">{{riskLabel(detailRisk)}}</a-tag></a-col><a-col :span="6"><div class="overview-label">{{labelOnlyScheme ? "质检项" : "不满足项"}}</div><strong class="violation-count">{{labelOnlyScheme ? "无" : `${businessTask ? businessFailureCount : violations.length} 项`}}</strong></a-col></a-row></a-card>
-    <a-alert v-if="!businessTask&&!violations.length&&!diagnostics.length" type="success" show-icon message="本条消息未发现不满足项" description="所选规则均未命中。" class="section-block"/>
-    <section v-if="!businessTask&&violations.length" class="section-block"><div class="section-title"><div><h3>不满足项与扣分明细</h3><p>每一项均可追溯到规则、判断理由和证据。</p></div><a-tag color="error">共扣 {{detailDeduction}} 分</a-tag></div>
+    <a-alert v-if="taskPresentationUnknown" type="warning" show-icon message="任务类型暂无法确认，已隐藏依赖任务类型的评分摘要及操作；请联系管理员核对历史配置。"/>
+    <a-card v-if="!taskPresentationUnknown" :bordered="false" class="result-overview"><a-row :gutter="16"><a-col :span="6"><a-statistic v-if="detailScore != null" title="得分" :value="detailScore" :precision="businessTask ? 2 : 1" suffix="分"/><template v-else><div class="overview-label">得分</div><strong>{{labelOnlyScheme || businessScoring?.scoreStatus === "NOT_APPLICABLE" ? "不计分" : "待确认"}}</strong></template></a-col><a-col :span="6"><a-statistic v-if="!businessTask" title="总扣分" :value="detailDeduction" prefix="-"/><template v-else><div class="overview-label">方案类型</div>{{labelOnlyScheme ? "仅识别标签" : businessScoring?.mode === "POINTS" ? "得分制" : "扣分制"}}</template></a-col><a-col :span="6"><div class="overview-label">风险等级</div><a-tag :color="['HIGH','CRITICAL'].includes(detailRisk)?'error':['MEDIUM','UNKNOWN'].includes(detailRisk)?'warning':'default'">{{riskLabel(detailRisk)}}</a-tag></a-col><a-col :span="6"><div class="overview-label">{{labelOnlyScheme ? "质检项" : "不满足项"}}</div><strong class="violation-count">{{labelOnlyScheme ? "无" : `${businessTask ? businessFailureCount : violations.length} 项`}}</strong></a-col></a-row></a-card>
+    <a-alert v-if="taskKind==='LEGACY'&&!violations.length&&!diagnostics.length" type="success" show-icon message="本条消息未发现不满足项" description="所选规则均未命中。" class="section-block"/>
+    <section v-if="taskKind==='LEGACY'&&violations.length" class="section-block"><div class="section-title"><div><h3>不满足项与扣分明细</h3><p>每一项均可追溯到规则、判断理由和证据。</p></div><a-tag color="error">共扣 {{detailDeduction}} 分</a-tag></div>
       <a-card v-for="(item,index) in violations" :key="`${item.ruleId}-${index}`" size="small" class="violation-card"><template #title><span class="violation-index">{{index+1}}</span>{{ruleTitle(item,index)}}</template><template #extra><a-space><a-tag>{{item.evaluationScope==='CONVERSATION'?'会话级':'消息级'}}</a-tag><a-tag v-if="item.veto" color="error">一票否决</a-tag><a-tag :color="item.riskLevel==='HIGH'?'error':'warning'">{{riskLabel(item.riskLevel)}}</a-tag><strong class="deduction">-{{item.deduction||0}} 分</strong></a-space></template><a-descriptions :column="2" size="small"><a-descriptions-item label="规则编码">{{item.ruleCode||item.ruleId||'—'}}</a-descriptions-item><a-descriptions-item label="规则类型 / 版本">{{item.ruleType||'—'}}{{item.ruleVersion ? ` / v${item.ruleVersion}` : ''}}</a-descriptions-item><a-descriptions-item label="判断理由" :span="2">{{item.reason||'命中规则'}}</a-descriptions-item></a-descriptions><div v-if="ruleEvidence(item.ruleId).length" class="detail-group"><strong>命中证据</strong><a-alert v-for="(evidence,eIndex) in ruleEvidence(item.ruleId)" :key="eIndex" type="warning" show-icon class="evidence-alert" :message="evidence.internalDefinition ? `${evidence.internalDefinition}：${evidence.text||'命中'}` : evidence.text||detail.result?.evidence||'命中当前消息'" :description="evidence.sequenceNo !== undefined ? `消息 #${evidence.sequenceNo}，位置 ${evidence.start??'-'}～${evidence.end??'-'} · 点击定位` : undefined" @click="locateMessage(evidence.sequenceNo)"/></div><div v-if="ruleSuggestions(item.ruleId).length" class="detail-group"><strong>改进建议</strong><a-list size="small" :data-source="ruleSuggestions(item.ruleId)"><template #renderItem="{item:suggestion}"><a-list-item><a-list-item-meta :title="suggestion.title||'改进建议'" :description="suggestion.content"/></a-list-item></template></a-list></div></a-card>
     </section>
     <section v-if="labelOnlyScheme" class="section-block">
