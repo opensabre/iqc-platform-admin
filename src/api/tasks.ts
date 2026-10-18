@@ -112,6 +112,10 @@ export async function getTask(id: string) {
   const { data } = await http.get<InspectionTask>(`/iqc/tasks/${id}`);
   return data;
 }
+export async function getTaskConfiguration(id:string) {
+  const {data}=await http.get<InspectionTask>(`/iqc/tasks/${encodeURIComponent(id)}/configuration`);
+  return data;
+}
 export async function listTaskExecutions(id: string) {
   const { data } = await http.get<TaskExecutionSummary[]>(`/iqc/tasks/${id}/executions`);
   return data;

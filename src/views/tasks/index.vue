@@ -3,13 +3,14 @@ import type {AutomaticRetryState} from '@/api/automatic-retry';
 import AutomaticRetryPanel from '@/components/AutomaticRetryPanel.vue';
 import ModelGatewayCalls from '@/components/ModelGatewayCalls.vue';
 import TriggerAttemptHistory from '@/components/TriggerAttemptHistory.vue';
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { message, Modal } from "ant-design-vue";
 import { useRouter } from "vue-router";
 import {
   cancelTask,
   createTask,
   getTask,
+  getTaskConfiguration,
   listTasks,
   runTask,
   pauseTask,
@@ -81,6 +82,9 @@ const labelTree = ref<LabelTree>({ categories: [], groups: [], labels: [] });
 const labelCollections = ref<LabelCollection[]>([]);
 const detailOpen = ref(false);
 const detail = ref<InspectionTask>();
+const configurationLoading=ref(false);let detailGeneration=0;
+watch(detailOpen,open=>{if(!open){++detailGeneration;detail.value=undefined;configurationLoading.value=false;}});
+onBeforeUnmount(()=>{++detailGeneration;detail.value=undefined;});
 function updateRetryDetail(value:AutomaticRetryState){if(!detail.value)return;detail.value={...detail.value,retryPolicyHash:value.policyHash??undefined,automaticRetryEnabled:value.enabled,retryNotBeforeUtc:value.nextRetryAtUtc??undefined,retryError:value.error??undefined};}
 const resultOpen = ref(false),
   conversationResultOpen = ref(false),
@@ -327,13 +331,23 @@ function taskTypeLabel(taskType?: string) {
   return taskType === "SCHEDULED" ? "定时筛选" : taskType === "SAMPLE" ? "随机抽样" : "立即批量";
 }
 async function showDetail(id: string) {
+  const ticket=++detailGeneration;detail.value=undefined;configurationLoading.value=false;
   try {
-    detail.value = await getTask(id);
-    detailOpen.value = true;
-  } catch {
-    message.error("任务详情加载失败");
-  }
+    const row=await getTask(id);if(ticket!==detailGeneration)return;
+    detail.value=row;detailOpen.value=true;
+  } catch {if(ticket===detailGeneration)message.error("任务详情加载失败");}
 }
+async function readConfiguration(){
+  const current=detail.value;if(!current||configurationLoading.value)return;
+  const ticket=++detailGeneration;configurationLoading.value=true;
+  detail.value={...current,agentSnapshotJson:undefined,ruleSnapshotJson:undefined,labelScopeSnapshotJson:undefined,autoExpandPrompt:undefined,
+    privacy:{policyVersion:'iqc-task-read-v1',snapshotsVisible:false,canReadFull:false,canReadPii:false,canReadPrompt:false,withheldFields:['agentSnapshotJson','ruleSnapshotJson','labelScopeSnapshotJson','autoExpandPrompt']}};
+  try{const row=await getTaskConfiguration(current.id);
+    if(ticket===detailGeneration&&detailOpen.value&&detail.value?.id===current.id)detail.value=row;
+  }catch{if(ticket===detailGeneration&&detailOpen.value)message.error('冻结配置读取失败，请核对当前任务、完整会话、PII及Prompt权限。');}
+  finally{if(ticket===detailGeneration)configurationLoading.value=false;}
+}
+
 function openCreate() {
   const recent = localStorage.getItem("iqc-last-conversation-id");
   form.value = {
@@ -1134,7 +1148,7 @@ onBeforeUnmount(() => {
           <a-descriptions-item v-if="detail.triggerPayloadHash" label="输入指纹">{{ detail.triggerPayloadHash }}</a-descriptions-item>
           <a-descriptions-item v-if="detail.triggerRequestHash" label="请求指纹">{{ detail.triggerRequestHash }}</a-descriptions-item>
         </a-descriptions>
-      </template><a-alert v-if="!detailSnapshotsVisible" type="info" show-icon message="创建时冻结配置受权限限制，当前未展示；不能据此判断该任务没有规则或 Agent。" class="snapshot-tip"/><template v-if="detailSnapshotsVisible"><a-divider orientation="left">创建时执行策略与 Agent 配置</a-divider
+      </template><a-button v-if="can('iqc:sensitive:prompt:read')" :loading="configurationLoading" @click="readConfiguration">读取冻结配置与 Prompt</a-button><a-alert v-if="!detailSnapshotsVisible" type="info" show-icon message="创建时冻结配置受权限限制，当前未展示；不能据此判断该任务没有规则或 Agent。" class="snapshot-tip"/><template v-if="detailSnapshotsVisible"><a-divider orientation="left">创建时执行策略与 Agent 配置</a-divider
       ><a-alert type="info" show-icon message="以下内容来自任务创建时的不可变快照，后续修改 Agent 不会影响这里。" class="snapshot-tip"/>
       <a-descriptions bordered :column="1">
         <a-descriptions-item label="Agent">{{ detailAgent?.name || "—" }}<span v-if="detailAgent?.code"> · {{ detailAgent.code }}</span></a-descriptions-item>
