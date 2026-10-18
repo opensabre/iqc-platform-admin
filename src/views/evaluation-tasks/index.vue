@@ -47,7 +47,22 @@ const benchmarkBaselineId=computed(()=>{try{const marker=JSON.parse(selected.val
 async function loadResults(p=1,ticket=generation){if(!selected.value||!executionId.value||!can('iqc:evaluation:results:view'))return;const request=++resultGeneration;const d=await listEvaluationResults(selected.value.id,executionId.value,p);if(ticket===generation&&request===resultGeneration){results.value=d.records;resultPage.value=p;resultTotal.value=d.total;}}
 async function loadRound(){const ticket=++generation;++detailGeneration;report.value=undefined;results.value=[];resultTotal.value=0;detail.value='';busy.value=true;error.value='';try{const id=selected.value?.id;if(!id||!executionId.value){error.value='该评测任务尚未执行，请到任务页执行。';return;}const work:Promise<unknown>[]=[loadResults(1,ticket)];if(can('iqc:evaluation:report:view'))work.push(getEvaluationReport(id,executionId.value).then(d=>{if(ticket===generation)report.value=d;}));const done=await Promise.allSettled(work);if(ticket===generation&&done.some(r=>r.status==='rejected'))error.value='部分评测数据加载失败，请刷新；未执行任务还没有报告。';}finally{if(ticket===generation)busy.value=false;}}
 async function selectTask(id:string){const ticket=++generation;busy.value=true;error.value='';report.value=undefined;results.value=[];detail.value='';selected.value=undefined;rounds.value=[];try{const [task,history]=await Promise.all([getTask(id),listTaskExecutions(id)]);if(ticket!==generation)return;if(task.taskType!=='PIPELINE_EVALUATION')throw Error();selected.value=task;rounds.value=history;executionId.value=task.currentExecutionId||history[0]?.id;await loadRound();}catch{if(ticket===generation){error.value='任务加载失败，或该任务不是评测任务。';busy.value=false;}}}
-async function viewResult(row:EvaluationResult){if(!selected.value)return;const ticket=++detailGeneration,id=selected.value.id;try{const d=await getEvaluationResult(id,row.id);if(ticket===detailGeneration&&selected.value?.id===id)detail.value=JSON.stringify({...d,actual:d.actualJson?JSON.parse(d.actualJson):null,actualJson:undefined},null,2);}catch{message.error('评测产物加载失败');}}
+async function viewResult(row:EvaluationResult){
+ if(!selected.value)return;
+ const ticket=++detailGeneration,id=selected.value.id;detail.value='';
+ try{const d=await getEvaluationResult(id,row.id);
+  if(ticket!==detailGeneration||selected.value?.id!==id)return;
+  const metadata={...d,actualJson:undefined};
+  if(d.privacy){
+   if(d.privacy.policyVersion!=='iqc-evaluation-read-v1'){detail.value='展示协议不受支持，未显示产物正文。';return;}
+   if(d.privacy.canonicalPayloadVisible!==true||d.privacy.canReadFull!==true||d.privacy.canReadPii!==true||d.privacy.canReadPrompt!==true){
+    detail.value='受限展示：仅运行摘要，原始变量、事实值和轨迹正文未展示；不能据此视作无命中或重新计算原产物摘要。\n'+JSON.stringify(metadata,null,2);return;
+   }
+  }
+  detail.value=JSON.stringify(metadata,null,2)+(d.actualJson?'\n原始机器产物（保留数值原文）：\n'+d.actualJson:'\n响应未包含机器产物正文。');
+ }catch{if(ticket===detailGeneration&&selected.value?.id===id)detail.value='评测产物加载失败，请重新读取。';}
+}
+
 function showTask(id:string){void router.replace({path:'/evaluation/tasks',query:{taskId:id}});}
 watch(()=>route.query.taskId,id=>{if(typeof id==='string')void selectTask(id);else{++generation;++detailGeneration;++resultGeneration;selected.value=undefined;report.value=undefined;results.value=[];rounds.value=[];detail.value='';busy.value=false;}});
 onMounted(()=>{void refresh();if(typeof route.query.taskId==='string')void selectTask(route.query.taskId);});
