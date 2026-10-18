@@ -1129,7 +1129,7 @@ onBeforeUnmount(() => {
         <a-divider orientation="left">接入事件</a-divider><a-descriptions bordered :column="1">
           <a-descriptions-item label="来源">{{ triggerSourceLabel(detail.triggerSource) }}</a-descriptions-item>
           <a-descriptions-item label="事件 ID">{{ detail.triggerEventId || '—' }}</a-descriptions-item>
-          <a-descriptions-item v-if="detail.triggerError || detail.status==='WAITING_INPUT'" label="等待或未完成原因">{{ detail.triggerError || '等待接入会话' }}</a-descriptions-item>
+          <a-descriptions-item v-if="detail.triggerError || detail.status==='WAITING_INPUT'" label="等待或未完成原因">{{ detail.privacy?.withheldFields?.includes('triggerError') ? '接入原因未展示' : detail.triggerError || '等待接入会话' }}</a-descriptions-item>
           <a-descriptions-item v-if="detail.triggerRetryNotBeforeUtc" label="最早重试 UTC">{{ detail.triggerRetryNotBeforeUtc }}</a-descriptions-item>
           <a-descriptions-item v-if="detail.triggerPayloadHash" label="输入指纹">{{ detail.triggerPayloadHash }}</a-descriptions-item>
           <a-descriptions-item v-if="detail.triggerRequestHash" label="请求指纹">{{ detail.triggerRequestHash }}</a-descriptions-item>
