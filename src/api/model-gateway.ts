@@ -31,3 +31,6 @@ export const getModelMonitoringHistory=(range:ModelMonitoringRange)=>http.get<Mo
 
 export interface ModelMonitoringSource {available:boolean;message:string;targets:string|null}
 export const getModelMonitoringSource=()=>http.get<ModelMonitoringSource>('/iqc/model-gateway/monitoring/status').then(r=>r.data);
+
+export interface ModelDiagnostic {schemaVersion:string;callId:string;taskId:string;executionId:string;state:string;recordedAtUtc?:string|null;expiresAtUtc?:string|null;requestJson?:string|null;responseJson?:string|null}
+export const getModelDiagnostic=(taskId:string,callId:string)=>http.get<ModelDiagnostic>(`/iqc/tasks/${encodeURIComponent(taskId)}/model-calls/${encodeURIComponent(callId)}/diagnostics`).then(r=>r.data);
