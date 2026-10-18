@@ -169,6 +169,7 @@ function parseSnapshot<T>(value?: string | T): T | undefined {
     return undefined;
   }
 }
+const detailSnapshotsVisible=computed(()=>!detail.value?.privacy||detail.value.privacy.policyVersion==='iqc-task-read-v1'&&detail.value.privacy.snapshotsVisible===true&&detail.value.privacy.canReadFull===true&&detail.value.privacy.canReadPii===true&&detail.value.privacy.canReadPrompt===true);
 const detailAgent = computed(() =>
   parseSnapshot<TaskAgentSnapshot>(detail.value?.agentSnapshotJson)
 );
@@ -489,6 +490,7 @@ async function submit() {
   }
 }
 function conversationCount(task: InspectionTask) {
+  if(task.taskPresentation)return task.taskPresentation.schemaVersion==='iqc-task-presentation-v1'?task.taskPresentation.conversationCount??'未知':'未知';
   try {
     return task.conversationIdsJson
       ? JSON.parse(task.conversationIdsJson).length
@@ -1132,7 +1134,7 @@ onBeforeUnmount(() => {
           <a-descriptions-item v-if="detail.triggerPayloadHash" label="输入指纹">{{ detail.triggerPayloadHash }}</a-descriptions-item>
           <a-descriptions-item v-if="detail.triggerRequestHash" label="请求指纹">{{ detail.triggerRequestHash }}</a-descriptions-item>
         </a-descriptions>
-      </template><a-divider orientation="left">创建时执行策略与 Agent 配置</a-divider
+      </template><a-alert v-if="!detailSnapshotsVisible" type="info" show-icon message="创建时冻结配置受权限限制，当前未展示；不能据此判断该任务没有规则或 Agent。" class="snapshot-tip"/><template v-if="detailSnapshotsVisible"><a-divider orientation="left">创建时执行策略与 Agent 配置</a-divider
       ><a-alert type="info" show-icon message="以下内容来自任务创建时的不可变快照，后续修改 Agent 不会影响这里。" class="snapshot-tip"/>
       <a-descriptions bordered :column="1">
         <a-descriptions-item label="Agent">{{ detailAgent?.name || "—" }}<span v-if="detailAgent?.code"> · {{ detailAgent.code }}</span></a-descriptions-item>
@@ -1181,7 +1183,7 @@ onBeforeUnmount(() => {
           <pre v-if="item.expression" class="snapshot-text snapshot-expression">{{ item.expression }}</pre>
           <a-empty v-else description="该规则快照没有配置内容" :image-style="{ height: '36px' }" />
         </a-collapse-panel>
-      </a-collapse>
+      </a-collapse></template>
       ></template
     ></a-drawer
   >
