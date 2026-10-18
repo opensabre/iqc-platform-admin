@@ -15,7 +15,7 @@ export const reviewGold=(id:string,data:{expectedRevision:number;approve:boolean
 export const listGoldVersions=(id:string,current=1,size=20)=>http.get<PageResult<GoldVersion>>(`${gold(id)}/versions`,{params:{current,size}}).then(r=>r.data);
 export const getGoldVersion=(id:string,no:number)=>http.get<GoldVersion>(`${gold(id)}/versions/${no}`).then(r=>r.data);
 export interface DatasetDraft {schemaVersion:'iqc-dataset-draft-v1';type:'BASIC'|'BOUNDARY'|'RISK'|'ADVERSARIAL'|'REGRESSION'|'CUSTOM';description?:string;members:Array<{sampleId:string;versionNo:number}>}
-export interface Dataset {id:string;name:string;datasetType:DatasetDraft['type'];draftConfigJson:string;draftRevision:number;activeVersion?:number;status:string}
+export interface Dataset {id:string;name:string;datasetType:DatasetDraft['type'];draftConfigJson:string|null;draftRevision:number;activeVersion?:number;status:string;privacy?:{policyVersion:string;canonicalPayloadVisible:boolean;canReadFull:boolean;canReadPii:boolean;withheldFields:string[];previewState:string;members?:Array<{sampleId:string;versionNo:number}>}}
 export interface DatasetVersionPrivacy {policyVersion:string;canonicalPayloadVisible:boolean;canReadFull:boolean;canReadPii:boolean;withheldFields:string[];previewState?:string;members?:Array<{sampleId:string;versionNo:number;contentHash:string;privacy:SampleReadPrivacy}>}
 export interface DatasetVersion {id:string;datasetId:string;versionNo:number;sourceDraftRevision:number;sampleCount:number;snapshotJson?:string|null;contentHash:string;privacy?:DatasetVersionPrivacy;createdTime?:string}
 const datasets='/iqc/evaluation/datasets';
