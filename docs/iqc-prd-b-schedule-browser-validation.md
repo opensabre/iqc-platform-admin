@@ -40,3 +40,5 @@
 最终专项 `/tmp/iqc-b-schedule-lifecycle-final.log` 终态0，24项通过：两个页面保存/发布/启停成功与失败迟到、周期预览成功/失败迟到；保存后GET成功/失败迟到；卸载后才接受发布确认；正常保存仍更新修订及列表；已保存但读取失败仍保留明确提示并禁编辑。测试使用 happy-dom、API与权限mock，真实 Vue页面及响应续体，不替代真实浏览器、PDP或服务端事务证据。
 
 类型检查 `/tmp/iqc-b-schedule-lifecycle-typecheck.log` 原进程终态0。完整前端 Vitest 首轮 `/tmp/iqc-b-ui-lifecycle-full.log` 终态1：38文件、263项中262通过，唯一失败是已有 `PipelineDependencyGraph.spec.ts` 将新增连接按钮也当成节点，期望2但获得3；与生命周期修复无共享代码。不能称完整套件通过，需修正该旧测试的节点选择范围后核对。
+
+完整前端最终复跑 `/tmp/iqc-b-ui-lifecycle-full-final.log` 原进程终态0，38文件/263项全部通过（含生命周期24项及依赖图3项）。旧图测试只将节点选择范围改为 `g.graph-node[role="button"]`，另核对存在一个独立依赖连接，点击/键盘与失效图原断言保留；生产图组件未改。全套仍有既存组件stub缺失Vue警告，不代表真实浏览器组件联调。
