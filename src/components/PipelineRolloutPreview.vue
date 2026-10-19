@@ -55,7 +55,7 @@ function usePolicy(policy:PipelineRolloutPolicy){
 </script>
 <template>
 <a-collapse><a-collapse-panel key="rollout" header="灰度与回退分配预览">
-<a-alert type="info" message="分配预览只使用已发布版本；下方可单独保存策略配置修订，目前不改变实际任务路由。未保存草稿不参与。"/>
+<a-alert type="info" message="分配预览只使用已发布版本，不创建任务；下方保存的策略将用于后续新的灰度任务请求。未保存草稿不参与。"/>
 <p>按当前账号和请求键稳定分桶；扩量时保持盐不变。模型、Prompt、Skill、融合或流水线以外的变化会由服务端拒绝。</p>
 <a-button :loading="loading" :disabled="blocked||!can('iqc:pipeline:versions:view')" @click="loadVersions">加载已发布版本</a-button>
 <a-form layout="vertical"><a-form-item label="基线与候选版本"><a-space><a-select v-model:value="baseline" :disabled="blocked" placeholder="基线版本" :options="versions.map(v=>({value:v.versionNo,label:`v${v.versionNo} · ${v.contentHash.slice(0,12)}`}))" style="width:220px"/><a-select v-model:value="candidate" :disabled="blocked" placeholder="候选版本" :options="versions.map(v=>({value:v.versionNo,label:`v${v.versionNo} · ${v.contentHash.slice(0,12)}`}))" style="width:220px"/></a-space></a-form-item>
