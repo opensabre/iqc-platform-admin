@@ -5,10 +5,11 @@ export interface SelectorPreviewPrivacy {policyVersion:string;piiVisible:boolean
 export interface SelectorPreview {privacy?:SelectorPreviewPrivacy;schemaVersion:string;anchor:string;resolvedWindow:{field:string;from:string;to:string;zoneId:string;storageZoneId:string}|null;candidateCount:number;matchedCount:number;sampledCount:number;selectedCount:number;limited:boolean;matchedDistribution:{employees:Record<string,number>|null;teams:Record<string,number>;departments:Record<string,number>};selectedDistribution:{employees:Record<string,number>|null;teams:Record<string,number>;departments:Record<string,number>};preview:Array<{conversationId:string;fileName:string;employeeId:string|null;employeeGroupId:string;employeeDepartmentId:string;channel:string;startedTime:string;riskLevel:string}>;definitionHash:string}
 export async function previewSelector(definition:SelectorDefinition,previewSize=10){const {data}=await http.post<SelectorPreview>('/iqc/selectors/preview',{definition,previewSize});return data;}
 
+export interface SelectorAssetPrivacy {policyVersion:string;canonicalPayloadVisible:boolean;canReadFull:boolean;canReadPii:boolean;withheldFields:string[]}
 export interface SelectorAssetReference {selectorId:string;versionNo:number}
-export interface SelectorAsset {id:string;code:string;name:string;draftConfigJson:string;draftRevision:number;activePublishedVersion:number|null;status:string;ownerGroupId?:string|null;createdTime?:string}
-export interface SelectorAssetVersion {id:string;selectorId:string;versionNo:number;sourceDraftRevision:number;snapshotJson:string;contentHash:string;createdTime?:string}
-export interface PublishedSelector extends SelectorAssetReference {sourceDraftRevision:number;definition:SelectorDefinition;contentHash:string;ownerGroupId:string|null}
+export interface SelectorAsset {id:string;code:string;name:string;draftConfigJson:string|null;privacy?:SelectorAssetPrivacy;draftRevision:number;activePublishedVersion:number|null;status:string;ownerGroupId?:string|null;createdTime?:string}
+export interface SelectorAssetVersion {id:string;selectorId:string;versionNo:number;sourceDraftRevision:number;snapshotJson:string|null;privacy?:SelectorAssetPrivacy;contentHash:string;createdTime?:string}
+export interface PublishedSelector extends SelectorAssetReference {sourceDraftRevision:number;definition:SelectorDefinition|null;definitionJson?:string|null;availableForNewTasks?:boolean|null;privacy?:SelectorAssetPrivacy;contentHash:string;ownerGroupId:string|null}
 const assetPath=(id:string)=>`/iqc/selectors/assets/${encodeURIComponent(id)}`;
 export const listSelectorAssets=(current=1,size=20)=>http.get<{records:SelectorAsset[];total:number}>('/iqc/selectors/assets',{params:{current,size}}).then(r=>r.data);
 export const getSelectorAsset=(id:string)=>http.get<SelectorAsset>(assetPath(id)).then(r=>r.data);
@@ -29,3 +30,5 @@ export function selectorJsonNeedsExactEditor(raw:string):boolean {
 
 export function selectorPreviewSupported(value:SelectorPreview){return !value.privacy||value.privacy.policyVersion==='iqc-selector-preview-read-v1';}
 export function selectorPreviewRestricted(value:SelectorPreview){const p=value.privacy;return !!p&&(p.policyVersion!=='iqc-selector-preview-read-v1'||p.piiVisible!==true||p.canReadFull!==true||p.canReadPii!==true);}
+
+export function selectorAssetRestricted(value:{privacy?:SelectorAssetPrivacy}){const p=value.privacy;return !!p&&(p.policyVersion!=='iqc-selector-read-v1'||p.canonicalPayloadVisible!==true||p.canReadFull!==true||p.canReadPii!==true);}
