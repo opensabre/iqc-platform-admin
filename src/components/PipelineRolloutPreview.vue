@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed,onBeforeUnmount,ref,watch} from 'vue';
+import PipelineRolloutHistory from './PipelineRolloutHistory.vue';
 import {usePermission} from '@/composables/permission';
 import {listPipelineVersions,previewPipelineRollout,type PipelineRolloutPolicy,type PipelineRolloutDecision} from '@/api/pipelines';
 import type {BenchmarkDimension} from '@/api/benchmarks';
@@ -8,12 +9,13 @@ const {can}=usePermission();
 const versions=ref<Array<{versionNo:number;contentHash:string}>>([]),loading=ref(false),busy=ref(false),error=ref('');
 const baseline=ref<number>(),candidate=ref<number>(),basisPoints=ref(1000),salt=ref('iqc-rollout-v1'),requestKey=ref<string>(crypto.randomUUID());
 const state=ref<PipelineRolloutPolicy['state']>('ACTIVE'),dimension=ref<BenchmarkDimension>('PROMPT'),nodeId=ref(''),slot=ref<number|null>(null),decision=ref<PipelineRolloutDecision>();
+const verifiedPolicy=ref<PipelineRolloutPolicy>();
 let generation=0,versionGeneration=0;
 const dimensions=[{value:'PROMPT',label:'Prompt'},{value:'MODEL',label:'模型'},{value:'SKILL',label:'Skill'},{value:'FUSION',label:'融合策略'},{value:'PIPELINE',label:'流水线'}];
 const needsNode=computed(()=>['PROMPT','MODEL','SKILL'].includes(dimension.value));
 const allowsSlot=computed(()=>['MODEL','SKILL'].includes(dimension.value));
 const blocked=computed(()=>!!props.disabled||busy.value||loading.value);
-watch(()=>JSON.stringify([props.pipelineId,baseline.value,candidate.value,basisPoints.value,salt.value,requestKey.value,state.value,dimension.value,nodeId.value,slot.value]),()=>{++generation;decision.value=undefined;error.value='';});
+watch(()=>JSON.stringify([props.pipelineId,baseline.value,candidate.value,basisPoints.value,salt.value,requestKey.value,state.value,dimension.value,nodeId.value,slot.value]),()=>{++generation;decision.value=undefined;verifiedPolicy.value=undefined;error.value='';});
 watch(()=>props.pipelineId,()=>{++versionGeneration;loading.value=false;busy.value=false;versions.value=[];baseline.value=undefined;candidate.value=undefined;});
 onBeforeUnmount(()=>{++generation;++versionGeneration;decision.value=undefined;});
 async function loadVersions(){
@@ -30,7 +32,7 @@ async function preview(){
   error.value='请选择两个不同发布版本，填写有效分桶盐、请求键、比例及实际节点。';return;
  }
  if(allowsSlot.value&&slot.value!=null&&(!Number.isInteger(slot.value)||slot.value<0||slot.value>255)){error.value='槽位须为0至255整数或留空。';return;}
- const id=props.pipelineId,ticket=++generation;busy.value=true;decision.value=undefined;error.value='';
+ const id=props.pipelineId,ticket=++generation;busy.value=true;decision.value=undefined;verifiedPolicy.value=undefined;error.value='';
  const policy:PipelineRolloutPolicy={schemaVersion:'iqc-pipeline-rollout-v1',pipelineId:id,baselineVersionNo:baseline.value,candidateVersionNo:candidate.value,
   candidateBasisPoints:basisPoints.value,cohortSalt:salt.value,state:state.value,variable:{dimension:dimension.value,...(needsNode.value?{nodeId:nodeId.value.trim()}:{}),...(allowsSlot.value&&slot.value!=null?{slot:slot.value}:{})}};
  try{const data=await previewPipelineRollout(id,policy,requestKey.value);
@@ -41,14 +43,19 @@ async function preview(){
    ||data.candidateVersionNo!==policy.candidateVersionNo||data.candidateBasisPoints!==policy.candidateBasisPoints||!Number.isInteger(data.bucket)||data.bucket<0||data.bucket>=10000
    ||data.side!==expectedSide||data.selectedVersionNo!==expectedVersion||versions.value.find(v=>v.versionNo===expectedVersion)?.contentHash!==data.selectedReleaseHash
    ||!/^[a-f0-9]{64}$/.test(data.policyHash)||!/^[a-f0-9]{64}$/.test(data.cohortHash)){error.value='预览协议或来源不匹配，请重新读取。';return;}
-  decision.value=data;
+  decision.value=data;verifiedPolicy.value=policy;
  }catch{if(ticket===generation)error.value='预览未通过，请核对版本可用性、当前权限和单变量声明；不会修改任务路由。';}
  finally{if(ticket===generation)busy.value=false;}
+}
+function usePolicy(policy:PipelineRolloutPolicy){
+ if(blocked.value||policy.pipelineId!==props.pipelineId)return;
+ baseline.value=policy.baselineVersionNo;candidate.value=policy.candidateVersionNo;basisPoints.value=policy.candidateBasisPoints;
+ salt.value=policy.cohortSalt;state.value=policy.state;dimension.value=policy.variable.dimension;nodeId.value=policy.variable.nodeId??'';slot.value=policy.variable.slot??null;
 }
 </script>
 <template>
 <a-collapse><a-collapse-panel key="rollout" header="灰度与回退分配预览">
-<a-alert type="info" message="仅预览已发布版本的分配，不保存灰度策略、不创建任务、不改变实际路由。未保存草稿不参与。"/>
+<a-alert type="info" message="分配预览只使用已发布版本；下方可单独保存策略配置修订，目前不改变实际任务路由。未保存草稿不参与。"/>
 <p>按当前账号和请求键稳定分桶；扩量时保持盐不变。模型、Prompt、Skill、融合或流水线以外的变化会由服务端拒绝。</p>
 <a-button :loading="loading" :disabled="blocked||!can('iqc:pipeline:versions:view')" @click="loadVersions">加载已发布版本</a-button>
 <a-form layout="vertical"><a-form-item label="基线与候选版本"><a-space><a-select v-model:value="baseline" :disabled="blocked" placeholder="基线版本" :options="versions.map(v=>({value:v.versionNo,label:`v${v.versionNo} · ${v.contentHash.slice(0,12)}`}))" style="width:220px"/><a-select v-model:value="candidate" :disabled="blocked" placeholder="候选版本" :options="versions.map(v=>({value:v.versionNo,label:`v${v.versionNo} · ${v.contentHash.slice(0,12)}`}))" style="width:220px"/></a-space></a-form-item>
@@ -60,6 +67,7 @@ async function preview(){
 <a-form-item label="请求键"><a-input v-model:value="requestKey" :disabled="blocked" :maxlength="128"/></a-form-item></a-form>
 <a-button :loading="busy" :disabled="blocked" @click="preview">计算预览</a-button><a-alert v-if="error" type="warning" :message="error"/>
 <template v-if="decision"><p>桶 {{decision.bucket}} / 10000 · {{decision.side==='CANDIDATE'?'候选':'基线'}} · 精确版本 v{{decision.selectedVersionNo}}</p><p>发布摘要 {{decision.selectedReleaseHash}}</p><details><summary>策略、分桶及单变量比较摘要</summary><pre>{{JSON.stringify(decision,null,2)}}</pre></details></template>
+<PipelineRolloutHistory :key="`history:${pipelineId}`" :pipeline-id="pipelineId" :policy="verifiedPolicy" :disabled="blocked" @use-policy="usePolicy"/>
 </a-collapse-panel></a-collapse>
 </template>
 <style scoped>.ant-alert{margin:12px 0}pre{max-height:320px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}</style>
