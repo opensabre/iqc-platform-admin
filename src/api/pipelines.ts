@@ -33,3 +33,9 @@ export async function getPublicationGate(id:string,expectedRevision:number,evide
 export interface PipelineRolloutPolicy {schemaVersion:'iqc-pipeline-rollout-v1';pipelineId:string;baselineVersionNo:number;candidateVersionNo:number;candidateBasisPoints:number;cohortSalt:string;state:'ACTIVE'|'ROLLED_BACK';variable:import('./benchmarks').BenchmarkSelection}
 export interface PipelineRolloutDecision {schemaVersion:string;pipelineId:string;policyHash:string;cohortHash:string;bucket:number;baselineVersionNo:number;candidateVersionNo:number;candidateBasisPoints:number;state:PipelineRolloutPolicy['state'];side:'BASELINE'|'CANDIDATE';selectedVersionNo:number;selectedReleaseHash:string;comparison:Record<string,unknown>}
 export const previewPipelineRollout=(id:string,policy:PipelineRolloutPolicy,requestKey:string)=>http.post<PipelineRolloutDecision>(`/iqc/pipelines/${encodeURIComponent(id)}/rollout-preview`,{policy,requestKey}).then(r=>r.data);
+
+export interface PipelineRolloutRevision {id:string;revisionNo:number;contentHash:string;createdTime:string|null;snapshot:{schemaVersion:string;pipelineId:string;revisionNo:number;previousContentHash:string|null;policy:PipelineRolloutPolicy;policyHash:string;baselineReleaseHash:string;candidateReleaseHash:string;change:'ACTIVATE'|'EXPAND'|'REDUCE'|'REPLACE'|'RESUME'|'ROLLBACK'}}
+export interface PipelineRolloutCurrent {revisionNo:number;revision:PipelineRolloutRevision|null}
+export const getPipelineRollout=(id:string)=>http.get<PipelineRolloutCurrent>(`${path(id)}/rollout`).then(r=>r.data);
+export const listPipelineRolloutRevisions=(id:string,beforeRevision?:number)=>http.get<PipelineRolloutRevision[]>(`${path(id)}/rollout/revisions`,{params:{beforeRevision,limit:20}}).then(r=>r.data);
+export const savePipelineRollout=(id:string,expectedRevision:number,policy:PipelineRolloutPolicy)=>http.post<PipelineRolloutRevision>(`${path(id)}/rollout/revisions`,{expectedRevision,policy}).then(r=>r.data);
