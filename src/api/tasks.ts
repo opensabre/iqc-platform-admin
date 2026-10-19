@@ -50,7 +50,7 @@ export interface TaskRuleSnapshot {
 }
 
 export interface InspectionTask {
-  taskPresentation?:{schemaVersion:string;kind:string;labelOnly:boolean|null;hasLabels:boolean|null;schemeDraftRevision?:number;selectedVariantCode?:string;conversationCount?:number|null;benchmarkBaselineTaskId?:string};
+  taskPresentation?:{schemaVersion:string;kind:string;labelOnly:boolean|null;hasLabels:boolean|null;schemeDraftRevision?:number;selectedVariantCode?:string;conversationCount?:number|null;benchmarkBaselineTaskId?:string;rollout?:{schemaVersion:string;policyRevision:number;side:'BASELINE'|'CANDIDATE';selectedVersionNo:number;selectedReleaseHash:string}};
   privacy?:{policyVersion:string;snapshotsVisible:boolean;canReadFull:boolean;canReadPii:boolean;canReadPrompt:boolean;withheldFields:string[]};
   id: string;
   conversationId?: string;

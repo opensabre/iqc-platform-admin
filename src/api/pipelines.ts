@@ -39,3 +39,5 @@ export interface PipelineRolloutCurrent {revisionNo:number;revision:PipelineRoll
 export const getPipelineRollout=(id:string)=>http.get<PipelineRolloutCurrent>(`${path(id)}/rollout`).then(r=>r.data);
 export const listPipelineRolloutRevisions=(id:string,beforeRevision?:number)=>http.get<PipelineRolloutRevision[]>(`${path(id)}/rollout/revisions`,{params:{beforeRevision,limit:20}}).then(r=>r.data);
 export const savePipelineRollout=(id:string,expectedRevision:number,policy:PipelineRolloutPolicy)=>http.post<PipelineRolloutRevision>(`${path(id)}/rollout/revisions`,{expectedRevision,policy}).then(r=>r.data);
+
+export const createPipelineRolloutTask=(id:string,body:{name:string;conversationIds:string[];concurrency?:number;requestKey:string})=>http.post<InspectionTask>(`${path(id)}/rollout/tasks`,body).then(r=>r.data);

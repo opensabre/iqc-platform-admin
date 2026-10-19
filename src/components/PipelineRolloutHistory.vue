@@ -46,7 +46,7 @@ async function save(){
  let saved=false;
  try{const row=await savePipelineRollout(id,expected,policy);if(ticket!==generation)return;
   if(!valid(row)||row.revisionNo!==expected+1||!samePolicy(row.snapshot.policy,policy))throw Error();
-  saved=true;notice.value=`配置修订 r${row.revisionNo} 已保存；尚未接入任务路由。`;
+  saved=true;notice.value=`配置修订 r${row.revisionNo} 已保存；将用于后续新的灰度任务请求，已有任务保留原分配。`;
   if(can('iqc:pipeline:rollout:view')){const data=await getPipelineRollout(id);if(ticket!==generation)return;
    if(!data.revision||!valid(data.revision)||data.revisionNo!==data.revision.revisionNo||data.revisionNo<row.revisionNo)throw Error();current.value=data;}
  }catch{if(ticket===generation)error.value=saved?'保存已成功，当前策略重读失败，请重新读取；不要重复保存。':'未确认保存结果或修订已变化，请重新读取当前策略后核对。';}
@@ -55,7 +55,7 @@ async function save(){
 </script>
 <template>
 <a-divider>灰度策略配置与修订历史</a-divider>
-<a-alert type="info" message="当前只持久化策略配置与修订历史，尚未接入实际任务路由。保存需要已通过服务端预览的当前表单。"/>
+<a-alert type="info" message="保存策略后用于后续新的灰度任务请求，已有任务保留原分配。保存需要已通过服务端预览的当前表单。"/>
 <a-space wrap>
 <a-button v-if="can('iqc:pipeline:rollout:view')" :disabled="busy||disabled" @click="readCurrent">读取当前策略</a-button>
 <a-button v-if="can('iqc:pipeline:rollout:history:view')" :disabled="busy||disabled" @click="readHistory(false)">读取修订历史</a-button>
