@@ -27,7 +27,9 @@ describe('pipeline dependency visualization',()=>{
     app=createApp(defineComponent({setup:()=>()=>h(PipelineDependencyGraph,{nodes:nodes.value,onSelect:select})}));
     app.component('AAlert',defineComponent({props:['message'],setup:p=>()=>h('p',String(p.message))}));
     app.mount(host);await nextTick();
-    const buttons=host.querySelectorAll('g[role="button"]');expect(buttons).toHaveLength(2);
+    // Connections are keyboard buttons too; node activation targets only node groups.
+    const buttons=host.querySelectorAll('g.graph-node[role="button"]');expect(buttons).toHaveLength(2);
+    expect(host.querySelectorAll('g[aria-label^="选择依赖连接"]')).toHaveLength(1);
     buttons[1].dispatchEvent(new MouseEvent('click',{bubbles:true}));expect(select).toHaveBeenLastCalledWith(1);
     buttons[0].dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));expect(select).toHaveBeenLastCalledWith(0);
     nodes.value=[node('first',['missing'])];await nextTick();
