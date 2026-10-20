@@ -391,6 +391,7 @@ async function openEditor(scheme?: InspectionScheme) {
   } catch (reason) { fail(reason); }
 }
 function validAgentVersion(v: QualityAgentVersion) {
+  if(v.privacy)return v.status==='PUBLISHED'&&v.privacy.policyVersion==='iqc-agent-read-v1'&&v.agentPresentation?.policyVersion==='iqc-agent-presentation-v1'&&v.agentPresentation.state==='AVAILABLE'&&v.agentPresentation.schemaVersion==='3.0';
   try { return v.status === "PUBLISHED" && JSON.parse(v.configJson || "{}").schemaVersion === "3.0"; } catch { return false; }
 }
 async function selectAgent(id?: string) {

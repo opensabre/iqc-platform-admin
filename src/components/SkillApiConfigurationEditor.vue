@@ -3,7 +3,7 @@ import {computed,onBeforeUnmount,ref,watch} from 'vue';
 import {listAgentVersions} from '@/api/config';
 import type {PipelineNode} from '@/api/pipelines';
 const props=defineProps<{config:PipelineNode['config'];disabled?:boolean;inference?:boolean}>();
-type Capability={id:string;code:string;name:string;versionNo:number;allowedToolsJson?:string};
+type Capability={id:string;code?:string;name?:string;versionNo:number;allowedToolsJson?:string};
 const models=ref<Capability[]>([]);
 const skills=ref<Capability[]>([]),servers=ref<Capability[]>([]),error=ref(''),loading=ref(false);
 let generation=0;
@@ -15,16 +15,22 @@ watch(()=>[props.config.agentReference?.id,props.config.agentReference?.versionN
  try{
   const versions=await listAgentVersions(reference.id);if(ticket!==generation)return;
   const selected=versions.find(v=>v.versionNo===reference.versionNo&&v.status==='PUBLISHED');
-  if(!selected?.configJson)throw Error('missing');
-  const snapshot=JSON.parse(selected.configJson);
-  if(snapshot.schemaVersion!=='3.0'||!Array.isArray(snapshot.assetSnapshots?.skills)||!Array.isArray(snapshot.assetSnapshots?.mcpServers))throw Error('missing');
-  skills.value=snapshot.assetSnapshots.skills;servers.value=snapshot.assetSnapshots.mcpServers;
-  models.value=[snapshot.assetSnapshots.primaryModel,...(snapshot.assetSnapshots.fallbackModels||[])].filter(Boolean);
+  if(!selected)throw Error('missing');
+  if(selected.privacy){
+   const metadata=selected.agentPresentation;
+   if(selected.privacy.policyVersion!=='iqc-agent-read-v1'||metadata?.policyVersion!=='iqc-agent-presentation-v1'||metadata.state!=='AVAILABLE'||metadata.schemaVersion!=='3.0'||metadata.capabilitiesState!=='AVAILABLE'||!Array.isArray(metadata.skills)||!Array.isArray(metadata.mcpServers)||!Array.isArray(metadata.models))throw Error('missing');
+   skills.value=metadata.skills;servers.value=metadata.mcpServers;models.value=metadata.models;
+  }else{
+   if(!selected.configJson)throw Error('missing');const snapshot=JSON.parse(selected.configJson);
+   if(snapshot.schemaVersion!=='3.0'||!Array.isArray(snapshot.assetSnapshots?.skills)||!Array.isArray(snapshot.assetSnapshots?.mcpServers))throw Error('missing');
+   skills.value=snapshot.assetSnapshots.skills;servers.value=snapshot.assetSnapshots.mcpServers;
+   models.value=[snapshot.assetSnapshots.primaryModel,...(snapshot.assetSnapshots.fallbackModels||[])].filter(Boolean);
+  }
  }catch{if(ticket===generation)error.value='无法加载该发布版本的Skill/MCP能力，请检查版本和权限后重试。';}
  finally{if(ticket===generation)loading.value=false;}
 },{immediate:true});
 onBeforeUnmount(()=>{generation++;});
-const options=(rows:Capability[])=>rows.map(row=>({value:row.id,label:`${row.name||row.code} · v${row.versionNo}`}));
+const options=(rows:Capability[])=>rows.map(row=>({value:row.id,label:`${row.name||row.code||row.id} · v${row.versionNo}`}));
 const toolOptions=computed(()=>{
  const server=servers.value.find(row=>row.id===props.config.mcpReference?.id&&row.versionNo===props.config.mcpReference?.versionNo);
  try{const tools=JSON.parse(server?.allowedToolsJson||'[]');return Array.isArray(tools)?tools.filter((v:unknown)=>typeof v==='string').map((v:string)=>({value:v,label:v})):[];}catch{return [];}

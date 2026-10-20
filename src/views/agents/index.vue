@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import { useRouter } from "vue-router";
-import { approveAgent, createAgent, createAgentVersion, disableAgent, listAgents, listMcpServers, listModelProfiles, listRuleSets, listSkills, rejectAgent, submitAgent, type AgentRuntimeConfig, type IqcMcpServer, type IqcModelProfile, type IqcSkill, type QualityAgent, type QualityRuleSet } from "@/api/config";
+import { approveAgent, createAgent, createAgentVersion, disableAgent, listAgents, listMcpServers, listModelProfiles, listRuleSets, listSkills, rejectAgent, submitAgent, agentPayloadRestricted, type AgentRuntimeConfig, type IqcMcpServer, type IqcModelProfile, type IqcSkill, type QualityAgent, type QualityRuleSet } from "@/api/config";
 import DictTag from "@/components/DictTag.vue";
 import { usePermission } from "@/composables/permission";
 
@@ -13,6 +13,9 @@ const { can } = usePermission();
 const agents = ref<QualityAgent[]>([]), models = ref<IqcModelProfile[]>([]), mcps = ref<IqcMcpServer[]>([]), skills = ref<IqcSkill[]>([]), ruleSets = ref<QualityRuleSet[]>([]);
 const modalOpen = ref(false), saving = ref(false), assetsLoading = ref(false), legacy = ref(false), currentStep = ref(0);
 const selected = ref<QualityAgent>();
+const restricted=ref(false),error=ref(''),legacyConfigJson=ref<string>();
+let listGeneration=0,assetGeneration=0,disposed=false;
+const writable=computed(()=>!restricted.value&&(selected.value?can('iqc:agent:version:manage'):can('iqc:agent:manage')));
 const form = ref({ name: "", code: "", description: "" });
 const runtime = ref<AgentRuntimeConfig>(defaults());
 const primaryModel = computed(() => models.value.find(item => item.id === runtime.value.primaryModelProfileId));
@@ -32,24 +35,41 @@ const currentStepKey = computed<StepKey>(() => activeSteps.value[currentStep.val
 const modeName = computed(() => runtime.value.schemaVersion === "3.0" ? "LLM 能力（策略由任务指定）" : modeNames[runtime.value.mode || ""] || "旧版兼容");
 const modeNames: Record<string, string> = { RULE_ONLY: "普通规则", RULE_THEN_LLM: "规则 + 智能体", LLM_THEN_RULE: "智能提取 + 规则复核", AGENT_LLM: "智能体" };
 
-function parseConfig(value?: string) { try { const parsed = value ? JSON.parse(value) : defaults(); if (parsed.schemaVersion === "3.0") return { ...defaults(), ...parsed }; if (parsed.schemaVersion === "2.0") { legacy.value = true; return { ...defaults(), ...parsed }; } legacy.value = true; return defaults(); } catch { legacy.value = true; return defaults(); } }
-function agentModeName(value?: string) { try { const config = JSON.parse(value || "{}"); return config.schemaVersion === "3.0" ? "LLM 能力" : `旧版：${modeNames[config.mode] || "未配置"}`; } catch { return "未配置"; } }
-async function refresh() { try { agents.value = await listAgents(); } catch { message.error("Agent 加载失败"); } }
+function parseConfig(value:string):AgentRuntimeConfig{
+ const parsed=JSON.parse(value);if(!parsed||typeof parsed!=='object'||Array.isArray(parsed)||!['1.0','2.0','3.0'].includes(parsed.schemaVersion))throw Error('Unsupported Agent config');
+ if(parsed.schemaVersion==='1.0'){legacy.value=true;legacyConfigJson.value=value;return defaults();}
+ legacy.value=parsed.schemaVersion==='2.0';return {...defaults(),...parsed};
+}
+function agentModeName(item:QualityAgent){
+ if(item.privacy){const p=item.agentPresentation;if(item.privacy.policyVersion!=='iqc-agent-read-v1'||p?.policyVersion!=='iqc-agent-presentation-v1'||p.state!=='AVAILABLE')return '配置摘要未提供';return p.schemaVersion==='3.0'?'LLM 能力':p.schemaVersion==='1.0'?'旧版内嵌配置':`旧版：${modeNames[p.mode||'']||'未声明模式'}`;}
+ try{const p=JSON.parse(item.configJson||'{}');return p.schemaVersion==='3.0'?'LLM 能力':`旧版：${modeNames[p.mode]||'未配置'}`;}catch{return '配置摘要未提供';}
+}
+function clearEditor(){selected.value=undefined;form.value={name:'',code:'',description:''};runtime.value=defaults();legacyConfigJson.value=undefined;restricted.value=false;legacy.value=false;models.value=[];mcps.value=[];skills.value=[];ruleSets.value=[];++assetGeneration;assetsLoading.value=false;}
+async function refresh(){
+ const ticket=++listGeneration;agents.value=[];error.value='';if(selected.value){modalOpen.value=false;clearEditor();}
+ try{const rows=await listAgents();if(!disposed&&ticket===listGeneration)agents.value=rows;}
+ catch{if(!disposed&&ticket===listGeneration)error.value='Agent重新读取失败，请重试；已完成操作不会撤销。';}
+}
 async function loadAssets() {
-  assetsLoading.value = true;
+  const ticket=++assetGeneration;assetsLoading.value = true;models.value=[];mcps.value=[];skills.value=[];ruleSets.value=[];
   try {
     const [modelResult, mcpResult, skillResult, ruleSetResult] = await Promise.allSettled([listModelProfiles(), listMcpServers(), listSkills(), runtime.value.schemaVersion === "3.0" ? Promise.resolve([] as QualityRuleSet[]) : listRuleSets()]);
+    if(disposed||ticket!==assetGeneration)return;
     if (modelResult.status === "fulfilled") models.value = modelResult.value.filter(item => item.status === "ENABLED");
     if (mcpResult.status === "fulfilled") mcps.value = mcpResult.value.filter(item => item.status === "ENABLED");
     if (skillResult.status === "fulfilled") skills.value = skillResult.value.filter(item => item.status === "ENABLED");
     if (ruleSetResult.status === "fulfilled") ruleSets.value = ruleSetResult.value;
     if (modelResult.status === "rejected") message.error("模型配置加载失败，请检查模型查看权限");
     else if (ruleSetResult.status === "rejected") message.warning("规则集加载失败；智能体模式仍可配置，普通规则模式暂不可保存");
-  } catch { message.error("关联资产加载失败"); }
-  finally { assetsLoading.value = false; }
+  } catch { if(!disposed&&ticket===assetGeneration)message.error("关联资产加载失败"); }
+  finally { if(!disposed&&ticket===assetGeneration)assetsLoading.value = false; }
 }
-function createNew() { selected.value = undefined; legacy.value = false; currentStep.value = 0; form.value = { name: "", code: "", description: "" }; runtime.value = defaults(); modalOpen.value = true; void loadAssets(); }
-function edit(item: QualityAgent) { selected.value = item; legacy.value = false; currentStep.value = 0; form.value = { name: item.name, code: item.code, description: item.description || "" }; runtime.value = parseConfig(item.configJson); modalOpen.value = true; void loadAssets(); }
+function createNew(){if(saving.value||disposed)return;clearEditor();currentStep.value=0;modalOpen.value=true;void loadAssets();}
+function edit(item:QualityAgent){
+ if(saving.value||disposed)return;clearEditor();selected.value=item;currentStep.value=0;form.value={name:item.name,code:item.code,description:item.description??''};restricted.value=agentPayloadRestricted(item)||!item.configJson;
+ if(!restricted.value)try{runtime.value=parseConfig(item.configJson!);}catch{restricted.value=true;}
+ modalOpen.value=true;if(!restricted.value&&legacyConfigJson.value===undefined)void loadAssets();
+}
 function validateStep(step: StepKey) {
   if (step === "basic" && (!form.value.name.trim() || !form.value.code.trim())) { message.warning("请填写 Agent 名称和编码"); return false; }
   if (step === "basic" && runtime.value.mode === "RULE_ONLY" && !runtime.value.ruleSetId) { message.warning("普通规则 Agent 必须选择已发布规则集"); return false; }
@@ -60,32 +80,48 @@ function validateStep(step: StepKey) {
 function next() { if (validateStep(currentStepKey.value)) currentStep.value += 1; }
 function openAsset(path: string) { window.open(router.resolve(path).href, "_blank", "noopener,noreferrer"); }
 async function save() {
-  if (!activeSteps.value.map(item => item.key).every(validateStep)) return;
+  if(disposed||saving.value||!writable.value||!modalOpen.value)return;
+  if(legacyConfigJson.value!==undefined){
+   if(!form.value.name.trim()||!form.value.code.trim()){message.warning('请填写名称和编码');return;}
+   try{if(JSON.parse(legacyConfigJson.value).schemaVersion!=='1.0')throw Error();}catch{message.warning('内嵌配置须保持原1.0协议及有效JSON');return;}
+  }else if (!activeSteps.value.map(item => item.key).every(validateStep)) return;
   saving.value = true;
   try {
     const config = { ...runtime.value };
     if (config.mode === "RULE_ONLY") { config.primaryModelProfileId = ""; config.fallbackModelProfileIds = []; config.mcpServerIds = []; config.skillIds = []; }
     if (["RULE_THEN_LLM", "LLM_THEN_RULE"].includes(config.mode || "")) { config.mcpServerIds = []; config.skillIds = []; }
     if (config.schemaVersion === "3.0") { delete config.mode; delete config.ruleSetId; }
-    const data = { ...form.value, configJson: JSON.stringify(config) };
+    const data = { ...form.value, configJson: legacyConfigJson.value??JSON.stringify(config) };
     if (selected.value) await createAgentVersion(selected.value.id, data); else await createAgent(data);
+    if(disposed)return;
     message.success(selected.value ? "已创建 Agent 草稿版本" : "Agent 已创建，可继续提交审批"); modalOpen.value = false; await refresh();
-  } catch { message.error("保存失败，请确认所选模型、MCP 和 Skill 仍处于启用状态"); }
-  finally { saving.value = false; }
+  } catch { if(!disposed)message.error("保存失败，请确认权限、配置及所选模型、MCP 和 Skill 仍有效"); }
+  finally { if(!disposed)saving.value = false; }
 }
-async function action(id: string, type: string) { try { if (type === "submit") await submitAgent(id); if (type === "approve") await approveAgent(id); if (type === "reject") await rejectAgent(id); if (type === "disable") await disableAgent(id); await refresh(); } catch { message.error("操作失败"); } }
+async function action(id:string,type:string){
+ const resources:Record<string,string>={submit:'iqc:agent:submit',approve:'iqc:agent:approve',reject:'iqc:agent:approve',disable:'iqc:agent:disable'};
+ if(disposed||saving.value||!resources[type]||!can(resources[type]!))return;saving.value=true;
+ try{if(type==='submit')await submitAgent(id);else if(type==='approve')await approveAgent(id);else if(type==='reject')await rejectAgent(id);else await disableAgent(id);if(disposed)return;await refresh();}
+ catch{if(!disposed)message.error('操作未确认，请重新读取核对状态。');}finally{if(!disposed)saving.value=false;}
+}
+watch(modalOpen,value=>{if(!value)clearEditor();});
+onBeforeUnmount(()=>{disposed=true;++listGeneration;agents.value=[];clearEditor();});
 onMounted(() => void refresh());
 </script>
 
 <template>
-  <section class="page-intro"><div><span class="section-kicker">AGENT WORKSHOP</span><h2>智能体列表</h2><p>通过向导关联模型、MCP 与 Skill，所有变更纳入版本审批。</p></div><a-button v-if="can('iqc:agent:manage')" type="primary" @click="createNew">创建 Agent</a-button></section>
-  <a-card :bordered="false"><a-table :data-source="agents" :pagination="false" row-key="id"><a-table-column title="名称" data-index="name"/><a-table-column title="编码" data-index="code"/><a-table-column title="质检模式"><template #default="{record}"><a-tag color="blue">{{agentModeName(record.configJson)}}</a-tag></template></a-table-column><a-table-column title="版本" data-index="versionNo"/><a-table-column title="状态" data-index="status"><template #default="{record}"><DictTag code="iqc_agent_status" :value="record.status" :fallback="record.status" tag/></template></a-table-column><a-table-column title="操作" :width="340"><template #default="{record}"><a-button type="link" @click="edit(record)">配置</a-button><a-button v-if="record.status==='DRAFT'&&can('iqc:agent:manage')" type="link" @click="action(record.id,'submit')">提交</a-button><a-button v-if="record.status==='PENDING_APPROVAL'&&can('iqc:agent:approve')" type="link" @click="action(record.id,'approve')">通过</a-button><a-button v-if="record.status==='PENDING_APPROVAL'&&can('iqc:agent:approve')" type="link" danger @click="action(record.id,'reject')">驳回</a-button><a-button v-if="record.status==='PUBLISHED'&&can('iqc:agent:manage')" type="link" danger @click="action(record.id,'disable')">停用</a-button></template></a-table-column></a-table></a-card>
+  <section class="page-intro"><div><span class="section-kicker">AGENT WORKSHOP</span><h2>智能体列表</h2><p>通过向导关联模型、MCP 与 Skill，所有变更纳入版本审批。</p></div><a-button v-if="can('iqc:agent:manage')" type="primary" :disabled="saving" @click="createNew">创建 Agent</a-button></section>
+  <a-alert v-if="error" type="error" :message="error"/><a-button :disabled="saving" @click="refresh">重新读取</a-button>
+  <a-card :bordered="false"><a-table :data-source="agents" :pagination="false" row-key="id"><a-table-column title="名称" data-index="name"/><a-table-column title="编码" data-index="code"/><a-table-column title="质检模式"><template #default="{record}"><a-tag color="blue">{{agentModeName(record)}}</a-tag></template></a-table-column><a-table-column title="版本" data-index="versionNo"/><a-table-column title="状态" data-index="status"><template #default="{record}"><DictTag code="iqc_agent_status" :value="record.status" :fallback="record.status" tag/></template></a-table-column><a-table-column title="操作" :width="340"><template #default="{record}"><a-button type="link" :disabled="saving" @click="edit(record)">配置</a-button><a-button v-if="record.status==='DRAFT'&&can('iqc:agent:submit')" type="link" :disabled="saving" @click="action(record.id,'submit')">提交</a-button><a-button v-if="record.status==='PENDING_APPROVAL'&&can('iqc:agent:approve')" type="link" :disabled="saving" @click="action(record.id,'approve')">通过</a-button><a-button v-if="record.status==='PENDING_APPROVAL'&&can('iqc:agent:approve')" type="link" :disabled="saving" danger @click="action(record.id,'reject')">驳回</a-button><a-button v-if="record.status==='PUBLISHED'&&can('iqc:agent:disable')" type="link" :disabled="saving" danger @click="action(record.id,'disable')">停用</a-button></template></a-table-column></a-table></a-card>
 
-  <a-modal v-model:open="modalOpen" :title="selected?`配置新版本：${selected.name}`:'创建 Agent'" width="min(860px, calc(100vw - 32px))" :styles="{body:{maxHeight:'calc(100vh - 190px)',overflowY:'auto',overflowX:'hidden'}}" :confirm-loading="saving">
+  <a-modal v-model:open="modalOpen" :title="selected?`配置新版本：${selected.name}`:'创建 Agent'" width="min(860px, calc(100vw - 32px))" :styles="{body:{maxHeight:'calc(100vh - 190px)',overflowY:'auto',overflowX:'hidden'}}" :confirm-loading="saving" :closable="!saving" :mask-closable="!saving" :keyboard="!saving">
+    <a-alert v-if="restricted" type="info" message="配置正文受限或协议无效，未加载编辑器。请核对完整会话、PII、Prompt读取权限后重新读取；可继续按原权限使用已发布版本。"/>
+    <template v-else-if="legacyConfigJson!==undefined"><a-alert type="info" message="旧版内嵌配置按原1.0协议编辑，保存为新草稿版本；历史记录保留。"/><a-form layout="vertical"><a-form-item label="名称"><a-input v-model:value="form.name" :disabled="!writable||saving"/></a-form-item><a-form-item label="说明"><a-input v-model:value="form.description" :disabled="!writable||saving"/></a-form-item><a-form-item label="原始配置JSON"><a-textarea v-model:value="legacyConfigJson" :disabled="!writable||saving" :rows="16"/></a-form-item></a-form></template>
+    <template v-else>
     <a-alert v-if="legacy" type="warning" show-icon message="旧版配置保留原有模式语义，不会自动迁移；新建智能体只配置 LLM 能力。内嵌资产需重新选择，历史版本不变。" style="margin-bottom:16px"/>
     <a-steps :current="currentStep" :items="activeSteps" size="small" class="agent-wizard-steps"/>
     <a-spin :spinning="assetsLoading"><div class="agent-wizard-body">
-      <a-form v-show="currentStepKey==='basic'" layout="vertical">
+      <a-form :disabled="!writable||saving" v-show="currentStepKey==='basic'" layout="vertical">
         <a-alert type="info" show-icon message="智能体负责模型、提示词和工具能力。质检执行策略在任务中选择；纯规则任务无需智能体。" style="margin-bottom:16px"/>
         <a-row :gutter="16"><a-col :span="12"><a-form-item label="Agent 名称" required><a-input v-model:value="form.name" placeholder="例如：客服服务质量质检 Agent"/></a-form-item></a-col><a-col :span="12"><a-form-item label="唯一编码" required><a-input v-model:value="form.code" :disabled="Boolean(selected)" placeholder="例如：service_quality_agent"/></a-form-item></a-col></a-row>
         <a-form-item v-if="runtime.schemaVersion !== '3.0'" label="旧版质检模式（兼容配置）" required>
@@ -96,13 +132,13 @@ onMounted(() => void refresh());
         <a-form-item label="用途说明"><a-textarea v-model:value="form.description" :rows="4" placeholder="说明适用业务、质检目标和使用边界"/></a-form-item>
       </a-form>
 
-      <a-form v-show="currentStepKey==='model'" layout="vertical"><div class="wizard-heading"><div><h3>配置智能模型</h3><p>主模型负责执行质检，备用模型按选择顺序降级。</p></div><a-button type="link" @click="openAsset('/agent-models')">管理模型配置 ↗</a-button></div><a-empty v-if="!assetsLoading&&!models.length" description="暂无已启用模型"><a-button type="primary" @click="openAsset('/agent-models')">去创建并启用模型</a-button></a-empty><template v-else><a-form-item label="主模型" required><a-select v-model:value="runtime.primaryModelProfileId" show-search option-filter-prop="label" placeholder="选择已启用模型"><a-select-option v-for="item in models" :key="item.id" :value="item.id" :label="`${item.name} ${item.modelName}`">{{item.name}} · {{item.provider}} / {{item.modelName}}</a-select-option></a-select></a-form-item><a-form-item label="备用模型（按顺序降级）"><a-select v-model:value="runtime.fallbackModelProfileIds" mode="multiple" placeholder="可选"><a-select-option v-for="item in models.filter(x=>x.id!==runtime.primaryModelProfileId)" :key="item.id" :value="item.id">{{item.name}} · {{item.modelName}}</a-select-option></a-select><template #extra>主模型不可用时依次尝试，避免单一模型故障中断任务。</template></a-form-item></template></a-form>
+      <a-form :disabled="!writable||saving" v-show="currentStepKey==='model'" layout="vertical"><div class="wizard-heading"><div><h3>配置智能模型</h3><p>主模型负责执行质检，备用模型按选择顺序降级。</p></div><a-button type="link" @click="openAsset('/agent-models')">管理模型配置 ↗</a-button></div><a-empty v-if="!assetsLoading&&!models.length" description="暂无已启用模型"><a-button type="primary" @click="openAsset('/agent-models')">去创建并启用模型</a-button></a-empty><template v-else><a-form-item label="主模型" required><a-select v-model:value="runtime.primaryModelProfileId" show-search option-filter-prop="label" placeholder="选择已启用模型"><a-select-option v-for="item in models" :key="item.id" :value="item.id" :label="`${item.name} ${item.modelName}`">{{item.name}} · {{item.provider}} / {{item.modelName}}</a-select-option></a-select></a-form-item><a-form-item label="备用模型（按顺序降级）"><a-select v-model:value="runtime.fallbackModelProfileIds" mode="multiple" placeholder="可选"><a-select-option v-for="item in models.filter(x=>x.id!==runtime.primaryModelProfileId)" :key="item.id" :value="item.id">{{item.name}} · {{item.modelName}}</a-select-option></a-select><template #extra>主模型不可用时依次尝试，避免单一模型故障中断任务。</template></a-form-item></template></a-form>
 
-      <a-form v-show="currentStepKey==='capabilities'" layout="vertical"><div class="wizard-heading"><div><h3>关联扩展能力</h3><p>MCP 提供外部工具，Skill 提供可复用的专业判断流程；均为可选。</p></div></div><a-form-item label="可用 MCP"><a-select v-model:value="runtime.mcpServerIds" mode="multiple" placeholder="不选择则不调用 MCP"><a-select-option v-for="item in mcps" :key="item.id" :value="item.id">{{item.name}} · {{item.transport}}</a-select-option></a-select><template #extra>只展示已启用的 MCP，智能体执行时按授权工具调用。</template><a-button type="link" class="asset-link" @click="openAsset('/agent-mcps')">管理 MCP ↗</a-button></a-form-item><a-form-item label="可用 Skill"><a-select v-model:value="runtime.skillIds" mode="multiple" placeholder="不选择则仅使用提示词"><a-select-option v-for="item in skills" :key="item.id" :value="item.id">{{item.name}} · V{{item.versionNo}}</a-select-option></a-select><template #extra>选择与当前质检场景匹配的专业判断能力。</template><a-button type="link" class="asset-link" @click="openAsset('/agent-skills')">管理 Skill ↗</a-button></a-form-item><a-alert v-if="!mcps.length&&!skills.length" type="info" show-icon message="当前没有已启用的 MCP 或 Skill，可以跳过此步骤，稍后创建新版本关联。"/></a-form>
+      <a-form :disabled="!writable||saving" v-show="currentStepKey==='capabilities'" layout="vertical"><div class="wizard-heading"><div><h3>关联扩展能力</h3><p>MCP 提供外部工具，Skill 提供可复用的专业判断流程；均为可选。</p></div></div><a-form-item label="可用 MCP"><a-select v-model:value="runtime.mcpServerIds" mode="multiple" placeholder="不选择则不调用 MCP"><a-select-option v-for="item in mcps" :key="item.id" :value="item.id">{{item.name}} · {{item.transport}}</a-select-option></a-select><template #extra>只展示已启用的 MCP，智能体执行时按授权工具调用。</template><a-button type="link" class="asset-link" @click="openAsset('/agent-mcps')">管理 MCP ↗</a-button></a-form-item><a-form-item label="可用 Skill"><a-select v-model:value="runtime.skillIds" mode="multiple" placeholder="不选择则仅使用提示词"><a-select-option v-for="item in skills" :key="item.id" :value="item.id">{{item.name}} · V{{item.versionNo}}</a-select-option></a-select><template #extra>选择与当前质检场景匹配的专业判断能力。</template><a-button type="link" class="asset-link" @click="openAsset('/agent-skills')">管理 Skill ↗</a-button></a-form-item><a-alert v-if="!mcps.length&&!skills.length" type="info" show-icon message="当前没有已启用的 MCP 或 Skill，可以跳过此步骤，稍后创建新版本关联。"/></a-form>
 
-      <a-form v-show="currentStepKey==='prompt'" layout="vertical"><div class="wizard-heading"><div><h3>设置智能体行为</h3><p>定义智能体的身份、判断边界和输出要求。</p></div></div><a-form-item label="默认提示词" required><a-textarea v-model:value="runtime.systemPrompt" :rows="7" :maxlength="8000" show-count/></a-form-item></a-form>
+      <a-form :disabled="!writable||saving" v-show="currentStepKey==='prompt'" layout="vertical"><div class="wizard-heading"><div><h3>设置智能体行为</h3><p>定义智能体的身份、判断边界和输出要求。</p></div></div><a-form-item label="默认提示词" required><a-textarea v-model:value="runtime.systemPrompt" :rows="7" :maxlength="8000" show-count/></a-form-item></a-form>
 
-      <a-form v-show="currentStepKey==='confirm'" layout="vertical">
+      <a-form :disabled="!writable||saving" v-show="currentStepKey==='confirm'" layout="vertical">
         <div class="wizard-heading"><div><h3>确认配置</h3><p>检查智能体能力；新智能体的执行策略由任务指定。</p></div></div>
         <a-card size="small" title="配置摘要" class="wizard-summary">
           <a-descriptions :column="2" size="small">
@@ -121,7 +157,8 @@ onMounted(() => void refresh());
         </a-card>
       </a-form>
     </div></a-spin>
-    <template #footer><a-button @click="modalOpen=false">取消</a-button><a-button v-if="currentStep>0" @click="currentStep--">上一步</a-button><a-button v-if="currentStep<activeSteps.length-1" type="primary" @click="next">下一步</a-button><a-button v-else type="primary" :loading="saving" @click="save">{{selected?'创建草稿版本':'创建 Agent'}}</a-button></template>
+    </template>
+    <template #footer><a-button :disabled="saving" @click="modalOpen=false">关闭</a-button><a-button v-if="!restricted&&legacyConfigJson===undefined&&currentStep>0" :disabled="saving" @click="currentStep--">上一步</a-button><a-button v-if="!restricted&&legacyConfigJson===undefined&&currentStep<activeSteps.length-1" type="primary" :disabled="saving" @click="next">下一步</a-button><a-button v-else-if="!restricted" type="primary" :disabled="!writable" :loading="saving" @click="save">{{selected?'创建草稿版本':'创建 Agent'}}</a-button></template>
   </a-modal>
 </template>
 

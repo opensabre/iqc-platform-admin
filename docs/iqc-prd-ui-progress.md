@@ -148,3 +148,9 @@ I5：结果动作面板已增加检查请求入口，独立enqueue权限、请�
 原Fusion区域增加CUSTOM，读取GET /iqc/pipelines/fusion-strategies中的已安装精确版本，显示id/版本/实现摘要并由明确选择冻结；参数JSON只允许有界字符串值。刷新目录不替换旧绑定，缺失版本/摘要明确提示，未装版本不自动升级；目录错误保留旧绑定。切换其它方式时从请求省略custom及非当前方法的nodeWeights。目录响应有界/重复身份/字段校验，卸载和重复读取用generation隔离。旧policy的7/8参服务端JSON兼容由独立B继续验证，页面不写任意脚本或类名。
 
 原63145及最终18385 vue-tsc+Vite均terminal exit0，最终日志/tmp/iqc-custom-fusion-ui-build-final.log；本批只构建，Root没有新增或运行测试/browser/SQL/部署。新增目录权限资源900270及组织迁移由对应仓提供，脚本未执行。实际目录授权/精确选择/刷新/切换残留/真实发布与重算仍交B，完整适用I1–I7继续。
+
+## Agent敏感读取与能力选择（2026-10-21）
+
+QualityAgent/Version可空configJson/description及响应privacy、独立agentPresentation接线；受限正文不建默认编辑器或空存。Agent模式、schemes Agent3.0版本筛选及SkillApiConfigurationEditor能力选择用明确元数据，仍保留原ID/version和MCP工具名，不要求看到Prompt正文。unknown协议不回退裸正文，只有旧无privacy兼容旧协议。当前配置2/3向导保持，1.0保留原JSON编辑为新草稿版本；前端业务按钮/处理函数对齐原submit/disable/version:manage，刷新/关闭/卸载清数据并隔离迟到响应。Agent效果rate契约允许无分母null。
+
+首轮39271和最终54477 vue-tsc+Vite均exit0，最终/tmp/iqc-agent-sensitive-read-ui-build-final.log（1m15s/既有体积提示）。没有新增或执行Root测试/browser/SQL/部署，实际读取授权/能力选择/旧协议/角色仍交B，完整适用I1–I7未宣称完成。
