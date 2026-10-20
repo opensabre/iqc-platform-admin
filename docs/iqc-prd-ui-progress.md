@@ -142,3 +142,9 @@ I5：结果动作面板已增加检查请求入口，独立enqueue权限、请�
 ## I6画布节点交互（2026-10-20）
 
 原依赖图补节点主体拖动、25%..150%缩放、自动布局恢复、Ctrl方向键及Shift步长、七引擎拖入落点定位；原连线/属性/依赖语义复用，不创建平行图协议。布局为组件内会话状态，不进入Release或持久化，重新打开自动排布。13500最终vue-tsc+Vite通过（48.71s），未运行Root测试/browser；交互与保存发布仍待B独立验收，完整I6/PRD不标完成。详见pipeline-graph-editing.md。
+
+## CUSTOM融合目录配置（2026-10-20）
+
+原Fusion区域增加CUSTOM，读取GET /iqc/pipelines/fusion-strategies中的已安装精确版本，显示id/版本/实现摘要并由明确选择冻结；参数JSON只允许有界字符串值。刷新目录不替换旧绑定，缺失版本/摘要明确提示，未装版本不自动升级；目录错误保留旧绑定。切换其它方式时从请求省略custom及非当前方法的nodeWeights。目录响应有界/重复身份/字段校验，卸载和重复读取用generation隔离。旧policy的7/8参服务端JSON兼容由独立B继续验证，页面不写任意脚本或类名。
+
+原63145及最终18385 vue-tsc+Vite均terminal exit0，最终日志/tmp/iqc-custom-fusion-ui-build-final.log；本批只构建，Root没有新增或运行测试/browser/SQL/部署。新增目录权限资源900270及组织迁移由对应仓提供，脚本未执行。实际目录授权/精确选择/刷新/切换残留/真实发布与重算仍交B，完整适用I1–I7继续。
