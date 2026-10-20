@@ -1,0 +1,33 @@
+<!-- Manual synthetic processed-conversation fixture; API calls never leave the local adapter. -->
+<link rel="icon" href="data:,">
+<div id="app"></div><script type="module">
+import {createApp} from 'vue';
+import {createPinia} from 'pinia';
+import Ant from 'ant-design-vue';
+import '/node_modules/ant-design-vue/dist/reset.css';
+import Pipelines from '/src/views/pipelines/index.vue';
+import {useAuthStore} from '/src/stores/auth.ts';
+import http from '/src/api/http.ts';
+const release={schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:'iqc-pipeline-v1',nodes:[{nodeId:'rule',name:'处理后会话规则',type:'RULE',version:'rule-v1',dependsOn:[],inputMapping:{},config:{ruleReference:{id:'rule-1',versionNo:1},findingReference:{id:'finding-1',versionNo:1},inputScope:'CONVERSATION',phase:'DETECTION'},condition:null,timeoutMs:1000,retries:0,onError:'FAIL_PIPELINE',fallbackNodeId:null,outputSchema:null,enabled:true}]},fusion:{id:'DEFAULT',version:1,method:'PRIORITY',nodePriority:{},overrideNodeByCode:{},confidenceCalibrationId:null,calibratedNodeIds:[]},scoring:{version:'iqc-score-v2',mode:'DEDUCTION',baseScore:100,passingScore:60,items:[]},items:[]};
+const row={id:'pipeline-1',code:'PROCESSED',name:'处理后会话质检',draftRevision:1,draftConfigJson:JSON.stringify(release),activePublishedVersion:2,status:'ACTIVE'};
+const mode=new URLSearchParams(location.search).get('mode')||'retry';
+window.validation={requests:[],failures:mode==='retry'?1:0,hold:mode==='late',pending:false};
+http.defaults.adapter=async config=>{
+ let data;const url=config.url;
+ if(config.method==='post'&&url==='/iqc/pipelines/pipeline-1/rollout/tasks'){
+  window.validation.requests.push(JSON.parse(config.data));
+  if(window.validation.hold){window.validation.pending=true;await new Promise(resolve=>{window.validation.release=resolve;});window.validation.pending=false;}
+  if(window.validation.failures>0){window.validation.failures--;throw Error('injected unconfirmed request');}
+  data={id:'g-frozen-task',name:'灰度会话验证',taskType:'PIPELINE',status:'SUCCEEDED',taskPresentation:{rollout:{schemaVersion:'iqc-rollout-presentation-v1',policyRevision:3,side:'CANDIDATE',selectedVersionNo:2,selectedReleaseHash:'a'.repeat(64)}}};
+ }else if(url==='/iqc/pipelines')data={records:[row],total:1};
+ else if(url==='/iqc/pipelines/pipeline-1')data=row;
+ else if(url==='/iqc/conversations')data={records:[{id:'conversation-1',sourceFileName:'已处理会话.txt',messageCount:2,status:'IMPORTED'}],total:1};
+ else if(config.method==='get')data={records:[],total:0};
+ else throw Error('Unexpected fixture mutation: '+config.method+' '+url);
+ return {data,status:200,statusText:'OK',headers:{},config};
+};
+const app=createApp(Pipelines);const pinia=createPinia();app.use(pinia);
+const auth=useAuthStore(pinia);auth.permissions=['iqc:pipeline:view','iqc:pipeline:detail:view','iqc:pipeline:task:create','iqc:conversation:view',...(mode==='denied'?[]:['iqc:pipeline:rollout:task:create'])];auth.permissionsReady=true;
+app.use(Ant);app.component('RouterLink',{template:'<span><slot/></span>'});app.mount('#app');
+window.validation.unmount=()=>app.unmount();
+</script>
