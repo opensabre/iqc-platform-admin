@@ -40,7 +40,7 @@ const policyEditorGeneration=ref(0);
 const actionError=ref('');
 function configurePublicationGate(enabled:boolean){publicationGate.value=enabled?{schemaVersion:'iqc-publication-gate-v1',minimumRiskRecall:0.95,minimumOverallF1:0.92,minimumRegressionPass:1,minimumStructuredSuccess:0.995,maximumP95Ms:5000,minimumSamples:1}:undefined;}
 const nodes=ref<NodeDraft[]>([]),items=ref<ItemDraft[]>([]),fusion=ref<PipelineRelease['fusion']>(),scoring=ref<PipelineRelease['scoring']>();
-const priorities=ref('{}'),overrides=ref('{}');
+const priorities=ref('{}'),overrides=ref('{}'),weights=ref('{}');
 const graphEditError=ref('');
 function graphConnection(edge:GraphEdgeCommand,remove=false){
  if(props.disabled)return;
@@ -76,7 +76,7 @@ watch(()=>props.initial,value=>{
  reviewPolicy.value=copy.reviewPolicy;riskPolicy.value=copy.riskPolicy;publicationGate.value=copy.publicationGate;actionPolicy.value=copy.actionPolicy;labelPolicy.value=copy.labelPolicy;
  nodes.value=copy.pipeline.nodes.map(n=>({...n,factValueType:(n.config.findingDefinition as {valueType?:string}|undefined)?.valueType,inputJson:JSON.stringify(n.inputMapping,null,2),outputJson:JSON.stringify(n.outputSchema,null,2),conditionJson:JSON.stringify(n.condition?.value ?? null),factCode:String((n.config.findingDefinition as {code?:string}|undefined)?.code || '')}));
  items.value=copy.items.map(i=>({...i,points:copy.scoring.items.find(s=>s.itemCode===i.itemCode)?.points ?? 0,veto:copy.scoring.items.find(s=>s.itemCode===i.itemCode)?.veto ?? false}));
- fusion.value=copy.fusion;scoring.value=copy.scoring;priorities.value=JSON.stringify(copy.fusion.nodePriority,null,2);overrides.value=JSON.stringify(copy.fusion.overrideNodeByCode,null,2);
+ fusion.value=copy.fusion;scoring.value=copy.scoring;priorities.value=JSON.stringify(copy.fusion.nodePriority,null,2);overrides.value=JSON.stringify(copy.fusion.overrideNodeByCode,null,2);weights.value=JSON.stringify(copy.fusion.nodeWeights??{},null,2);
 },{immediate:true});
 const nodeLibrary:Array<{type:PipelineNode['type'];label:string}>=[
  {type:'RULE',label:'规则检测'},{type:'DLS',label:'DLS规则'},{type:'LLM',label:'大模型'},
@@ -207,6 +207,19 @@ function release():PipelineRelease {
  for(const n of converted)if(n.onError==='FALLBACK'){const f=converted.find(v=>v.nodeId===n.fallbackNodeId);if(!f||f.enabled||f.nodeId===n.nodeId||f.onError==='FALLBACK'||f.dependsOn.some(id=>!n.dependsOn.includes(id)))throw Error('备用节点须停用、非递归，且依赖属于源节点依赖');}
  const priority=object(priorities.value,'优先级'),override=object(overrides.value,'覆盖映射');
  if(Object.values(priority).some(v=>!Number.isSafeInteger(v))||Object.values(override).some(v=>typeof v!=='string'))throw Error('优先级必须为整数，覆盖映射必须为节点编码');
+ let nodeWeights:Record<string,string>|undefined;
+ if(fusion.value.method==='WEIGHTED'){
+  const supplied=object(weights.value,'节点权重');
+  if(Object.keys(supplied).length!==converted.length||Object.keys(supplied).some(id=>!ids.has(id)||id.length>128||/[\u0000-\u001f\u007f-\u009f]/.test(id)))throw Error('权重须恰好覆盖当前所有节点');
+  for(const value of Object.values(supplied)){
+   validateDecimalOperand(value);
+   if(typeof value!=='string'||value.length>32||!/^(0|[1-9][0-9]*)(?:\.[0-9]{1,12})?$/.test(value))throw Error('权重须为最多12位小数的正十进制JSON字符串');
+   const [whole,fraction='']=value.split('.'),integer=BigInt(whole!);
+   if(!/[1-9]/.test(value)||integer>1000000n||integer===1000000n&&/[1-9]/.test(fraction))throw Error('权重须大于0且不超过1000000');
+  }
+  nodeWeights=supplied as Record<string,string>;
+ }
+
  if(publicationGate.value){const p=publicationGate.value;for(const ratio of [p.minimumRiskRecall,p.minimumOverallF1,p.minimumRegressionPass,p.minimumStructuredSuccess])if(typeof ratio!=='number'||!Number.isFinite(ratio)||ratio<0||ratio>1)throw Error('发布门禁比率必须为0–1');if(!Number.isInteger(p.maximumP95Ms)||p.maximumP95Ms<1||p.maximumP95Ms>300000||!Number.isInteger(p.minimumSamples)||p.minimumSamples<1||p.minimumSamples>1000)throw Error('发布门禁样本/耗时阈值无效');}
  for(const item of items.value){validateNumeric(item.numericPredicate);validateNumeric(item.appliesWhenNumericPredicate);if(item.appliesWhenNumericPredicate&&!item.appliesWhenFindingCode?.trim())throw Error('数值适用条件需要选择事实编码');}
  const labels=validateFindingLabelPolicy(labelPolicy.value);
@@ -220,7 +233,7 @@ function release():PipelineRelease {
   completionEditor.value?.validated(); // Reject invalid in-progress JSON rather than saving the previous valid value.
   completion=validateParallelCompletionPolicy(completionPolicy.value,converted);
  }
- return {...(review?{reviewPolicy:review}:{}),...(risk?{riskPolicy:risk}:{}),...(labels?{labelPolicy:labels}:{}),...(actions?{actionPolicy:actions}:{}),...(publicationGate.value?{publicationGate:{...publicationGate.value}}:{}),schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:parallel.value?(completion?'iqc-pipeline-parallel-v2':'iqc-pipeline-parallel-v1'):'iqc-pipeline-v1',nodes:converted,...(completion?{completionPolicy:completion}:{})},fusion:{...fusion.value,nodePriority:priority as Record<string,number>,overrideNodeByCode:override as Record<string,string>},items:items.value.map(({points,veto,...i})=>({...i,appliesWhenFindingCode:i.appliesWhenFindingCode?.trim()||null})),scoring:validateScoringPolicy(scoring.value,items.value.map(i=>({itemCode:i.itemCode,points:i.points,veto:i.veto})),nodes.value.map(n=>n.factCode).filter(Boolean),labels)};
+ return {...(review?{reviewPolicy:review}:{}),...(risk?{riskPolicy:risk}:{}),...(labels?{labelPolicy:labels}:{}),...(actions?{actionPolicy:actions}:{}),...(publicationGate.value?{publicationGate:{...publicationGate.value}}:{}),schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:parallel.value?(completion?'iqc-pipeline-parallel-v2':'iqc-pipeline-parallel-v1'):'iqc-pipeline-v1',nodes:converted,...(completion?{completionPolicy:completion}:{})},fusion:{...fusion.value,nodePriority:priority as Record<string,number>,overrideNodeByCode:override as Record<string,string>,nodeWeights},items:items.value.map(({points,veto,...i})=>({...i,appliesWhenFindingCode:i.appliesWhenFindingCode?.trim()||null})),scoring:validateScoringPolicy(scoring.value,items.value.map(i=>({itemCode:i.itemCode,points:i.points,veto:i.veto})),nodes.value.map(n=>n.factCode).filter(Boolean),labels)};
 }
 defineExpose({release});
 </script>
@@ -270,7 +283,7 @@ defineExpose({release});
 <a-collapse><a-collapse-panel key="mapping" header="高级输入映射与输出校验"><a-form-item label="输入映射（目标字段 → JSON pointer）"><a-textarea v-model:value="node.inputJson" :rows="3" :disabled="disabled"/></a-form-item><a-form-item label="输出变量 schema（JSON 或 null）"><a-textarea v-model:value="node.outputJson" :rows="3" :disabled="disabled"/></a-form-item><p>路径使用 /input、/variables、/upstream。保留空映射时使用原始输入。</p></a-collapse-panel></a-collapse>
 </a-form></a-collapse-panel></a-collapse>
 </section></div>
-<h3>事实融合</h3><a-form v-if="fusion" layout="vertical"><a-form-item label="政策标识 / 版本"><a-space><a-input v-model:value="fusion.id" :disabled="disabled"/><a-input-number v-model:value="fusion.version" :min="1" :precision="0" :disabled="disabled"/></a-space></a-form-item><a-form-item label="融合方式"><a-select v-model:value="fusion.method" :options="options(['PRIORITY','VOTING','OVERRIDE','CONFIDENCE'])" :disabled="disabled"/></a-form-item><a-form-item label="节点优先级（JSON）"><a-textarea v-model:value="priorities" :rows="2" :disabled="disabled"/></a-form-item><a-form-item v-if="fusion.method==='OVERRIDE'" label="事实编码 → 覆盖节点（JSON）"><a-textarea v-model:value="overrides" :rows="2" :disabled="disabled"/></a-form-item><template v-if="fusion.method==='CONFIDENCE'"><a-form-item label="校准标识"><a-input v-model:value="fusion.confidenceCalibrationId" :disabled="disabled"/></a-form-item><a-form-item label="已校准节点"><a-select v-model:value="fusion.calibratedNodeIds" mode="multiple" :options="options(nodes.map(n=>n.nodeId))" :disabled="disabled"/></a-form-item><a-alert type="info" message="当前RULE/DLS/LLM/METRIC适配器未输出已校准置信度，选择此政策不会产生确定的融合值。"/></template></a-form>
+<h3>事实融合</h3><a-form v-if="fusion" layout="vertical"><a-form-item label="政策标识 / 版本"><a-space><a-input v-model:value="fusion.id" :disabled="disabled"/><a-input-number v-model:value="fusion.version" :min="1" :precision="0" :disabled="disabled"/></a-space></a-form-item><a-form-item label="融合方式"><a-select v-model:value="fusion.method" :options="options(['PRIORITY','VOTING','WEIGHTED','OVERRIDE','CONFIDENCE'])" :disabled="disabled"/></a-form-item><a-form-item label="节点优先级（JSON）"><a-textarea v-model:value="priorities" :rows="2" :disabled="disabled"/></a-form-item><template v-if="fusion.method==='WEIGHTED'"><a-form-item label='节点权重（十进制JSON字符串，例如 {"node_1":"0.75","node_2":"0.25"}）'><a-textarea v-model:value="weights" :rows="4" :disabled="disabled"/><a-button :disabled="disabled||!nodes.length" @click="weights=JSON.stringify(Object.fromEntries(nodes.map(n=>[n.nodeId,'1'])),null,2)">用当前节点生成等权配置（覆盖）</a-button></a-form-item><a-alert type="info" message="同一事实须超过全部输入节点权重一半才接受已知值；未知、错误和未执行仍计入分母。权重不表示置信度，平票保留未决状态。"/></template><a-form-item v-if="fusion.method==='OVERRIDE'" label="事实编码 → 覆盖节点（JSON）"><a-textarea v-model:value="overrides" :rows="2" :disabled="disabled"/></a-form-item><template v-if="fusion.method==='CONFIDENCE'"><a-form-item label="校准标识"><a-input v-model:value="fusion.confidenceCalibrationId" :disabled="disabled"/></a-form-item><a-form-item label="已校准节点"><a-select v-model:value="fusion.calibratedNodeIds" mode="multiple" :options="options(nodes.map(n=>n.nodeId))" :disabled="disabled"/></a-form-item><a-alert type="info" message="当前RULE/DLS/LLM/METRIC适配器未输出已校准置信度，选择此政策不会产生确定的融合值。"/></template></a-form>
 <FindingLabelPolicyEditor :key="policyEditorGeneration" v-model="labelPolicy" :finding-codes="nodes.map(node=>node.factCode).filter(Boolean)" :disabled="disabled" @action="addLabelAction"/>
 <a-alert v-if="actionError" type="error" :message="actionError" show-icon/><ActionPolicyEditor :key="`actions-${policyEditorGeneration}`" v-model="actionPolicy" :labels="labelPolicy" :finding-codes="nodes.map(node=>node.factCode).filter(Boolean)" :item-codes="items.map(item=>item.itemCode).filter(Boolean)" :disabled="disabled"/>
 <h3>独立风险政策</h3><a-switch :checked="!!riskPolicy" :disabled="disabled" @change="configureRisk"/><p>匹配规则取最高风险等级。未知条件可能提高等级时保留未知。标签来自本政策的标签绑定，业务字段使用会话执行时保存的上下文；缺失字段保持未知。</p>
