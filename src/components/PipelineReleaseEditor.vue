@@ -85,6 +85,7 @@ const nodeLibrary:Array<{type:PipelineNode['type'];label:string}>=[
 ];
 const nodeDragType='application/x-iqc-pipeline-engine';
 const propertiesPanel=ref<HTMLElement>();
+const graphEditor=ref<InstanceType<typeof PipelineDependencyGraph>>();
 function selectGraphNode(index:number){
  openNodes.value=[index];
  void nextTick(()=>{if(openNodes.value.includes(index))propertiesPanel.value?.querySelector(`[data-node-index="${index}"]`)?.scrollIntoView({block:'nearest'});});
@@ -93,7 +94,7 @@ function addNode(type:PipelineNode['type']='RULE') {
  if(props.disabled || nodes.value.length>=200 || !nodeLibrary.some(entry=>entry.type===type))return;
  let index=nodes.value.length+1;while(nodes.value.some(n=>n.nodeId===`node_${index}`))index++;
  const node:NodeDraft={nodeId:`node_${index}`,type,name:'新检测节点',version:'1',dependsOn:[],inputMapping:{},config:{inputScope:'MESSAGE',phase:'DIRECT'},condition:null,timeoutMs:30000,retries:0,onError:'FAIL_PIPELINE',fallbackNodeId:null,outputSchema:null,enabled:true,inputJson:'{}',outputJson:'null',conditionJson:'null',factCode:''};
- changeEngine(node);nodes.value.push(node);selectGraphNode(nodes.value.length-1);
+ changeEngine(node);nodes.value.push(node);selectGraphNode(nodes.value.length-1);return node.nodeId;
 }
 function startLibraryDrag(event:DragEvent,type:PipelineNode['type']){
  if(props.disabled || nodes.value.length>=200 || !event.dataTransfer){event.preventDefault();return;}
@@ -102,7 +103,10 @@ function startLibraryDrag(event:DragEvent,type:PipelineNode['type']){
 function dropLibraryNode(event:DragEvent){
  if(props.disabled || !event.dataTransfer)return;
  const type=event.dataTransfer.getData(nodeDragType);
- const entry=nodeLibrary.find(candidate=>candidate.type===type);if(entry)addNode(entry.type);
+ const entry=nodeLibrary.find(candidate=>candidate.type===type);if(!entry)return;
+ const point=graphEditor.value?.dropPosition(event),generation=policyEditorGeneration.value;
+ const nodeId=addNode(entry.type);
+ if(nodeId&&point)void nextTick(()=>{if(generation===policyEditorGeneration.value)graphEditor.value?.placeNode(nodeId,point);});
 }
 
 const metricOptions=[{value:'TRANSCRIPT_GAP_MS',label:'转写区间间隙（毫秒）'},{value:'CUSTOMER_TO_AGENT_MEAN_GAP_MS',label:'相邻客户到坐席平均间隙（毫秒）'},{value:'AGENT_TRANSCRIPT_TIME_SHARE',label:'坐席转写时间份额'},{value:'CROSS_ROLE_OVERLAP_PAIRS',label:'跨角色重叠片段对数'}];
@@ -250,7 +254,7 @@ defineExpose({release});
 <p>添加后选择已发布能力和事实定义。</p></aside>
 <section class="designer-canvas" aria-label="流水线编排画布" @dragover.prevent @drop.prevent.stop="dropLibraryNode"><h4>编排画布</h4>
 <a-alert v-if="graphEditError" type="error" show-icon :message="graphEditError"/>
-<PipelineDependencyGraph :nodes="nodes" :disabled="disabled" @select="selectGraphNode" @connect="graphConnection($event)" @disconnect="graphConnection($event,true)"/>
+<PipelineDependencyGraph ref="graphEditor" :nodes="nodes" :disabled="disabled" @select="selectGraphNode" @connect="graphConnection($event)" @disconnect="graphConnection($event,true)"/>
 </section>
 <section ref="propertiesPanel" class="node-properties" aria-label="节点属性"><h4>节点属性</h4><p>选择画布节点查看配置。调整顺序不会自动修改依赖或策略。</p><a-empty v-if="!nodes.length" description="从节点库添加检测节点"/>
 <a-collapse v-model:active-key="openNodes"><a-collapse-panel v-for="(node,index) in nodes" :key="index" :data-node-index="index" :header="`${index+1}. ${node.name} (${node.nodeId})`">
