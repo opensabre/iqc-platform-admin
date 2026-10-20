@@ -8,6 +8,7 @@ export interface FusedFinding {
  code:string;valueType:TraceFinding['valueType'];state:TraceFinding['state'];value:unknown;
  severity:TraceFinding['severity'];rawFindings:TraceFinding[];selectedIds:string[];rejectedIds:string[];
  evidence:TraceFinding['evidence'];explanation:string;policyId:string;policyVersion:number;
+ finalConfidence?:number|null;
 }
 export interface ReviewDecision {schemaVersion:'iqc-review-decision-v1'|'iqc-review-decision-v2';inputHash:string;samplingInputHash?:string|null;status:'REQUIRED'|'NOT_REQUIRED'|'UNKNOWN';rules:Array<{ruleId:string;conditionMatch:'MATCH'|'NO_MATCH'|'UNKNOWN';confidenceMatch:'MATCH'|'NO_MATCH'|'UNKNOWN';calibratedConfidence:number|null;bucket:number|null;selected:boolean|null;suppressed:boolean;effectiveMatch:'MATCH'|'NO_MATCH'|'UNKNOWN'}>}
 export interface PipelineTrace {
@@ -34,6 +35,7 @@ function node(v:unknown):boolean {
 function fused(v:unknown):boolean {
  if(!object(v)||!text(v.code)||!text(v.policyId)||!count(v.policyVersion)||v.policyVersion===0||typeof v.explanation!=='string'||!Array.isArray(v.rawFindings)||!v.rawFindings.length||!v.rawFindings.every(finding)||!strings(v.selectedIds)||!strings(v.rejectedIds)||!Array.isArray(v.evidence))return false;
  const raw=v.rawFindings as TraceFinding[];
+ if(v.finalConfidence!=null&&(!number(v.finalConfidence)||v.finalConfidence<0||v.finalConfidence>1||v.state!=='KNOWN'))return false;
  const ids=new Set(raw.map(f=>f.id));
  if(v.selectedIds.length+v.rejectedIds.length!==raw.length||ids.size!==raw.length||raw.some(f=>f.code!==v.code||f.valueType!==v.valueType)||[...v.selectedIds,...v.rejectedIds].some(id=>!ids.has(id))||v.selectedIds.some(id=>(v.rejectedIds as string[]).includes(id)))return false;
  // Reuse the typed fact validator for the fused envelope, without manufacturing a persisted fact.

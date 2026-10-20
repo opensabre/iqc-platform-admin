@@ -29,6 +29,7 @@ const color=(s:string)=>['ERROR','CONFLICT','FAILED','TIMEOUT','CANCELLED','FAIL
 <h4>融合事实</h4><a-empty v-if="!trace.fusion.length" description="未记录融合事实"/>
 <a-card v-for="fact in trace.fusion" :key="fact.code" size="small" class="fact"><template #title>{{fact.code}} · {{fact.valueType}}</template><template #extra><a-tag :color="color(fact.state)">{{traceStateLabel(fact.state)}}</a-tag></template>
 <p>政策：{{fact.policyId}} / v{{fact.policyVersion}} · 严重度：{{fact.severity}}</p><p>{{fact.explanation}}</p><pre v-if="fact.state==='KNOWN'">{{traceJson(fact.value)}}</pre><p v-else>没有确定的事实值</p>
+<p>最终校准置信度：{{fact.finalConfidence == null ? '未提供' : fact.finalConfidence}}</p>
 <p>选中：{{fact.selectedIds.join('、') || '无'}}；未选中：{{fact.rejectedIds.join('、') || '无'}}</p>
 <details><summary>原始候选事实（{{fact.rawFindings.length}}）</summary><pre>{{traceJson(fact.rawFindings)}}</pre></details><details><summary>融合证据（{{fact.evidence.length}}）</summary><pre>{{traceJson(fact.evidence)}}</pre></details></a-card>
 <h4>评分明细</h4><p>{{trace.scoring.policyVersion}} · {{trace.scoring.mode}} · {{trace.scoring.vetoTriggered?'触发一票否决':'未触发一票否决'}}</p>
