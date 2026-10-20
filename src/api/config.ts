@@ -8,7 +8,9 @@ export interface AgentRuntimeConfig { schemaVersion: "1.0"|"2.0"|"3.0"; mode?: "
 export interface QualityAgentVersion { id: string; agentId: string; versionNo: number; name: string; code: string; description?: string; configJson?: string; status: string; createdTime?: string; }
 export interface AgentVersionComparison { fromVersion: number; toVersion: number; changedFields: string[]; changedConfigPaths: string[]; }
 export interface AgentEffectReport { agentId: string; versionNo: number; taskCount: number; resultCount: number; averageScore: number | null; hitRate: number; highRiskRate: number; errorRate: number; }
-export interface IqcSkill { id: string; name: string; code: string; description?: string; instructions: string; inputSchemaJson?: string; outputSchemaJson?: string; status: "ENABLED" | "DISABLED"; versionNo: number; updatedTime?: string; }
+export interface SkillReadPrivacy {policyVersion:string;canonicalPayloadVisible:boolean;canReadFull:boolean;canReadPii:boolean;canReadPrompt:boolean;withheldFields:string[]}
+export function skillPayloadRestricted(value:{privacy?:SkillReadPrivacy}){const p=value.privacy;return !!p&&(p.policyVersion!=='iqc-skill-read-v1'||!p.canonicalPayloadVisible||!p.canReadFull||!p.canReadPii||!p.canReadPrompt);}
+export interface IqcSkill { id: string; name: string; code: string; privacy?:SkillReadPrivacy; description?: string|null; instructions: string|null; inputSchemaJson?: string|null; outputSchemaJson?: string|null; status: "ENABLED" | "DISABLED"; versionNo: number; updatedTime?: string; }
 export interface IqcSkillRequest { name: string; code: string; description?: string; instructions: string; inputSchemaJson?: string; outputSchemaJson?: string; }
 export interface IqcMcpServer { id: string; name: string; code: string; description?: string; transport: string; endpoint: string; authType: string; secretRef?: string; timeoutSeconds: number; allowedToolsJson?: string; status: "ENABLED" | "DISABLED"; healthStatus: string; versionNo: number; }
 export type IqcMcpServerRequest = Omit<IqcMcpServer, "id" | "status" | "healthStatus" | "versionNo">;
