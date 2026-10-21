@@ -25,15 +25,15 @@ export interface SchemeDefinition {
 }
 export interface SchemeDraftRequest { name: string; code: string; description?: string; businessScene: string; definition: SchemeDefinition }
 export interface SchemeDerivationRequest { name: string; code: string; description?: string; sourceSchemeId: string; sourceVersionNo: number }
-export interface InspectionScheme { id: string; name: string; code: string; description?: string; businessScene: string;
-  draftRevision: number; activePublishedVersion?: number; draftConfigJson: string; status: string;
+export interface InspectionScheme { privacy?: import("@/api/config").AssetReadPrivacy; schemePresentation?: { policyVersion: string; state: string; definition?: SchemeDefinition }; id: string; name: string; code: string; description?: string|null; businessScene: string;
+  draftRevision: number; activePublishedVersion?: number; draftConfigJson: string|null; status: string;
   sourceSchemeId?: string | null; sourceSchemeName?: string | null; sourceSchemeCode?: string | null;
   sourceVersionNo?: number | null; sourceContentHash?: string | null }
 export interface SchemeRelease extends SchemeDraftRequest { selectedVariantCode?: string; dependencies: { executionMode: string;
   rules?: Array<{ id: string; versionNo: number; name?: string }> } }
 export interface PublishedTemplate { privacy?: import("@/api/config").AssetReadPrivacy; schemeId: string; versionNo: number; contentHash: string; snapshot: SchemeRelease }
 export interface PublishedVersionHistory { versions: PublishedTemplate[]; nextBeforeVersion: number | null }
-export interface ReleasedSchemeVersion { versionNo: number; sourceDraftRevision?: number | null; sourceTrialTaskId?: string | null;
+export interface ReleasedSchemeVersion { privacy?: import("@/api/config").AssetReadPrivacy; versionNo: number; sourceDraftRevision?: number | null; sourceTrialTaskId?: string | null;
   contentHash: string; snapshot: SchemeRelease; archived?: boolean }
 export interface SchemeVersionHistory { versions: ReleasedSchemeVersion[]; nextBeforeVersion: number | null }
 export interface SchemeScheduledFilter { createdFrom?: string; createdTo?: string; fileName?: string; status: "IMPORTED"; limit: number }
@@ -69,7 +69,7 @@ export const createScheme = (request: SchemeDraftRequest | SchemeDerivationReque
 export const reviseScheme = (id: string, expectedRevision: number, draft: SchemeDraftRequest) =>
   http.put<InspectionScheme>(`/iqc/schemes/${id}`, { expectedRevision, draft }).then(r => r.data);
 export const previewScheme = (id: string, expectedRevision: number) =>
-  http.post<SchemeRelease>(`/iqc/schemes/${id}/preview`, { expectedRevision }).then(r => r.data);
+  http.post<{ schemeId: string; draftRevision: number; validated: boolean }>(`/iqc/schemes/${id}/preview`, { expectedRevision }).then(r => r.data);
 export const trialScheme = (id: string, expectedRevision: number, conversationIds: string[], requestId?: string,
                             variantCode?: string, runCount?: number, confidenceThreshold?: number) =>
   http.post<InspectionTask>(`/iqc/schemes/${id}/trials`, { expectedRevision, conversationIds, ...(requestId ? { requestId } : {}),
@@ -83,7 +83,7 @@ export const changeSchemeAvailability = (id: string, expectedRevision: number, e
   http.post<InspectionScheme>(`/iqc/schemes/${id}/publish`, { expectedRevision, action: enabled ? "ENABLE" : "DISABLE" }).then(r => r.data);
 /** Hides a superseded release from ordinary selection while preserving immutable history and existing tasks. */
 export const changeSchemeVersionArchive = (id: string, expectedRevision: number, versionNo: number, archived: boolean) =>
-  http.post<ReleasedSchemeVersion>(`/iqc/schemes/${id}/publish`, {
+  http.post<{ schemeId: string; versionNo: number; contentHash: string; archived: boolean }>(`/iqc/schemes/${id}/publish`, {
     expectedRevision, action: archived ? "ARCHIVE_VERSION" : "RESTORE_VERSION", versionNo
   }).then(r => r.data);
 export const createSchemeTask = (id: string, versionNo: number, request: SchemeTaskRequest) =>

@@ -17,7 +17,7 @@ vi.mock("@/api/config", () => ({ listRules: vi.fn(), listRuleVersions: vi.fn(), 
 vi.mock("@/api/labels", () => ({ getLabelTree: vi.fn() }));
 vi.mock("@/api/tasks", () => ({ getTask: vi.fn(), runTask: vi.fn() }));
 vi.mock("@/api/results", () => ({ getBatchResultSummary: vi.fn(), getTaskLabelResults: vi.fn() }));
-let app: App, host: HTMLDivElement, scheme: InspectionScheme;
+let app: App, host: HTMLDivElement, scheme: InspectionScheme & { draftConfigJson: string };
 const pass = defineComponent({ setup(_, { slots, attrs }) { return () => h("div", [attrs.message as string, slots.default?.()]); } });
 async function settle() { for (let i = 0; i < 12; i++) { await Promise.resolve(); await nextTick(); } }
 function button(text: string) { return [...host.querySelectorAll("button")].find(item => item.textContent === text)!; }
@@ -80,7 +80,7 @@ function mount(editor = false, trialModal = false) {
 describe("scheme availability", () => {
   beforeEach(() => {
     vi.clearAllMocks(); state.allowed = true;
-    scheme = { id: "s", name: "销售质检", code: "sales", businessScene: "销售", draftRevision: 2, activePublishedVersion: 1, draftConfigJson: "{}", status: "ACTIVE" };
+    scheme = { privacy: { policyVersion: "iqc-scheme-draft-read-v1", canonicalPayloadVisible: true, canReadFull: true, canReadPii: true, canReadPrompt: true, withheldFields: [] }, id: "s", name: "销售质检", code: "sales", businessScene: "销售", draftRevision: 2, activePublishedVersion: 1, draftConfigJson: "{}", status: "ACTIVE" };
     vi.mocked(listSchemes).mockResolvedValue([scheme]); vi.mocked(changeSchemeAvailability).mockResolvedValue(scheme);
     vi.mocked(listSchemeTrials).mockResolvedValue([]);
     vi.mocked(getLabelTree).mockResolvedValue({ categories: [], groups: [], labels: [] });
