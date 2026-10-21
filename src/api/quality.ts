@@ -63,7 +63,7 @@ export interface BusinessReviewDecision {
 }
 export interface BusinessReview {
   id: string; targetType: "BUSINESS"; businessResultId: string; reviewRevision: number;
-  status: "PENDING" | "COMPLETED" | "REJECTED"; requestComment?: string; reviewComment?: string;
+  status: "PENDING" | "COMPLETED" | "REJECTED"; requestComment?: string|null; reviewComment?: string;
   createdBy?: string; reviewerId?: string; reviewedTime?: string; reviewedResultJson?: string;
 }
 export interface BusinessReviewProjection {
@@ -79,10 +79,11 @@ export const requestBusinessReview = (resultId: string, data: BusinessReviewRequ
 export const decideBusinessReview = (reviewId: string, data: BusinessReviewVerdict) => http.post<BusinessReview>(`/iqc/quality-operations/reviews/${reviewId}/decision`, { ...data, targetType: "BUSINESS" }).then(r => r.data);
 
 export interface LabelValueReview {
+  privacy?:import("@/api/config").AssetReadPrivacy;
   id: string; targetType: "LABEL"; labelResultId: string; reviewRevision: number;
-  status: "PENDING" | "COMPLETED" | "REJECTED"; requestComment?: string;
-  reviewComment?: string; createdBy?: string; reviewerId?: string; reviewedTime?: string;
-  reviewedResultJson?: string;
+  status: "PENDING" | "COMPLETED" | "REJECTED"; requestComment?: string|null;
+  reviewComment?: string|null; createdBy?: string; reviewerId?: string; reviewedTime?: string;
+  reviewedResultJson?: string|null;
 }
 export interface LabelValueDecision {
   status: "KNOWN" | "UNKNOWN"; value: string | number | boolean | null; evidenceMessageIds: string[];

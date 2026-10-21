@@ -50,6 +50,7 @@ function statusLabel(value: string) {
   return ({ PENDING: "待处理", COMPLETED: "已完成", REJECTED: "已退回" } as Record<string, string>)[value] || value;
 }
 function decisionLabel(round: LabelValueReview) {
+  const p=round.privacy;if(p&&(p.policyVersion!=="iqc-label-review-read-v1"||!p.canonicalPayloadVisible||!p.canReadFull||!p.canReadPii))return "复核正文未展示";
   if (round.status !== "COMPLETED") return "—";
   try {
     const value = JSON.parse(round.reviewedResultJson || "null") as { sourceLabelResultId?: string; status?: string; value?: unknown } | null;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import type { LabelResult } from "@/api/results";
 import { getConversationResultDetail } from "@/api/results";
@@ -19,7 +19,9 @@ const evidence = ref<string[]>([]);
 type Command = { kind: "REQUEST"; id: string; payload: { expectedRevision: number; requestId: string; comment: string } }
   | { kind: "DECIDE"; id: string; payload: { expectedRevision: number; decision: "COMPLETED" | "REJECTED"; labelDecision?: LabelValueDecision; comment: string } };
 const command = ref<Command>();
-let generation = 0;
+let generation = 0, disposed = false;
+function withheld(review: LabelValueReview) { const p=review.privacy;return !!p&&(p.policyVersion!=="iqc-label-review-read-v1"||!p.canonicalPayloadVisible||!p.canReadFull||!p.canReadPii); }
+const contentWithheld=computed(()=>history.value.some(withheld));
 const machine = computed(() => presentLabel(props.label));
 const valueType = computed(() => {
   try {
@@ -34,7 +36,7 @@ const pending = computed(() => history.value.find(item => item.status === "PENDI
 const revision = computed(() => Math.max(0, ...history.value.map(item => item.reviewRevision)));
 const rounds = computed(() => history.value.map(review => {
   let projection: { sourceLabelResultId: string; status: "KNOWN" | "UNKNOWN"; value: unknown; evidenceMessageIds: string[] } | undefined;
-  if (review.status === "COMPLETED") {
+  if (review.status === "COMPLETED" && !withheld(review)) {
     try {
       const parsed = JSON.parse(review.reviewedResultJson || "null");
       if (!parsed || parsed.sourceLabelResultId !== props.label.id || !["KNOWN", "UNKNOWN"].includes(parsed.status)
@@ -44,25 +46,26 @@ const rounds = computed(() => history.value.map(review => {
   }
   return { review, projection };
 }));
-const damaged = computed(() => rounds.value.some(row => row.review.status === "COMPLETED" && !row.projection));
+const damaged = computed(() => rounds.value.some(row => row.review.status === "COMPLETED" && !withheld(row.review) && !row.projection));
 const latestCompleted = computed(() => rounds.value.find(row => row.review.status === "COMPLETED")?.projection);
-const editable = computed(() => loaded.value && eligible.value && terminal.value && !loading.value && !busy.value && !command.value && !damaged.value);
+const editable = computed(() => loaded.value && eligible.value && terminal.value && !loading.value && !busy.value && !command.value && !damaged.value && !contentWithheld.value);
 const messageOptions = computed(() => messages.value.map(item => ({ value: item.id,
   label: `#${item.sequenceNo} ${item.speakerRole} ${(item.content == null ? "正文未展示" : item.content.slice(0, 80))}` })));
 function display(value: unknown) { return value === true ? "是" : value === false ? "否" : value == null ? "—" : String(value); }
 async function refresh() {
-  if (!can("iqc:review:label:history")) return;
+  if (disposed || !can("iqc:review:label:history")) return;
   const ticket = ++generation, id = props.label.id;
   loaded.value = false; loading.value = true; error.value = "";
   try {
     const [reviews, detail] = await Promise.all([
       listLabelValueReviews(id), getConversationResultDetail(props.taskId, props.label.conversationId),
     ]);
-    if (ticket !== generation) return;
-    history.value = reviews; messages.value = detail.messages; loaded.value = true;
+    if (disposed || ticket !== generation) return;
+    history.value = reviews.map(review=>withheld(review)?{...review,reviewedResultJson:null,requestComment:null,reviewComment:null}:review); messages.value = detail.messages; loaded.value = true;
   } catch { if (ticket === generation) error.value = "标签复核历史或会话证据加载失败，请刷新后重试。"; }
   finally { if (ticket === generation) loading.value = false; }
 }
+onBeforeUnmount(()=>{disposed=true;generation++;history.value=[];messages.value=[];command.value=undefined;requestComment.value="";comment.value="";value.value=undefined;evidence.value=[];});
 watch(() => props.label.id, () => {
   generation++; history.value = []; messages.value = []; loaded.value = false; command.value = undefined;
   requestComment.value = ""; comment.value = ""; status.value = undefined; value.value = undefined; evidence.value = [];
@@ -70,13 +73,13 @@ watch(() => props.label.id, () => {
 }, { immediate: true });
 async function submit() {
   const current = command.value;
-  if (!current || busy.value || !can(current.kind === "REQUEST" ? "iqc:review:label:create" : "iqc:review:label:decide")) return;
+  if (disposed || !current || busy.value || !can(current.kind === "REQUEST" ? "iqc:review:label:create" : "iqc:review:label:decide")) return;
   busy.value = true; error.value = "";
   const id = props.label.id;
   try {
     if (current.kind === "REQUEST") await requestLabelValueReview(current.id, current.payload);
     else await decideLabelValueReview(current.id, current.payload);
-    if (id !== props.label.id) return;
+    if (disposed || id !== props.label.id) return;
     command.value = undefined; requestComment.value = ""; comment.value = ""; evidence.value = [];
     message.success(current.kind === "REQUEST" ? "标签复核已发起" : "标签裁决已保存，机器标签值和评分未被覆盖");
     await refresh();
@@ -115,6 +118,7 @@ async function decide(rejected: boolean) {
         <a-button v-if="command" :loading="busy" :disabled="busy" @click="submit">重试原提交</a-button></a-space>
       <a-alert v-if="error" type="error" show-icon :message="error" />
       <a-alert v-if="!terminal" type="info" message="任务结束后才能复核标签值。" />
+      <a-alert v-if="contentWithheld" type="info" message="复核正文和评论未展示；轮次及处理状态保留，请取得完整会话及PII读取权限后刷新再裁决。" />
       <a-alert v-if="damaged" type="error" message="历史人工修订无法验证，已停止后续操作，请联系管理员。" />
       <a-spin :spinning="loading">
         <p v-if="latestCompleted">当前有效人工修订：{{ latestCompleted.status === 'KNOWN' ? display(latestCompleted.value) : '未知' }}；机器值仍保留。</p>
