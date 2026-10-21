@@ -20,7 +20,7 @@ export type IqcModelProfileRequest = Omit<IqcModelProfile, "id"|"status"|"versio
 export interface ModelConnectionTestResult { success:boolean; message:string; latencyMillis:number; provider:string; modelName:string; }
 export interface QualityRule { id: string; name: string; code: string; category?: string; ruleType: string; targetRole?: string; expression?: string|null; description?: string|null; privacy?:AssetReadPrivacy; deduction?: number; riskLevel?: string; veto?: boolean; versionNo?: number; status: string; }
 export interface QualityRuleVersion { id: string; ruleId: string; versionNo: number; name: string; code: string; category?: string; ruleType: string; targetRole?: string; expression?: string|null; description?: string|null; privacy?:AssetReadPrivacy; deduction?: number; riskLevel?: string; veto?: boolean; status: string; createdTime?: string; }
-export interface QualityRuleSet { id:string; name:string; code:string; description?:string; ruleIdsJson:string; aggregationMode:"ALL"|"ANY"; versionNo:number; status:string; }
+export interface QualityRuleSet { id:string; name:string; code:string; description?:string|null; privacy?:AssetReadPrivacy; ruleIdsJson:string; aggregationMode:"ALL"|"ANY"; versionNo:number; status:string; }
 export interface QualityRuleSetRequest { name:string; code:string; description?:string; ruleIds:string[]; aggregationMode:"ALL"|"ANY"; }
 export const listAgents = () => http.get<QualityAgent[]>("/iqc/config/agents").then((response) => response.data);
 export const createAgent = (data: Partial<QualityAgent>) => http.post<QualityAgent>("/iqc/config/agents", data).then((response) => response.data);

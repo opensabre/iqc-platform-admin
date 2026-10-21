@@ -160,3 +160,10 @@ QualityAgent/Version可空configJson/description及响应privacy、独立agentPr
 原规则页识别iqc-rule-read-v1，非LLM按FULL+PII，LLM含大小写/空白再需Prompt。unknown/受限表达式与描述不留在可编辑状态，不生成空新版本；历史、ID、版本、类型、状态仍可用。测试/导入只按允许正文渲染，保留ERROR/NOT_SUPPORTED与计数，File/测试输入/历史/表单关闭清理并隔离迟到响应；DLS遮蔽名称不作行唯一键。请求目标与发起输入固定，未确认写入提示先核对原草稿。
 
 首轮93991与最终95124 vue-tsc+Vite均exit0（最终51.16s/既有体积提示），/tmp/iqc-rule-sensitive-read-ui-build-final.log。未新增/运行Root测试或browser/SQL/部署，授权/原数据/实际页面验收交B；完整适用I1–I7继续。
+
+
+## RuleSet 读取边界（2026-10-21）
+
+复用既有规则业务授权及当前敏感授权，RuleSet list/history仅FULL+PII齐备返回原description；所有命令回执扣留description。响应副本使用iqc-rule-set-read-v1，非持久privacy为null时省略；ruleIdsJson原顺序、aggregationMode、ID/code/version/status保留，不改变检测或内部快照。页面仅保存成员选择所需元数据，关闭清理新建表单，刷新代次/卸载阻断迟到响应，创建提交复制输入，禁止提交期间关闭。页面本来没有历史编辑入口，未添加空描述覆盖路径。
+
+当前批次仅编译/前端构建；实际grant组合、源对象不变、内部JSON兼容、网关逐URL注册及浏览器生命周期仍待独立验证。单租户组织范围不变，完整I1–I7未完成。
