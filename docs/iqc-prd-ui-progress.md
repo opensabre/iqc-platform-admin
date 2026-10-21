@@ -154,3 +154,9 @@ I5：结果动作面板已增加检查请求入口，独立enqueue权限、请�
 QualityAgent/Version可空configJson/description及响应privacy、独立agentPresentation接线；受限正文不建默认编辑器或空存。Agent模式、schemes Agent3.0版本筛选及SkillApiConfigurationEditor能力选择用明确元数据，仍保留原ID/version和MCP工具名，不要求看到Prompt正文。unknown协议不回退裸正文，只有旧无privacy兼容旧协议。当前配置2/3向导保持，1.0保留原JSON编辑为新草稿版本；前端业务按钮/处理函数对齐原submit/disable/version:manage，刷新/关闭/卸载清数据并隔离迟到响应。Agent效果rate契约允许无分母null。
 
 首轮39271和最终54477 vue-tsc+Vite均exit0，最终/tmp/iqc-agent-sensitive-read-ui-build-final.log（1m15s/既有体积提示）。没有新增或执行Root测试/browser/SQL/部署，实际读取授权/能力选择/旧协议/角色仍交B，完整适用I1–I7未宣称完成。
+
+## Rule正文与诊断受限读取（2026-10-21）
+
+原规则页识别iqc-rule-read-v1，非LLM按FULL+PII，LLM含大小写/空白再需Prompt。unknown/受限表达式与描述不留在可编辑状态，不生成空新版本；历史、ID、版本、类型、状态仍可用。测试/导入只按允许正文渲染，保留ERROR/NOT_SUPPORTED与计数，File/测试输入/历史/表单关闭清理并隔离迟到响应；DLS遮蔽名称不作行唯一键。请求目标与发起输入固定，未确认写入提示先核对原草稿。
+
+首轮93991与最终95124 vue-tsc+Vite均exit0（最终51.16s/既有体积提示），/tmp/iqc-rule-sensitive-read-ui-build-final.log。未新增/运行Root测试或browser/SQL/部署，授权/原数据/实际页面验收交B；完整适用I1–I7继续。
