@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import HumanFindingReviewEditor from "./HumanFindingReviewEditor.vue";
 import ManualScoreReviewEditor from "./ManualScoreReviewEditor.vue";
 import type {ReviewStage,ReviewWorkflow,ScoreAdjustment,HumanFindingDecision} from "@/api/quality";
@@ -28,7 +28,7 @@ const feedbackOptions:Array<{value:ReviewFeedbackCategory;label:string}>=[
 function feedbackLabel(value:string){return feedbackOptions.find(option=>option.value===value)?.label??value;}
 type Command = { kind: "REQUEST"; id: string; payload: BusinessReviewRequest } | { kind: "DECIDE"; id: string; payload: BusinessReviewVerdict };
 const command = ref<Command>();
-let generation = 0, candidateEpoch = 0;
+let generation = 0, candidateEpoch = 0, disposed = false;
 const exporting = ref(false);
 function downloadReview(review: BusinessReview) {
   if (exporting.value || !can("iqc:result:export") || !can("iqc:review:view") || review.status !== "COMPLETED") return;
@@ -84,12 +84,14 @@ function captureCandidate(review: BusinessReview) {
 const pending = computed(() => history.value.find(item => item.status === "PENDING"));
 const latestRevision = computed(() => Math.max(0, ...history.value.map(item => item.reviewRevision)));
 const terminal = computed(() => ["SUCCEEDED", "PARTIAL_FAILED", "FAILED", "CANCELLED"].includes(props.taskStatus));
-const editable = computed(() => !props.readOnly && loaded.value && terminal.value && !loading.value && !busy.value && !command.value);
+function withheld(review:BusinessReview){const p=review.privacy;return !!p&&(p.policyVersion!=="iqc-business-review-read-v1"||!p.canonicalPayloadVisible||!p.canReadFull||!p.canReadPii);}
+const contentWithheld=computed(()=>history.value.some(withheld));
+const editable = computed(() => !props.readOnly && loaded.value && terminal.value && !loading.value && !busy.value && !command.value && !contentWithheld.value);
 const selected = computed(() => props.items.find(item => item.itemCode === itemCode.value));
 const messageOptions = computed(() => props.messages.map(item => ({ value: item.id, label: `#${item.sequenceNo} ${item.speakerRole || ""} ${item.content.slice(0, 60)}` })));
 const rows = computed(() => history.value.map(review => {
   let projection: BusinessReviewProjection | undefined; let workflow:ReviewWorkflow|undefined,workflowInvalid=false;
-  if (review.status === "COMPLETED") {
+  if (review.status === "COMPLETED" && !withheld(review)) {
     try {
       const parsed = JSON.parse(review.reviewedResultJson || "null") as BusinessReviewProjection | null;
       if (!parsed || parsed.sourceResultId !== props.resultId || !Array.isArray(parsed.reviewed?.items)
@@ -105,7 +107,12 @@ const rows = computed(() => history.value.map(review => {
     } catch { /* Malformed history is visible as an error, never a guessed score. */ }
   }
   try{
-   const metadata=review.status==='COMPLETED'?projection?.workflow:review.reviewedResultJson?JSON.parse(review.reviewedResultJson):null;
+   let metadata;
+   if(review.reviewPresentation){const p=review.reviewPresentation;
+    if(p.policyVersion!=='iqc-review-workflow-presentation-v1'||p.state!=='AVAILABLE'||!['INITIAL','SECOND_REVIEW','ARBITRATION'].includes(p.stage))throw Error();
+    metadata=p.workflow;
+    if(p.stage==='INITIAL'?metadata!=null:metadata?.stage!==p.stage)throw Error();
+   }else metadata=review.status==='COMPLETED'?projection?.workflow:review.reviewedResultJson?JSON.parse(review.reviewedResultJson):null;
    if(metadata!=null){
     if(metadata.schemaVersion!=='iqc-review-workflow-v1'||!['SECOND_REVIEW','ARBITRATION'].includes(metadata.stage)
       ||typeof metadata.parentReviewId!=='string'||!metadata.parentReviewId.trim()||metadata.parentReviewId.length>64
@@ -116,7 +123,7 @@ const rows = computed(() => history.value.map(review => {
   }catch{workflowInvalid=true;}
   return { review, projection,workflow,workflowInvalid };
 }));
-const damaged = computed(() => rows.value.some(row => row.workflowInvalid||row.review.status === "COMPLETED" && !row.projection));
+const damaged = computed(() => rows.value.some(row => row.workflowInvalid||row.review.status === "COMPLETED" && !withheld(row.review) && !row.projection));
 const latestCompleted=computed(()=>rows.value.filter(row=>row.review.status==='COMPLETED').sort((a,b)=>b.review.reviewRevision-a.review.reviewRevision)[0]);
 const finalArbitration=computed(()=>latestCompleted.value?.workflow?.stage==='ARBITRATION');
 const stageOptions=computed(()=>finalArbitration.value?[]:[{value:'INITIAL' as ReviewStage,label:'普通复核'},
@@ -131,16 +138,18 @@ function score(scoring: BusinessScoringResult) {
     : scoring.scoreStatus === "NOT_APPLICABLE" ? "不计分" : "待确认";
 }
 async function refresh() {
-  if (!can("iqc:review:view")) return;
+  if (disposed || !can("iqc:review:view")) return;
   const ticket = ++generation, id = props.resultId;
   loading.value = true; loaded.value = false; error.value = "";
   try {
     const result = await listBusinessReviews(id);
-    if (ticket !== generation) return;
-    history.value = result; loaded.value = true;
+    if (disposed || ticket !== generation) return;
+    history.value = result.map(review=>withheld(review)?{...review,reviewedResultJson:null,requestComment:null,reviewComment:null}:review); loaded.value = true;
   } catch { if (ticket === generation) error.value = "复核历史加载失败，请刷新后再操作。"; }
   finally { if (ticket === generation) loading.value = false; }
 }
+onBeforeUnmount(()=>{disposed=true;generation++;candidateEpoch++;history.value=[];command.value=undefined;candidateCommand.value=undefined;
+ requestComment.value="";comment.value="";evidence.value=[];itemCode.value=undefined;finalStatus.value=undefined;candidateType.value=undefined;});
 watch(() => props.resultId, () => {
   generation++; candidateEpoch++; history.value = []; loaded.value = false; command.value = undefined;
   requestStage.value='INITIAL'; requestComment.value = ""; comment.value = ""; itemCode.value = undefined; finalStatus.value = undefined; evidence.value = []; feedbackCategory.value=undefined;
@@ -150,13 +159,13 @@ watch(() => props.resultId, () => {
 
 async function submit() {
   const current = command.value;
-  if (!current || busy.value || !can(current.kind === "REQUEST" ? "iqc:review:create" : "iqc:review:decide")) return;
+  if (disposed || !current || busy.value || contentWithheld.value || !can(current.kind === "REQUEST" ? "iqc:review:create" : "iqc:review:decide")) return;
   busy.value = true; error.value = "";
   const resultId = props.resultId;
   try {
     if (current.kind === "REQUEST") await requestBusinessReview(current.id, current.payload);
     else await decideBusinessReview(current.id, current.payload);
-    if (resultId !== props.resultId) return;
+    if (disposed || resultId !== props.resultId) return;
     command.value = undefined; requestComment.value = ""; comment.value = ""; finalStatus.value = undefined; evidence.value = []; feedbackCategory.value=undefined;
     message.success(current.kind === "REQUEST" ? "复核已发起" : "复核裁决已保存，机器结果未被覆盖");
     await refresh();
@@ -213,6 +222,7 @@ async function acknowledgeParent(){
       <a-alert v-if="error" type="error" show-icon :message="error" />
       <a-alert v-if="readOnly" type="info" message="当前为只读历史；请打开当前结果详情进行复核。" />
       <a-alert v-else-if="!terminal" type="info" message="任务结束后才能申请或裁决复核。" />
+      <a-alert v-if="contentWithheld" type="info" message="复核正文和评论未展示；阶段及轮次保留，请取得完整会话及PII读取权限后刷新再编辑。" />
       <a-alert v-if="damaged" type="error" message="历史复核快照损坏，已禁止变更，请联系管理员核对。" />
       <a-spin :spinning="loading">
         <a-empty v-if="loaded && !history.length" description="暂无复核记录。" />

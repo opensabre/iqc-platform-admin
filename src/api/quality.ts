@@ -62,9 +62,11 @@ export interface BusinessReviewDecision {
   finalStatus: "PASS" | "FAIL" | "NOT_APPLICABLE"; reason: string; evidenceMessageIds: string[]; feedbackCategory?: ReviewFeedbackCategory | null;
 }
 export interface BusinessReview {
+  privacy?:import("@/api/config").AssetReadPrivacy;
+  reviewPresentation?:{policyVersion:string;state:string;stage:ReviewStage|"INVALID";workflow?:ReviewWorkflow|null};
   id: string; targetType: "BUSINESS"; businessResultId: string; reviewRevision: number;
-  status: "PENDING" | "COMPLETED" | "REJECTED"; requestComment?: string|null; reviewComment?: string;
-  createdBy?: string; reviewerId?: string; reviewedTime?: string; reviewedResultJson?: string;
+  status: "PENDING" | "COMPLETED" | "REJECTED"; requestComment?: string|null; reviewComment?: string|null;
+  createdBy?: string; reviewerId?: string; reviewedTime?: string; reviewedResultJson?: string|null;
 }
 export interface BusinessReviewProjection {
   sourceResultId: string;
