@@ -136,6 +136,6 @@ export const getHumanFindingContext=(resultId:string)=>http.get<HumanFindingCont
 
 export interface ScoreAdjustment {sourceResultId:string;expectedScoringHash:string;finalScore:string;reason:string}
 export interface ManualScoreProjection {adjustment:ScoreAdjustment;status:'APPLIED'|'STALE';computedScoringHash:string;effectiveScore:number|null}
-export interface ScoreReviewContext {sourceResultId:string;sourceHash:string;computedScoringHash:string;computedScoreStatus:string;computedScore:string|null;manualScore:ManualScoreProjection|null}
+export interface ScoreReviewContext {privacy?:import("@/api/config").AssetReadPrivacy;sourceResultId:string;sourceHash:string;computedScoringHash:string;computedScoreStatus:string;computedScore:string|null;manualScore:(Omit<ManualScoreProjection,"adjustment"> & {adjustment:Omit<ScoreAdjustment,"reason"> & {reason?:string|null}})|null}
 export const getScoreReviewContext=(resultId:string)=>http.get<ScoreReviewContext>('/iqc/quality-operations/reviews',
  {params:{targetType:'BUSINESS',resultId,view:'SCORE_CONTEXT'}}).then(response=>response.data);

@@ -205,3 +205,10 @@ GET /schemes/published目录及schemeId游标历史先检查当前scheme:view并
 ## 标签复核细分权限对齐（2026-10-21）
 
 以QualityOperationsController和现有V20260927_01权限脚本为准：LabelReviewQueue请求/展示用iqc:review:label:queue，队列历史按钮及handler单独用label:history；LabelValueReviewPanel读取/发起/裁决及submit handler分别用label:history/create/decide；tasks标签表和路由定位打开复核用label:history。此前混用通用review:view/create/decide会阻止只有标签权限的账号，也会给只有通用权限的账号显示最终被后端拒绝的操作。既有result:view/task:view及服务端授权/组织范围仍适用，不新增权限码/角色/接口。实际独立grant组合/撤权/浏览器待验，本批仅构建。
+
+
+## 人工改分上下文原因投影（2026-10-22）
+
+SCORE_CONTEXT沿现有reviews固定review:view当前授权/no-store及原service组织/来源/计算hash校验，独立ScoreReviewContextRead只控制前轮manualScore.adjustment.reason：FULL+PII齐备回原原因，否则该字段null，iqc-score-review-context-read-v1声明扣留。computedScore/hash/status、APPLIED/STALE、effectiveScore、原finalScore字符串和source/expectedScoringHash完全保留；没有manualScore仍null，不把旧原因扣留变成未改分或零分。不需要Prompt授权，不修改原ManualScoreProjection/ScoreAdjustment/评估及存储。
+
+ManualScoreReviewEditor原本不以旧原因填表，新一轮原因始终重新必填；现提示前轮原因未展示，仍可用原评分基准编辑。存在但未知/受限privacy剔除旧原因；保留旧无privacy兼容。卸载清评分上下文/输入并失效请求代次。当前仅编译构建，四grant/精确分数及状态/hash不变/源字节不变、实际授权/浏览器仍待独立验收。ResultReview历史与命令正文仍待。
