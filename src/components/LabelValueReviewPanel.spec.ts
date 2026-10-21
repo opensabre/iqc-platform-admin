@@ -4,7 +4,7 @@ import LabelValueReviewPanel from "./LabelValueReviewPanel.vue";
 import { listLabelValueReviews, requestLabelValueReview, decideLabelValueReview, type LabelValueReview } from "@/api/quality";
 import { getConversationResultDetail, type LabelResult } from "@/api/results";
 
-const state = vi.hoisted(() => ({ permissions: ["iqc:review:view", "iqc:review:create", "iqc:review:decide"] }));
+const state = vi.hoisted(() => ({ permissions: ["iqc:review:label:history", "iqc:review:label:create", "iqc:review:label:decide"] }));
 vi.mock("@/composables/permission", () => ({ usePermission: () => ({ can: (key: string) => state.permissions.includes(key) }) }));
 vi.mock("@/api/quality", () => ({ listLabelValueReviews: vi.fn(), requestLabelValueReview: vi.fn(), decideLabelValueReview: vi.fn() }));
 vi.mock("@/api/results", () => ({ getConversationResultDetail: vi.fn() }));
@@ -39,13 +39,37 @@ function mount() {
 
 describe("label value review panel", () => {
   beforeEach(() => {
-    vi.clearAllMocks(); state.permissions = ["iqc:review:view", "iqc:review:create", "iqc:review:decide"];
+    vi.clearAllMocks(); state.permissions = ["iqc:review:label:history", "iqc:review:label:create", "iqc:review:label:decide"];
     vi.mocked(listLabelValueReviews).mockResolvedValue([]);
     vi.mocked(getConversationResultDetail).mockResolvedValue({ conversation: { id: "conversation", sourceFileName: "file" },
       summary: {} as never, messages: [{ id: "m1", sequenceNo: 1, content: "没有房子", speakerRole: "customer", relativeTime: "0" }], results: [] });
   });
   afterEach(() => { app?.unmount(); host?.remove(); });
 
+  it("does not substitute generic review grants for label history", async () => {
+    state.permissions = ["iqc:review:view", "iqc:review:create", "iqc:review:decide"];
+    mount(); await settle();
+    expect(listLabelValueReviews).not.toHaveBeenCalled();
+    expect(getConversationResultDetail).not.toHaveBeenCalled();
+  });
+  it("keeps history readable without either command grant", async () => {
+    state.permissions = ["iqc:review:label:history", "iqc:review:create", "iqc:review:decide"];
+    mount(); await settle();
+    expect(listLabelValueReviews).toHaveBeenCalledWith("label-result");
+    expect(host.querySelector("textarea")).toBeNull();
+    expect(requestLabelValueReview).not.toHaveBeenCalled();
+    expect(decideLabelValueReview).not.toHaveBeenCalled();
+  });
+  it("checks the label create grant again before retrying an uncertain command", async () => {
+    vi.mocked(requestLabelValueReview).mockRejectedValueOnce(new Error("timeout"));
+    mount(); await settle();
+    const input = host.querySelector("textarea")!;
+    input.value = "请复核"; input.dispatchEvent(new Event("input")); await settle();
+    [...host.querySelectorAll("button")].find(button => button.textContent === "发起标签复核")!.click(); await settle();
+    state.permissions = ["iqc:review:label:history", "iqc:review:create"];
+    [...host.querySelectorAll("button")].find(button => button.textContent === "重试原提交")!.click(); await settle();
+    expect(requestLabelValueReview).toHaveBeenCalledTimes(1);
+  });
   it("shows a human false correction separately from the unknown machine value", async () => {
     vi.mocked(listLabelValueReviews).mockResolvedValue([completed]);
     mount(); await settle();

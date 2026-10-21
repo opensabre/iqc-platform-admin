@@ -219,3 +219,8 @@ ManualScoreReviewEditor原本不以旧原因填表，新一轮原因始终重新
 标签history/create/decide先检查原固定label:history/create/decide当前授权/no-store，历史QUERY审计不收正文。ResultReview响应copy新增非持久null省略privacy，内部存储/旧快照不设字段。专门history仅FULL+PII齐备回原requestComment/reviewComment/reviewedResultJson；其它组合扣留三字段，创建人/复核人沿原mask，ID/轮次/状态/分数/hash等保留。所有标签命令回执无论敏感grant均扣留正文，前端沿原刷新历史取最终详情，不改复核幂等/锁/来源/组织范围。无需Prompt。
 
 LabelValueReviewPanel区分未展示和损坏：存在但未知/受限privacy清正文评论、显式提示、停止用不完整历史裁决；合法完整旧body原验证保留，无privacy旧接口兼容。LabelReviewQueue历史结论显示复核正文未展示而不猜值。组件卸载清历史/消息/命令草稿并失效请求；已发出的写入不取消，迟到响应不触发刷新。实际grant/源字节/旧内部JSON/命令回执/当前授权及组织/browser待独立验收，当前仅编译构建。业务/消息ResultReview历史与命令仍未投影，工作流stage须另行配套。
+
+
+## 标签权限回归夹具集成（2026-10-22）
+
+从B已提交a2b90f3同步LabelReviewQueue.spec.ts、LabelValueReviewPanel.spec.ts，生产代码保持当前标签正文保护版本。覆盖标签专属grant、通用grant不能替代、queue/history独立、按钮和重试前撤权。B曾在其组合分支运行两文件14项并构建通过（日志见协作台账）；Root本次仅同步既有测试及构建，不把B旧分支结果当当前隐私/评分/序列化全部验收，不运行测试。
