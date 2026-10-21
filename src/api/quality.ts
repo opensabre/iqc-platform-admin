@@ -101,8 +101,9 @@ export interface LabelReviewQueueItem {
   reviewRevision: number; status: LabelValueReview["status"];
   requestComment?: string; createdBy?: string; createdTime?: string; currentResult: boolean;
 }
+export type ReviewQueuePage<T> = PageResult<T> & { privacy?: import("@/api/config").AssetReadPrivacy };
 export const listLabelReviewQueue = (params: { status: string; taskId?: string; current: number; size: number }) =>
-  http.get<PageResult<LabelReviewQueueItem>>("/iqc/quality-operations/label-reviews", { params }).then(r => r.data);
+  http.get<ReviewQueuePage<LabelReviewQueueItem>>("/iqc/quality-operations/label-reviews", { params }).then(r => r.data);
 
 export interface BusinessReviewQueueItem {
   reviewId: string; resultId: string; taskId: string; taskName: string; conversationId: string;
@@ -110,7 +111,7 @@ export interface BusinessReviewQueueItem {
   createdTime?: string; taskStatus: string; currentResult: boolean; stage?:ReviewStage|'INVALID';
 }
 export const listBusinessReviewQueue = (params: { status: string; taskId?: string; current: number; size: number }) =>
-  http.get<PageResult<BusinessReviewQueueItem>>("/iqc/quality-operations/reviews", {
+  http.get<ReviewQueuePage<BusinessReviewQueueItem>>("/iqc/quality-operations/reviews", {
     params: { ...params, targetType: "BUSINESS", view: "QUEUE" }
   }).then(r => r.data);
 

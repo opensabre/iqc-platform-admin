@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { usePermission } from "@/composables/permission";
 import { listBusinessReviewQueue, type BusinessReviewQueueItem } from "@/api/quality";
@@ -10,15 +10,17 @@ const { can } = usePermission(), router = useRouter();
 const rows = ref<BusinessReviewQueueItem[]>([]), loading = ref(false), error = ref("");
 const status = ref("PENDING"), taskId = ref(""), current = ref(1), size = ref(20), total = ref(0);
 const selected = ref<BusinessReviewQueueItem>(), historyOpen = ref(false);
-let generation = 0;
+let generation = 0, disposed = false;
+const commentsWithheld = ref(false);
 async function refresh() {
-  if (!can("iqc:review:view")) return;
+  if (disposed || !can("iqc:review:view")) return;
   const ticket = ++generation;
   loading.value = true; error.value = "";
   try {
     const result = await listBusinessReviewQueue({ status: status.value, taskId: taskId.value.trim() || undefined, current: current.value, size: size.value });
-    if (ticket !== generation) return;
-    rows.value = result.records; total.value = result.total;
+    if (disposed || ticket !== generation) return;
+    commentsWithheld.value=!!result.privacy && (result.privacy.policyVersion!=="iqc-review-queue-read-v1" || !result.privacy.canonicalPayloadVisible || !result.privacy.canReadFull || !result.privacy.canReadPii);
+    rows.value = commentsWithheld.value?result.records.map(row=>({...row,requestComment:undefined})):result.records; total.value = result.total;
   } catch {
     if (ticket === generation) { rows.value = []; total.value = 0; error.value = "业务复核待办加载失败，请重试。"; }
   } finally { if (ticket === generation) loading.value = false; }
@@ -32,10 +34,12 @@ function open(row: BusinessReviewQueueItem) {
   if (!canOpen(row)) return;
   void router.push({ path: "/results", query: { taskId: row.taskId, conversationId: row.conversationId, sourceResultId: row.resultId } });
 }
-function history(row: BusinessReviewQueueItem) { selected.value = row; historyOpen.value = true; }
+function history(row: BusinessReviewQueueItem) { if(disposed)return; selected.value = row; historyOpen.value = true; }
 function stageLabel(value:string|undefined){return ({INITIAL:'普通复核',SECOND_REVIEW:'二审',ARBITRATION:'仲裁',INVALID:'阶段数据损坏'} as Record<string,string>)[value??'INITIAL']??'阶段数据损坏';}
 function statusLabel(value: string) { return ({PENDING:"待处理",COMPLETED:"已完成",REJECTED:"已退回"} as Record<string,string>)[value] || value; }
 defineExpose({ refresh });
+watch(historyOpen,visible=>{if(!visible)selected.value=undefined;});
+onBeforeUnmount(()=>{disposed=true;generation++;rows.value=[];selected.value=undefined;});
 onMounted(refresh);
 </script>
 
@@ -43,6 +47,7 @@ onMounted(refresh);
   <section aria-label="业务复核待办">
     <a-alert v-if="!can('iqc:review:view')" type="info" message="没有查看业务复核的权限。" />
     <template v-else>
+      <a-alert v-if="commentsWithheld" type="info" show-icon message="复核评论未展示；任务定位、轮次及处理状态保持可用。" />
       <a-alert type="info" show-icon message="按所属任务权限显示复核轮次，不代表待检会话数。被新执行替代的结果只能查看原复核历史。" />
       <a-form layout="inline" style="margin:16px 0">
         <a-form-item label="复核状态"><a-select v-model:value="status" :options="[{value:'PENDING',label:'待处理'},{value:'COMPLETED',label:'已完成'},{value:'REJECTED',label:'已退回'},{value:'ALL',label:'全部'}]" style="width:120px" /></a-form-item>
