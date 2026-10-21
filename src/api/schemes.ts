@@ -31,7 +31,7 @@ export interface InspectionScheme { id: string; name: string; code: string; desc
   sourceVersionNo?: number | null; sourceContentHash?: string | null }
 export interface SchemeRelease extends SchemeDraftRequest { selectedVariantCode?: string; dependencies: { executionMode: string;
   rules?: Array<{ id: string; versionNo: number; name?: string }> } }
-export interface PublishedTemplate { schemeId: string; versionNo: number; contentHash: string; snapshot: SchemeRelease }
+export interface PublishedTemplate { privacy?: import("@/api/config").AssetReadPrivacy; schemeId: string; versionNo: number; contentHash: string; snapshot: SchemeRelease }
 export interface PublishedVersionHistory { versions: PublishedTemplate[]; nextBeforeVersion: number | null }
 export interface ReleasedSchemeVersion { versionNo: number; sourceDraftRevision?: number | null; sourceTrialTaskId?: string | null;
   contentHash: string; snapshot: SchemeRelease; archived?: boolean }
@@ -46,10 +46,25 @@ export const listSchemes = () => http.get<InspectionScheme[]>("/iqc/schemes").th
 /** Expert-only immutable history; availability and mutable dependencies are not re-resolved. */
 export const listSchemeVersions = (id: string, beforeVersion?: number) =>
   http.get<SchemeVersionHistory>(`/iqc/schemes/${id}/versions`, { params: { beforeVersion } }).then(r => r.data);
-export const listPublishedTemplates = () => http.get<PublishedTemplate[]>("/iqc/schemes/published").then(r => r.data);
+/** Ordinary consumers keep only selection metadata, even when the server permits full bodies. */
+function templateSelection(source: PublishedTemplate): PublishedTemplate {
+  const snapshot = source.snapshot;
+  const { definition } = snapshot;
+  const canonical = source.privacy?.policyVersion === "iqc-scheme-template-read-v1"
+    && source.privacy.canonicalPayloadVisible === true && source.privacy.canReadFull === true
+    && source.privacy.canReadPii === true && source.privacy.canReadPrompt === true;
+  return { schemeId: source.schemeId, versionNo: source.versionNo, contentHash: source.contentHash,
+    privacy: source.privacy,
+    snapshot: { name: snapshot.name, code: snapshot.code, businessScene: snapshot.businessScene,
+      description: canonical ? snapshot.description : undefined, definition,
+      selectedVariantCode: snapshot.selectedVariantCode,
+      dependencies: { executionMode: snapshot.dependencies.executionMode,
+        rules: snapshot.dependencies.rules?.map(rule => ({ id: rule.id, versionNo: rule.versionNo, name: rule.name })) } } };
+}
+export const listPublishedTemplates = () => http.get<PublishedTemplate[]>("/iqc/schemes/published").then(r => r.data.map(templateSelection));
 /** Paged immutable releases for an active template; reuses the ordinary template-view permission. */
 export const listPublishedVersionHistory = (id: string, beforeVersion?: number) =>
-  http.get<PublishedVersionHistory>("/iqc/schemes/published", { params: { schemeId: id, beforeVersion } }).then(r => r.data);
+  http.get<PublishedVersionHistory>("/iqc/schemes/published", { params: { schemeId: id, beforeVersion } }).then(r => ({ ...r.data, versions: r.data.versions.map(templateSelection) }));
 export const createScheme = (request: SchemeDraftRequest | SchemeDerivationRequest) => http.post<InspectionScheme>("/iqc/schemes", request).then(r => r.data);
 export const reviseScheme = (id: string, expectedRevision: number, draft: SchemeDraftRequest) =>
   http.put<InspectionScheme>(`/iqc/schemes/${id}`, { expectedRevision, draft }).then(r => r.data);

@@ -167,3 +167,10 @@ QualityAgent/Version可空configJson/description及响应privacy、独立agentPr
 复用既有规则业务授权及当前敏感授权，RuleSet list/history仅FULL+PII齐备返回原description；所有命令回执扣留description。响应副本使用iqc-rule-set-read-v1，非持久privacy为null时省略；ruleIdsJson原顺序、aggregationMode、ID/code/version/status保留，不改变检测或内部快照。页面仅保存成员选择所需元数据，关闭清理新建表单，刷新代次/卸载阻断迟到响应，创建提交复制输入，禁止提交期间关闭。页面本来没有历史编辑入口，未添加空描述覆盖路径。
 
 当前批次仅编译/前端构建；实际grant组合、源对象不变、内部JSON兼容、网关逐URL注册及浏览器生命周期仍待独立验证。单租户组织范围不变，完整I1–I7未完成。
+
+
+## 已发布Scheme普通读取投影（2026-10-21）
+
+GET /schemes/published目录及schemeId游标历史先检查当前scheme:view并设置no-store，查询审计不收正文。独立PublishedSchemeRead响应封装，不修改ReleaseSnapshot/内部快照/摘要。FULL+PII+PROMPT全部具备可回原发布正文；其它组合只回业务definition（item/评分/上限/variant/引用），自由名称沿原PII mask、描述扣留，dependencies仅executionMode和规则id/version/name，agent/label/route plan/variantDependencies不复制；policyVersion=iqc-scheme-template-read-v1。contentHash始终原发布物身份，不能用展示投影重算校验。
+
+普通前端API即使有全部权限，也只保留任务选择所需依赖元数据，不保存检测器正文；描述需已知协议全部grant方保留。原TemplateWizard仍按原definition/推荐变体/上限/执行模式及版本创建任务。专家draft/history/preview和发布回执仍待独立收口，不把普通模板路径完成当成整个Scheme域完成。实际权限组合/源快照不变/普通任务与历史/浏览器/网关注册待独立验证，本批仅编译构建。
