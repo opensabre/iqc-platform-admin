@@ -1,18 +1,22 @@
 <script setup lang="ts">
-import {computed,ref,watch} from 'vue';
+import {computed,onBeforeUnmount,ref,watch} from 'vue';
 import {validateDecimalOperand} from '@/api/action-policy-editor';
 import {getHumanFindingContext,type HumanFindingContext,type HumanFindingDecision} from '@/api/quality';
 const props=defineProps<{resultId:string;disabled:boolean;refreshToken?:number}>();
 const emit=defineEmits<{save:[decision:HumanFindingDecision]}>();
 const context=ref<HumanFindingContext>(),loading=ref(false),error=ref(''),code=ref<string>();
 const state=ref<'KNOWN'|'UNKNOWN'>('KNOWN'),valueJson=ref('null'),severity=ref<HumanFindingDecision['severity']>('NONE');
-const reason=ref(''),retained=ref<string[]>([]),added=ref<string[]>([]);let generation=0;
+const reason=ref(''),retained=ref<string[]>([]),added=ref<string[]>([]);let generation=0,disposed=false;
 const selected=computed(()=>context.value?.findings.find(finding=>finding.code===code.value));
 function reset(){code.value=undefined;state.value='KNOWN';valueJson.value='null';severity.value='NONE';reason.value='';retained.value=[];added.value=[];}
-async function load(){const ticket=++generation,id=props.resultId;loading.value=true;error.value='';context.value=undefined;reset();
- try{const result=await getHumanFindingContext(id);if(ticket===generation&&id===props.resultId){if(result.sourceResultId!==id)throw Error();context.value=result;}}
+async function load(){if(disposed)return;const ticket=++generation,id=props.resultId;loading.value=true;error.value='';context.value=undefined;reset();
+ try{const result=await getHumanFindingContext(id);if(!disposed&&ticket===generation&&id===props.resultId){if(result.sourceResultId!==id)throw Error();
+ const p=result.privacy;
+ context.value=p&&(p.policyVersion!=='iqc-finding-review-context-read-v1'||!p.canonicalPayloadVisible||!p.canReadFull||!p.canReadPii)
+ ?{...result,available:false,message:result.message||'事实正文未展示，请重新读取授权上下文。',findings:[],messages:[]}:result;}}
  catch{if(ticket===generation)error.value='人工Finding上下文加载失败，请刷新后重试。';}
  finally{if(ticket===generation)loading.value=false;}}
+onBeforeUnmount(()=>{disposed=true;generation++;context.value=undefined;reset();});
 watch(()=>[props.resultId,props.refreshToken],()=>{void load();},{immediate:true});
 watch(selected,finding=>{reason.value='';if(!finding)return;state.value=finding.state==='KNOWN'?'KNOWN':'UNKNOWN';valueJson.value=finding.valueJson;severity.value=finding.severity;retained.value=[...finding.retainedEvidenceIds];added.value=[...finding.addedMessageIds];});
 function validateValue(raw:string){
@@ -44,7 +48,7 @@ function validateValue(raw:string){
  }
  return parsed;
 }
-function save(){if(props.disabled||loading.value||!selected.value||!context.value?.available||!reason.value.trim())return;
+function save(){if(disposed||props.disabled||loading.value||!selected.value||!context.value?.available||!reason.value.trim())return;
  // Keep the original JSON text: parsing and reserializing here would round high precision decimals.
  try{validateValue(state.value==='UNKNOWN'?'null':valueJson.value);if(retained.value.length+added.value.length>100)throw Error('证据最多100条');}
  catch(invalid){error.value=invalid instanceof Error?invalid.message:'值必须是合法JSON';return;}

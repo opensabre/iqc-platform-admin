@@ -188,3 +188,8 @@ GET /schemes/published目录及schemeId游标历史先检查当前scheme:view并
 ## MCP表单生命周期（2026-10-21）
 
 复用原MCP管理接口/引用模型，无新增schema/授权。关闭清理表单和selected，卸载清理配置列表并失效列表代次/字典响应；命令提交复制输入和固定目标，提交中禁止关闭及改动，handler检查原manage权限，只读用户保留view。确认启停捕获ID并在回调重新检查页面/权限。已发写入不会取消，未知写入结果提示核对后再试。实际浏览器迟到响应/关闭/只读/授权仍待，当前仅构建。
+
+
+## 人工Finding上下文读取（2026-10-21）
+
+沿用原available=false提示及save guard：后端FULL+PII不足时不显示Finding值/原文，不将扣留当无Finding。HumanFindingReviewEditor对存在但未知/不完整privacy协议同样清除findings/messages并禁裁决；保留既有无privacy旧接口兼容。卸载清上下文/草稿并使请求代次失效，迟到响应不回填。接口数值原文/证据/原复核服务不改；实际权限/浏览器待验，本批只编译构建。

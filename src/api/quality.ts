@@ -123,6 +123,7 @@ export interface HumanFindingDecision {
  severity:'NONE'|'LOW'|'MEDIUM'|'HIGH'|'CRITICAL';reason:string;retainedEvidenceIds:string[];addedMessageIds:string[];
 }
 export interface HumanFindingContext {
+ privacy?:import("@/api/config").AssetReadPrivacy;
  sourceResultId:string;sourceHash:string;available:boolean;message?:string;
  findings:Array<{code:string;valueType:string;state:'KNOWN'|'UNKNOWN'|'CONFLICT'|'ERROR'|'NOT_EVALUATED';valueJson:string;
  severity:HumanFindingDecision['severity'];expectedFindingHash:string;allowedValues:string[];allowedEvidenceTypes:string[];evidenceRequired:boolean;
