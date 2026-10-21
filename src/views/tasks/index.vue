@@ -576,7 +576,7 @@ async function showResults(id: string, labelResultId?: string, openLabels = fals
     if (labelResultId) {
       resultTab.value = "labels";
       const label = labelResults.value.find(row => row.id === labelResultId);
-      if (label && can("iqc:review:view")) selectedLabelReview.value = label;
+      if (label && can("iqc:review:label:history")) selectedLabelReview.value = label;
       else message.warning("该标签值已不属于当前任务结果，或当前账号没有复核查看权限");
     }
   } catch {
@@ -1310,7 +1310,7 @@ onBeforeUnmount(() => {
           </template></a-table-column>
           <a-table-column title="置信度" :width="90"><template #default="{record}">{{ record.confidence ?? '—' }}</template></a-table-column>
           <a-table-column title="会话" :width="90"><template #default="{record}"><a-button type="link" @click="showConversationResult(record.conversationId, record.evidenceJson)">查看会话</a-button></template></a-table-column>
-          <a-table-column title="人工复核" :width="90"><template #default="{record}"><a-button v-if="can('iqc:review:view') && record.presentation.valid && record.presentation.state !== 'HIT'" type="link" @click="selectedLabelReview = record">查看/复核</a-button><span v-else>—</span></template></a-table-column>
+          <a-table-column title="人工复核" :width="90"><template #default="{record}"><a-button v-if="can('iqc:review:label:history') && record.presentation.valid && record.presentation.state !== 'HIT'" type="link" @click="selectedLabelReview = record">查看/复核</a-button><span v-else>—</span></template></a-table-column>
         </a-table>
         <a-empty v-else :description="selectedLabelConversationId ? '该会话未返回标签值' : '该任务没有生成标签结果'" :image-style="{height:'40px'}"/></a-tab-pane></a-tabs
         ></template

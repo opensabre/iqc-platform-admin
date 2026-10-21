@@ -14,7 +14,7 @@ const historyOpen = ref(false), historyLoading = ref(false), historyError = ref(
 let generation = 0, historyGeneration = 0, disposed = false;
 const commentsWithheld = ref(false);
 async function refresh() {
-  if (disposed || !can("iqc:review:view")) return;
+  if (disposed || !can("iqc:review:label:queue")) return;
   const ticket = ++generation;
   loading.value = true; error.value = "";
   try {
@@ -36,7 +36,7 @@ function open(row: LabelReviewQueueItem) {
   void router.push({ path: "/tasks", query: { taskId: row.taskId, view: "results", labelResultId: row.labelResultId } });
 }
 async function showHistory(row: LabelReviewQueueItem) {
-  if(disposed)return;
+  if(disposed||!can("iqc:review:label:history"))return;
   const ticket = ++historyGeneration;
   selected.value = row; history.value = []; historyOpen.value = true; historyLoading.value = true; historyError.value = "";
   try {
@@ -68,7 +68,7 @@ onMounted(refresh);
 
 <template>
   <section aria-label="标签复核待办">
-    <a-alert v-if="!can('iqc:review:view')" type="info" message="没有查看标签复核的权限。" />
+    <a-alert v-if="!can('iqc:review:label:queue')" type="info" message="没有查看标签复核的权限。" />
     <template v-else>
       <a-alert v-if="commentsWithheld" type="info" show-icon message="复核评论未展示；任务定位、轮次及处理状态保持可用。" />
       <a-alert type="info" show-icon message="按任务权限展示复核轮次；已被新执行替代的标签值只能查看原历史，不能在当前结果中裁决。" />
@@ -98,7 +98,7 @@ onMounted(refresh);
           <a-button v-if="can('iqc:result:view')" type="link" :disabled="!record.currentResult || !can('iqc:task:view')"
             :title="!record.currentResult ? '该结果已被新执行替代' : !can('iqc:task:view') ? '需要任务查看权限' : undefined"
             @click="open(record)">打开结果</a-button>
-          <a-button type="link" @click="showHistory(record)">复核历史</a-button>
+          <a-button v-if="can('iqc:review:label:history')" type="link" @click="showHistory(record)">复核历史</a-button>
         </a-space></template></a-table-column>
       </a-table>
       <a-pagination :current="current" :page-size="size" :total="total" show-size-changer style="margin-top:16px;text-align:right" @change="page" />
