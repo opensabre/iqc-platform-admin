@@ -1,23 +1,26 @@
 import http from "@/api/http";
 
-export interface QualityAgent { id: string; name: string; code: string; description?: string; configJson?: string; versionNo?: number; status: string; }
+export interface QualityAgent { id: string; name: string; code: string; description?: string|null; configJson?: string|null; privacy?:AssetReadPrivacy;agentPresentation?:AgentPresentation;versionNo?: number; status: string; }
 export interface AgentModelConfig { id: string; provider: string; model: string; endpoint: string; temperature: number; enabled: boolean; }
 export interface AgentMcpConfig { name: string; transport: string; endpoint: string; enabled: boolean; }
 export interface AgentSkillConfig { name: string; description: string; instructions: string; enabled: boolean; }
 export interface AgentRuntimeConfig { schemaVersion: "1.0"|"2.0"|"3.0"; mode?: "RULE_ONLY"|"RULE_THEN_LLM"|"LLM_THEN_RULE"|"AGENT_LLM"; systemPrompt: string; primaryModel?: string; models?: AgentModelConfig[]; mcpServers?: AgentMcpConfig[]; skills?: AgentSkillConfig[]; primaryModelProfileId?: string; fallbackModelProfileIds?: string[]; mcpServerIds?: string[]; skillIds?: string[]; ruleSetId?: string; }
-export interface QualityAgentVersion { id: string; agentId: string; versionNo: number; name: string; code: string; description?: string; configJson?: string; status: string; createdTime?: string; }
-export interface AgentVersionComparison { fromVersion: number; toVersion: number; changedFields: string[]; changedConfigPaths: string[]; }
-export interface AgentEffectReport { agentId: string; versionNo: number; taskCount: number; resultCount: number; averageScore: number | null; hitRate: number; highRiskRate: number; errorRate: number; }
-export interface IqcSkill { id: string; name: string; code: string; description?: string; instructions: string; inputSchemaJson?: string; outputSchemaJson?: string; status: "ENABLED" | "DISABLED"; versionNo: number; updatedTime?: string; }
+export interface QualityAgentVersion { id: string; agentId: string; versionNo: number; name: string; code: string; description?: string|null; configJson?: string|null; privacy?:AssetReadPrivacy;agentPresentation?:AgentPresentation;status: string; createdTime?: string; }
+export interface AgentVersionComparison { fromVersion: number; toVersion: number; changedFields: string[]; changedConfigPaths: string[];privacy?:AssetReadPrivacy; }
+export interface AgentEffectReport { agentId: string; versionNo: number; taskCount: number; resultCount: number; averageScore: number | null; hitRate: number|null; highRiskRate: number|null; errorRate: number|null; }
+export interface AssetReadPrivacy {policyVersion:string;canonicalPayloadVisible:boolean;canReadFull:boolean;canReadPii:boolean;canReadPrompt:boolean;withheldFields:string[]}
+export type SkillReadPrivacy=AssetReadPrivacy;
+export function skillPayloadRestricted(value:{privacy?:SkillReadPrivacy}){const p=value.privacy;return !!p&&(p.policyVersion!=='iqc-skill-read-v1'||!p.canonicalPayloadVisible||!p.canReadFull||!p.canReadPii||!p.canReadPrompt);}
+export interface IqcSkill { id: string; name: string; code: string; privacy?:SkillReadPrivacy; description?: string|null; instructions: string|null; inputSchemaJson?: string|null; outputSchemaJson?: string|null; status: "ENABLED" | "DISABLED"; versionNo: number; updatedTime?: string; }
 export interface IqcSkillRequest { name: string; code: string; description?: string; instructions: string; inputSchemaJson?: string; outputSchemaJson?: string; }
 export interface IqcMcpServer { id: string; name: string; code: string; description?: string; transport: string; endpoint: string; authType: string; secretRef?: string; timeoutSeconds: number; allowedToolsJson?: string; status: "ENABLED" | "DISABLED"; healthStatus: string; versionNo: number; }
 export type IqcMcpServerRequest = Omit<IqcMcpServer, "id" | "status" | "healthStatus" | "versionNo">;
 export interface IqcModelProfile { id:string; name:string; code:string; description?:string; provider:string; modelName:string; endpoint?:string; secretRef?:string; secretConfigured?:boolean; pricingJson?:string|null; maxOutputTokens?:number|null; contextWindowTokens?:number|null; deploymentRef?:string|null; outputTokenParameter?:"MAX_TOKENS"|"MAX_COMPLETION_TOKENS"|null; temperature:number; timeoutSeconds:number; maxRetries:number; status:"ENABLED"|"DISABLED"; versionNo:number; }
 export type IqcModelProfileRequest = Omit<IqcModelProfile, "id"|"status"|"versionNo">;
 export interface ModelConnectionTestResult { success:boolean; message:string; latencyMillis:number; provider:string; modelName:string; }
-export interface QualityRule { id: string; name: string; code: string; category?: string; ruleType: string; targetRole?: string; expression?: string; description?: string; deduction?: number; riskLevel?: string; veto?: boolean; versionNo?: number; status: string; }
-export interface QualityRuleVersion { id: string; ruleId: string; versionNo: number; name: string; code: string; category?: string; ruleType: string; targetRole?: string; expression?: string; description?: string; deduction?: number; riskLevel?: string; veto?: boolean; status: string; createdTime?: string; }
-export interface QualityRuleSet { id:string; name:string; code:string; description?:string; ruleIdsJson:string; aggregationMode:"ALL"|"ANY"; versionNo:number; status:string; }
+export interface QualityRule { id: string; name: string; code: string; category?: string; ruleType: string; targetRole?: string; expression?: string|null; description?: string|null; privacy?:AssetReadPrivacy; deduction?: number; riskLevel?: string; veto?: boolean; versionNo?: number; status: string; }
+export interface QualityRuleVersion { id: string; ruleId: string; versionNo: number; name: string; code: string; category?: string; ruleType: string; targetRole?: string; expression?: string|null; description?: string|null; privacy?:AssetReadPrivacy; deduction?: number; riskLevel?: string; veto?: boolean; status: string; createdTime?: string; }
+export interface QualityRuleSet { id:string; name:string; code:string; description?:string|null; privacy?:AssetReadPrivacy; ruleIdsJson:string; aggregationMode:"ALL"|"ANY"; versionNo:number; status:string; }
 export interface QualityRuleSetRequest { name:string; code:string; description?:string; ruleIds:string[]; aggregationMode:"ALL"|"ANY"; }
 export const listAgents = () => http.get<QualityAgent[]>("/iqc/config/agents").then((response) => response.data);
 export const createAgent = (data: Partial<QualityAgent>) => http.post<QualityAgent>("/iqc/config/agents", data).then((response) => response.data);
@@ -55,10 +58,10 @@ export const listRuleVersions = (id: string) => http.get<QualityRuleVersion[]>(`
 export const createRuleVersion = (id: string, data: Partial<QualityRule>) => http.post<QualityRuleVersion>(`/iqc/config/rules/${id}/versions`, data).then((response) => response.data);
 export interface RuleTestMessage { id?:string; sequenceNo:number; speakerRole:"agent"|"user"; content:string; }
 export interface DlsTestEvidence { definition:string; messageId:string; sequenceNo:number; text:string; start:number; end:number; }
-export interface RuleTestResult { matched:boolean; resultStatus:string; matchedText?:string; reason:string; evidence?:DlsTestEvidence[]; }
+export interface RuleTestResult { matched:boolean; resultStatus:string; matchedText?:string|null; reason:string; evidence?:DlsTestEvidence[];privacy?:AssetReadPrivacy; }
 export const testRule = (id:string, content:string, messages:RuleTestMessage[] = []) => http.post<RuleTestResult>(`/iqc/config/rules/${id}/test`, { content, messages }).then((response) => response.data);
 export interface DlsImportItem { sheetName:string; ruleName:string; ruleCode:string; status:"VALID"|"CREATED"|"SKIPPED"|"FAILED"; ruleId?:string; definitionCount:number; executableRuleCount:number; warnings:string[]; message:string; }
-export interface DlsImportResult { fileName:string; preview:boolean; sheetCount:number; createdCount:number; validCount:number; skippedCount:number; failedCount:number; items:DlsImportItem[]; }
+export interface DlsImportResult { fileName:string; preview:boolean; sheetCount:number; createdCount:number; validCount:number; skippedCount:number; failedCount:number; items:DlsImportItem[];privacy?:AssetReadPrivacy; }
 export const importDlsRules = (file:File, preview:boolean, excludeTests = true) => {
   const data = new FormData(); data.append("file", file);
   return http.post<DlsImportResult>("/iqc/config/rules/import-dls", data, { params:{ preview, excludeTests } }).then(response => response.data);
@@ -68,3 +71,9 @@ export const createRuleSet = (data:QualityRuleSetRequest) => http.post<QualityRu
 export const submitRuleSet = (id:string) => http.post<QualityRuleSet>(`/iqc/config/rule-sets/${id}/submit`).then(response=>response.data);
 export const approveRuleSet = (id:string) => http.post<QualityRuleSet>(`/iqc/config/rule-sets/${id}/approve`).then(response=>response.data);
 export const rejectRuleSet = (id:string) => http.post<QualityRuleSet>(`/iqc/config/rule-sets/${id}/reject`).then(response=>response.data);
+
+export interface AgentCapabilityReference {id:string;code?:string;name?:string;versionNo:number;allowedToolsJson?:string}
+export interface AgentPresentation {policyVersion:string;state:'AVAILABLE'|'UNAVAILABLE';schemaVersion?:string;mode?:string;capabilitiesState?:'AVAILABLE'|'UNAVAILABLE';skills?:AgentCapabilityReference[];models?:AgentCapabilityReference[];mcpServers?:AgentCapabilityReference[]}
+export function agentPayloadRestricted(value:{privacy?:AssetReadPrivacy}){const p=value.privacy;return !!p&&(p.policyVersion!=='iqc-agent-read-v1'||p.canonicalPayloadVisible!==true||p.canReadFull!==true||p.canReadPii!==true||p.canReadPrompt!==true);}
+
+export function rulePayloadRestricted(value:{privacy?:AssetReadPrivacy;ruleType?:string}){const p=value.privacy;return !!p&&(p.policyVersion!=='iqc-rule-read-v1'||p.canonicalPayloadVisible!==true||p.canReadFull!==true||p.canReadPii!==true||typeof value.ruleType==='string'&&value.ruleType.trim().toUpperCase()==='LLM'&&p.canReadPrompt!==true);}

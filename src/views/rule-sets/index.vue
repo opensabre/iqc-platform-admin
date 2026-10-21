@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import {
   approveRuleSet,
@@ -38,17 +38,24 @@ function memberNames(set: QualityRuleSet) {
     return "成员数据异常";
   }
 }
+let disposed = false;
+let generation = 0;
 async function refresh() {
+  const current = ++generation;
   try {
-    [sets.value, rules.value] = await Promise.all([
+    const [nextSets, nextRules] = await Promise.all([
       listRuleSets(),
       listRules(),
     ]);
+    if (disposed || current !== generation) return;
+    sets.value = nextSets.map(({ description: _description, ...metadata }) => metadata);
+    rules.value = nextRules.map(({ expression: _expression, description: _description, ...metadata }) => metadata);
   } catch {
-    message.error("规则集加载失败");
+    if (!disposed && current === generation) message.error("规则集加载失败");
   }
 }
 function createNew() {
+  if (disposed || !can("iqc:rule:manage")) return;
   form.value = {
     name: "",
     code: "",
@@ -59,23 +66,27 @@ function createNew() {
   open.value = true;
 }
 async function save() {
+  if (disposed || saving.value || !can("iqc:rule:manage")) return;
   if (!form.value.name || !form.value.code || !form.value.ruleIds.length)
     return void message.warning("请填写名称、编码并选择规则");
   saving.value = true;
   try {
-    await createRuleSet(form.value);
+    await createRuleSet({ ...form.value, ruleIds: [...form.value.ruleIds] });
+    if (disposed) return;
     message.success("规则集已创建");
     open.value = false;
     await refresh();
   } catch {
-    message.error("规则集创建失败");
+    if (!disposed) message.error("规则集创建失败，请核对已有草稿后再重试");
   } finally {
     saving.value = false;
   }
 }
 async function submit(id: string) {
+  if (disposed || !can("iqc:rule:manage")) return;
   try {
     await submitRuleSet(id);
+    if (disposed) return;
     message.success("已提交审批");
     await refresh();
   } catch {
@@ -83,8 +94,10 @@ async function submit(id: string) {
   }
 }
 async function approve(id: string) {
+  if (disposed || !can("iqc:rule:approve")) return;
   try {
     await approveRuleSet(id);
+    if (disposed) return;
     message.success("规则集已发布");
     await refresh();
   } catch {
@@ -92,14 +105,23 @@ async function approve(id: string) {
   }
 }
 async function reject(id: string) {
+  if (disposed || !can("iqc:rule:approve")) return;
   try {
     await rejectRuleSet(id);
+    if (disposed) return;
     message.success("规则集已驳回");
     await refresh();
   } catch {
     message.error("驳回失败");
   }
 }
+watch(open, (visible) => {
+  if (!visible) form.value = { name: "", code: "", description: "", ruleIds: [], aggregationMode: "ALL" };
+});
+onBeforeUnmount(() => {
+  disposed = true; generation++; sets.value = []; rules.value = [];
+  form.value = { name: "", code: "", description: "", ruleIds: [], aggregationMode: "ALL" };
+});
 onMounted(refresh);
 </script>
 <template>
@@ -167,6 +189,8 @@ onMounted(refresh);
     title="创建规则集"
     width="900"
     :confirm-loading="saving"
+    :closable="!saving" :mask-closable="!saving" :keyboard="!saving"
+    :cancel-button-props="{ disabled: saving }"
     @ok="save"
     ><a-form layout="vertical"
       ><a-row :gutter="16"

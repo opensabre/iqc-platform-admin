@@ -138,3 +138,65 @@ I5：结果动作面板已增加检查请求入口，独立enqueue权限、请�
 ## 数值业务比较配置（2026-10-13）
 
 原业务映射表单增加可选数值与适用比较，复用六种Pipeline运算符，阈值文本直接保存并校验38位精度/18小数/64字符，不走JS Number转换；启用后阈值默认空要求明确输入，清空适用code同步清除谓词。旧布尔映射无需启用，原事实数值/证据不变。69278最终vue-tsc/Vite退出0（原chunk提示），日志/tmp/iqc-numeric-decisions-ui-final-build.log；配套后台ce01863/17518最终编译通过。未新增运行测试、SQL、浏览器或部署，完整评分/风险政策与真实运行验收仍待。
+
+## I6画布节点交互（2026-10-20）
+
+原依赖图补节点主体拖动、25%..150%缩放、自动布局恢复、Ctrl方向键及Shift步长、七引擎拖入落点定位；原连线/属性/依赖语义复用，不创建平行图协议。布局为组件内会话状态，不进入Release或持久化，重新打开自动排布。13500最终vue-tsc+Vite通过（48.71s），未运行Root测试/browser；交互与保存发布仍待B独立验收，完整I6/PRD不标完成。详见pipeline-graph-editing.md。
+
+## CUSTOM融合目录配置（2026-10-20）
+
+原Fusion区域增加CUSTOM，读取GET /iqc/pipelines/fusion-strategies中的已安装精确版本，显示id/版本/实现摘要并由明确选择冻结；参数JSON只允许有界字符串值。刷新目录不替换旧绑定，缺失版本/摘要明确提示，未装版本不自动升级；目录错误保留旧绑定。切换其它方式时从请求省略custom及非当前方法的nodeWeights。目录响应有界/重复身份/字段校验，卸载和重复读取用generation隔离。旧policy的7/8参服务端JSON兼容由独立B继续验证，页面不写任意脚本或类名。
+
+原63145及最终18385 vue-tsc+Vite均terminal exit0，最终日志/tmp/iqc-custom-fusion-ui-build-final.log；本批只构建，Root没有新增或运行测试/browser/SQL/部署。新增目录权限资源900270及组织迁移由对应仓提供，脚本未执行。实际目录授权/精确选择/刷新/切换残留/真实发布与重算仍交B，完整适用I1–I7继续。
+
+## Agent敏感读取与能力选择（2026-10-21）
+
+QualityAgent/Version可空configJson/description及响应privacy、独立agentPresentation接线；受限正文不建默认编辑器或空存。Agent模式、schemes Agent3.0版本筛选及SkillApiConfigurationEditor能力选择用明确元数据，仍保留原ID/version和MCP工具名，不要求看到Prompt正文。unknown协议不回退裸正文，只有旧无privacy兼容旧协议。当前配置2/3向导保持，1.0保留原JSON编辑为新草稿版本；前端业务按钮/处理函数对齐原submit/disable/version:manage，刷新/关闭/卸载清数据并隔离迟到响应。Agent效果rate契约允许无分母null。
+
+首轮39271和最终54477 vue-tsc+Vite均exit0，最终/tmp/iqc-agent-sensitive-read-ui-build-final.log（1m15s/既有体积提示）。没有新增或执行Root测试/browser/SQL/部署，实际读取授权/能力选择/旧协议/角色仍交B，完整适用I1–I7未宣称完成。
+
+## Rule正文与诊断受限读取（2026-10-21）
+
+原规则页识别iqc-rule-read-v1，非LLM按FULL+PII，LLM含大小写/空白再需Prompt。unknown/受限表达式与描述不留在可编辑状态，不生成空新版本；历史、ID、版本、类型、状态仍可用。测试/导入只按允许正文渲染，保留ERROR/NOT_SUPPORTED与计数，File/测试输入/历史/表单关闭清理并隔离迟到响应；DLS遮蔽名称不作行唯一键。请求目标与发起输入固定，未确认写入提示先核对原草稿。
+
+首轮93991与最终95124 vue-tsc+Vite均exit0（最终51.16s/既有体积提示），/tmp/iqc-rule-sensitive-read-ui-build-final.log。未新增/运行Root测试或browser/SQL/部署，授权/原数据/实际页面验收交B；完整适用I1–I7继续。
+
+
+## RuleSet 读取边界（2026-10-21）
+
+复用既有规则业务授权及当前敏感授权，RuleSet list/history仅FULL+PII齐备返回原description；所有命令回执扣留description。响应副本使用iqc-rule-set-read-v1，非持久privacy为null时省略；ruleIdsJson原顺序、aggregationMode、ID/code/version/status保留，不改变检测或内部快照。页面仅保存成员选择所需元数据，关闭清理新建表单，刷新代次/卸载阻断迟到响应，创建提交复制输入，禁止提交期间关闭。页面本来没有历史编辑入口，未添加空描述覆盖路径。
+
+当前批次仅编译/前端构建；实际grant组合、源对象不变、内部JSON兼容、网关逐URL注册及浏览器生命周期仍待独立验证。单租户组织范围不变，完整I1–I7未完成。
+
+
+## 已发布Scheme普通读取投影（2026-10-21）
+
+GET /schemes/published目录及schemeId游标历史先检查当前scheme:view并设置no-store，查询审计不收正文。独立PublishedSchemeRead响应封装，不修改ReleaseSnapshot/内部快照/摘要。FULL+PII+PROMPT全部具备可回原发布正文；其它组合只回业务definition（item/评分/上限/variant/引用），自由名称沿原PII mask、描述扣留，dependencies仅executionMode和规则id/version/name，agent/label/route plan/variantDependencies不复制；policyVersion=iqc-scheme-template-read-v1。contentHash始终原发布物身份，不能用展示投影重算校验。
+
+普通前端API即使有全部权限，也只保留任务选择所需依赖元数据，不保存检测器正文；描述需已知协议全部grant方保留。原TemplateWizard仍按原definition/推荐变体/上限/执行模式及版本创建任务。专家draft/history/preview和发布回执仍待独立收口，不把普通模板路径完成当成整个Scheme域完成。实际权限组合/源快照不变/普通任务与历史/浏览器/网关注册待独立验证，本批仅编译构建。
+
+
+## Scheme专家读取与命令回执（2026-10-21）
+
+草稿list在原scheme:manage当前授权后复制实体，正文description/draftConfigJson仅FULL+PII+PROMPT齐备读取；命令回执始终扣留正文和presentation。非持久null省略的privacy和schemePresentation不改变原内部快照。专门草稿读取另给iqc-scheme-presentation-v1 typed业务definition（检测器ID/版本引用、评分、执行变体、上限），自由名称/说明走既有PII mask，非法定义显示UNAVAILABLE而不补默认。该展示数据供原试跑选用，不能作原草稿编辑。
+
+专家历史复用独立发布投影，保留来源修订/试跑/归档元数据；原Release/hash不改。preview仍执行原完整依赖校验，但仅返回schemeId/draftRevision/validated，不返回冻结检测器。发布/版本归档返回SchemeVersionReceipt元数据，无snapshotJson。创建/修订/停启用返回无正文草稿回执。各入口在调用业务前检查原资源码，no-store，查询审计无正文。
+
+页面受限/未知协议草稿禁止编辑/保存，合法选用presentation供试跑；派生按原服务端冻结引用创建，回执不直接当可编辑草稿，重读后有权限才打开。历史完整正文不足时禁差异比较并显示正文未展示，查看和派生/归档仍沿原业务权限。刷新/编辑代次及卸载清理用于阻止迟到回填；关闭编辑清配置。权限组合、内部旧JSON、真实Audit/网关/撤权/浏览器/试跑发布仍待独立验收，本批仅编译构建。
+
+
+## MCP表单生命周期（2026-10-21）
+
+复用原MCP管理接口/引用模型，无新增schema/授权。关闭清理表单和selected，卸载清理配置列表并失效列表代次/字典响应；命令提交复制输入和固定目标，提交中禁止关闭及改动，handler检查原manage权限，只读用户保留view。确认启停捕获ID并在回调重新检查页面/权限。已发写入不会取消，未知写入结果提示核对后再试。实际浏览器迟到响应/关闭/只读/授权仍待，当前仅构建。
+
+
+## 人工Finding上下文读取（2026-10-21）
+
+沿用原available=false提示及save guard：后端FULL+PII不足时不显示Finding值/原文，不将扣留当无Finding。HumanFindingReviewEditor对存在但未知/不完整privacy协议同样清除findings/messages并禁裁决；保留既有无privacy旧接口兼容。卸载清上下文/草稿并使请求代次失效，迟到响应不回填。接口数值原文/证据/原复核服务不改；实际权限/浏览器待验，本批只编译构建。
+
+
+## 业务/标签复核待办投影（2026-10-21）
+
+原IqcPage服务查询不变，当前业务review:view、标签review:label:queue分别在业务前刷新授权/no-store，查询审计不收正文。独立ReviewQueuePage响应保留records/current/size/total并加iqc-review-queue-read-v1隐私元数据。FULL+PII齐备回原requestComment；其它组合扣留评论，对taskName/createdBy及标签labelName/valueDescription沿原PII mask。业务record重建、标签DTO复制，原对象/SQL范围/排序分页/ID/状态/currentResult不改，业务stage直接保留原已校验枚举，不重新解析已清理workflowMetadata为INITIAL。
+
+页面已知受限或未知privacy清除评论并提示未展示；卸载使队列和标签历史代次失效/清行和selected，关闭历史清引用。旧无privacy API兼容保留。ResultReview历史与命令返回的reviewedResultJson/评论、人工改分原因仍待配套安全工作流/UI投影；此批不覆盖那些接口。当前仅编译构建，实际四grant/源不变/组织SQL/分页stage/当前授权和浏览器待验。

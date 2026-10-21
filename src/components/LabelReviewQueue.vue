@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { usePermission } from "@/composables/permission";
 import { listLabelReviewQueue, listLabelValueReviews,
@@ -11,16 +11,18 @@ const rows = ref<LabelReviewQueueItem[]>([]), loading = ref(false), error = ref(
 const status = ref("PENDING"), taskId = ref(""), current = ref(1), size = ref(20), total = ref(0);
 const selected = ref<LabelReviewQueueItem>(), history = ref<LabelValueReview[]>([]);
 const historyOpen = ref(false), historyLoading = ref(false), historyError = ref("");
-let generation = 0, historyGeneration = 0;
+let generation = 0, historyGeneration = 0, disposed = false;
+const commentsWithheld = ref(false);
 async function refresh() {
-  if (!can("iqc:review:view")) return;
+  if (disposed || !can("iqc:review:view")) return;
   const ticket = ++generation;
   loading.value = true; error.value = "";
   try {
     const page = await listLabelReviewQueue({ status: status.value, taskId: taskId.value.trim() || undefined,
       current: current.value, size: size.value });
-    if (ticket !== generation) return;
-    rows.value = page.records; total.value = page.total;
+    if (disposed || ticket !== generation) return;
+    commentsWithheld.value=!!page.privacy && (page.privacy.policyVersion!=="iqc-review-queue-read-v1" || !page.privacy.canonicalPayloadVisible || !page.privacy.canReadFull || !page.privacy.canReadPii);
+    rows.value = commentsWithheld.value?page.records.map(row=>({...row,requestComment:undefined})):page.records; total.value = page.total;
   } catch {
     if (ticket === generation) { rows.value = []; total.value = 0; error.value = "标签复核待办加载失败，请重试。"; }
   } finally { if (ticket === generation) loading.value = false; }
@@ -34,6 +36,7 @@ function open(row: LabelReviewQueueItem) {
   void router.push({ path: "/tasks", query: { taskId: row.taskId, view: "results", labelResultId: row.labelResultId } });
 }
 async function showHistory(row: LabelReviewQueueItem) {
+  if(disposed)return;
   const ticket = ++historyGeneration;
   selected.value = row; history.value = []; historyOpen.value = true; historyLoading.value = true; historyError.value = "";
   try {
@@ -42,7 +45,7 @@ async function showHistory(row: LabelReviewQueueItem) {
   } catch { if (ticket === historyGeneration) historyError.value = "历史加载失败，请关闭后重试。"; }
   finally { if (ticket === historyGeneration) historyLoading.value = false; }
 }
-function closeHistory() { historyGeneration++; historyOpen.value = false; }
+function closeHistory() { historyGeneration++; historyOpen.value = false; history.value=[];selected.value=undefined; }
 function statusLabel(value: string) {
   return ({ PENDING: "待处理", COMPLETED: "已完成", REJECTED: "已退回" } as Record<string, string>)[value] || value;
 }
@@ -58,6 +61,8 @@ function decisionLabel(round: LabelValueReview) {
   return "修订内容不可展示";
 }
 defineExpose({ refresh });
+watch(historyOpen,visible=>{if(!visible){historyGeneration++;history.value=[];selected.value=undefined;}});
+onBeforeUnmount(()=>{disposed=true;generation++;historyGeneration++;rows.value=[];history.value=[];selected.value=undefined;});
 onMounted(refresh);
 </script>
 
@@ -65,6 +70,7 @@ onMounted(refresh);
   <section aria-label="标签复核待办">
     <a-alert v-if="!can('iqc:review:view')" type="info" message="没有查看标签复核的权限。" />
     <template v-else>
+      <a-alert v-if="commentsWithheld" type="info" show-icon message="复核评论未展示；任务定位、轮次及处理状态保持可用。" />
       <a-alert type="info" show-icon message="按任务权限展示复核轮次；已被新执行替代的标签值只能查看原历史，不能在当前结果中裁决。" />
       <a-form layout="inline" style="margin:16px 0">
         <a-form-item label="复核状态"><a-select v-model:value="status" :options="[{value:'PENDING',label:'待处理'},{value:'COMPLETED',label:'已完成'},{value:'REJECTED',label:'已退回'},{value:'ALL',label:'全部'}]" style="width:120px" /></a-form-item>

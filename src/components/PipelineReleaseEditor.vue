@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed,nextTick,ref,watch} from 'vue';
+import {computed,nextTick,onBeforeUnmount,ref,watch} from 'vue';
 import PublishedAssetReference from './PublishedAssetReference.vue';
 import FindingLabelPolicyEditor from './FindingLabelPolicyEditor.vue';
 import ActionPolicyEditor from './ActionPolicyEditor.vue';
@@ -15,7 +15,7 @@ import {validateParallelCompletionPolicy} from './parallel-completion-policy';
 import SkillApiConfigurationEditor from './SkillApiConfigurationEditor.vue';
 import {validateActionPolicy,validateCondition,conditionCount,blankCondition,riskLevels,validateDecimalOperand} from '@/api/action-policy-editor';
 import {validateFindingLabelPolicy,validateLabelActionTargets,labelBindingAddress} from '@/api/finding-label-policy';
-import type {PipelineRelease,PipelineNode,NumericPredicate,ParallelCompletionPolicy} from '@/api/pipelines';
+import {listFusionExtensions,type FusionExtensionBinding,type FusionExtensionDescriptor,type PipelineRelease,type PipelineNode,type NumericPredicate,type ParallelCompletionPolicy} from '@/api/pipelines';
 const props=defineProps<{initial:PipelineRelease;disabled?:boolean}>();
 const openNodes=ref<Array<string|number>>([]);
 type NodeDraft=PipelineNode & {inputJson:string;outputJson:string;conditionJson:string;factCode:string;factValueType?:string};
@@ -40,7 +40,38 @@ const policyEditorGeneration=ref(0);
 const actionError=ref('');
 function configurePublicationGate(enabled:boolean){publicationGate.value=enabled?{schemaVersion:'iqc-publication-gate-v1',minimumRiskRecall:0.95,minimumOverallF1:0.92,minimumRegressionPass:1,minimumStructuredSuccess:0.995,maximumP95Ms:5000,minimumSamples:1}:undefined;}
 const nodes=ref<NodeDraft[]>([]),items=ref<ItemDraft[]>([]),fusion=ref<PipelineRelease['fusion']>(),scoring=ref<PipelineRelease['scoring']>();
-const priorities=ref('{}'),overrides=ref('{}');
+const priorities=ref('{}'),overrides=ref('{}'),weights=ref('{}'),customParameters=ref('{}');
+const customStrategies=ref<FusionExtensionDescriptor[]>([]),customLoading=ref(false),customError=ref(''),customCatalogLoaded=ref(false);
+let customGeneration=0,customDisposed=false;
+const strategyKey=(binding:FusionExtensionBinding|FusionExtensionDescriptor)=>`${binding.strategyId}:${binding.version}:${binding.implementationHash}`;
+const selectedCustomStrategy=computed(()=>fusion.value?.custom?strategyKey(fusion.value.custom):undefined);
+const customUnavailable=computed(()=>customCatalogLoaded.value&&!!fusion.value?.custom&&!customStrategies.value.some(row=>strategyKey(row)===selectedCustomStrategy.value));
+function parameterMap(source:Record<string,unknown>):Record<string,string>{
+ const entries=Object.entries(source);
+ if(entries.length>64||entries.some(([key,value])=>!(/^[A-Za-z][A-Za-z0-9_]{0,63}$/).test(key)||typeof value!=='string'||value.length>512||/[\u0000-\u001f\u007f-\u009f]/.test(value)))throw Error('扩展参数最多64项，键为字母开头的标识符，值须为最多512字符的JSON字符串');
+ return Object.fromEntries(entries) as Record<string,string>;
+}
+function validCustomIdentity(binding:FusionExtensionBinding|FusionExtensionDescriptor){
+ if(!binding||!(/^[A-Z][A-Z0-9_]{1,63}$/).test(binding.strategyId)||!Number.isInteger(binding.version)||binding.version<1||binding.version>2147483647||!(/^[a-f0-9]{64}$/).test(binding.implementationHash))throw Error('扩展须固定策略标识、正整数版本与实现摘要');
+}
+async function refreshCustomStrategies(){
+ const ticket=++customGeneration;customLoading.value=true;customError.value='';customCatalogLoaded.value=false;customStrategies.value=[];
+ try{
+  const rows=await listFusionExtensions();if(customDisposed||ticket!==customGeneration)return;
+  if(!Array.isArray(rows)||rows.length>64)throw Error();
+  const seen=new Set<string>();
+  for(const row of rows){validCustomIdentity(row);if(typeof row.name!=='string'||!row.name.trim()||row.name.length>128||!row.defaultParameters||typeof row.defaultParameters!=='object'||Array.isArray(row.defaultParameters)||seen.has(`${row.strategyId}:${row.version}`))throw Error();parameterMap(row.defaultParameters);seen.add(`${row.strategyId}:${row.version}`);}
+  customStrategies.value=rows;customCatalogLoaded.value=true;
+ }catch{if(!customDisposed&&ticket===customGeneration)customError.value='融合扩展目录不可用，请核对目录读取权限与部署；当前已冻结绑定保持不变。';}
+ finally{if(!customDisposed&&ticket===customGeneration)customLoading.value=false;}
+}
+function chooseCustomStrategy(key:string){
+ if(props.disabled||!fusion.value)return;const descriptor=customStrategies.value.find(row=>strategyKey(row)===key);if(!descriptor)return;
+ fusion.value.custom={strategyId:descriptor.strategyId,version:descriptor.version,implementationHash:descriptor.implementationHash,parameters:{...descriptor.defaultParameters}};
+ customParameters.value=JSON.stringify(descriptor.defaultParameters,null,2);
+}
+watch(()=>fusion.value?.method,method=>{if(method==='CUSTOM')void refreshCustomStrategies();},{immediate:true});
+onBeforeUnmount(()=>{customDisposed=true;++customGeneration;customStrategies.value=[];});
 const graphEditError=ref('');
 function graphConnection(edge:GraphEdgeCommand,remove=false){
  if(props.disabled)return;
@@ -76,7 +107,7 @@ watch(()=>props.initial,value=>{
  reviewPolicy.value=copy.reviewPolicy;riskPolicy.value=copy.riskPolicy;publicationGate.value=copy.publicationGate;actionPolicy.value=copy.actionPolicy;labelPolicy.value=copy.labelPolicy;
  nodes.value=copy.pipeline.nodes.map(n=>({...n,factValueType:(n.config.findingDefinition as {valueType?:string}|undefined)?.valueType,inputJson:JSON.stringify(n.inputMapping,null,2),outputJson:JSON.stringify(n.outputSchema,null,2),conditionJson:JSON.stringify(n.condition?.value ?? null),factCode:String((n.config.findingDefinition as {code?:string}|undefined)?.code || '')}));
  items.value=copy.items.map(i=>({...i,points:copy.scoring.items.find(s=>s.itemCode===i.itemCode)?.points ?? 0,veto:copy.scoring.items.find(s=>s.itemCode===i.itemCode)?.veto ?? false}));
- fusion.value=copy.fusion;scoring.value=copy.scoring;priorities.value=JSON.stringify(copy.fusion.nodePriority,null,2);overrides.value=JSON.stringify(copy.fusion.overrideNodeByCode,null,2);
+ fusion.value=copy.fusion;scoring.value=copy.scoring;priorities.value=JSON.stringify(copy.fusion.nodePriority,null,2);overrides.value=JSON.stringify(copy.fusion.overrideNodeByCode,null,2);weights.value=JSON.stringify(copy.fusion.nodeWeights??{},null,2);customParameters.value=JSON.stringify(copy.fusion.custom?.parameters??{},null,2);
 },{immediate:true});
 const nodeLibrary:Array<{type:PipelineNode['type'];label:string}>=[
  {type:'RULE',label:'规则检测'},{type:'DLS',label:'DLS规则'},{type:'LLM',label:'大模型'},
@@ -85,6 +116,7 @@ const nodeLibrary:Array<{type:PipelineNode['type'];label:string}>=[
 ];
 const nodeDragType='application/x-iqc-pipeline-engine';
 const propertiesPanel=ref<HTMLElement>();
+const graphEditor=ref<InstanceType<typeof PipelineDependencyGraph>>();
 function selectGraphNode(index:number){
  openNodes.value=[index];
  void nextTick(()=>{if(openNodes.value.includes(index))propertiesPanel.value?.querySelector(`[data-node-index="${index}"]`)?.scrollIntoView({block:'nearest'});});
@@ -93,7 +125,7 @@ function addNode(type:PipelineNode['type']='RULE') {
  if(props.disabled || nodes.value.length>=200 || !nodeLibrary.some(entry=>entry.type===type))return;
  let index=nodes.value.length+1;while(nodes.value.some(n=>n.nodeId===`node_${index}`))index++;
  const node:NodeDraft={nodeId:`node_${index}`,type,name:'新检测节点',version:'1',dependsOn:[],inputMapping:{},config:{inputScope:'MESSAGE',phase:'DIRECT'},condition:null,timeoutMs:30000,retries:0,onError:'FAIL_PIPELINE',fallbackNodeId:null,outputSchema:null,enabled:true,inputJson:'{}',outputJson:'null',conditionJson:'null',factCode:''};
- changeEngine(node);nodes.value.push(node);selectGraphNode(nodes.value.length-1);
+ changeEngine(node);nodes.value.push(node);selectGraphNode(nodes.value.length-1);return node.nodeId;
 }
 function startLibraryDrag(event:DragEvent,type:PipelineNode['type']){
  if(props.disabled || nodes.value.length>=200 || !event.dataTransfer){event.preventDefault();return;}
@@ -102,7 +134,10 @@ function startLibraryDrag(event:DragEvent,type:PipelineNode['type']){
 function dropLibraryNode(event:DragEvent){
  if(props.disabled || !event.dataTransfer)return;
  const type=event.dataTransfer.getData(nodeDragType);
- const entry=nodeLibrary.find(candidate=>candidate.type===type);if(entry)addNode(entry.type);
+ const entry=nodeLibrary.find(candidate=>candidate.type===type);if(!entry)return;
+ const point=graphEditor.value?.dropPosition(event),generation=policyEditorGeneration.value;
+ const nodeId=addNode(entry.type);
+ if(nodeId&&point)void nextTick(()=>{if(generation===policyEditorGeneration.value)graphEditor.value?.placeNode(nodeId,point);});
 }
 
 const metricOptions=[{value:'TRANSCRIPT_GAP_MS',label:'转写区间间隙（毫秒）'},{value:'CUSTOMER_TO_AGENT_MEAN_GAP_MS',label:'相邻客户到坐席平均间隙（毫秒）'},{value:'AGENT_TRANSCRIPT_TIME_SHARE',label:'坐席转写时间份额'},{value:'CROSS_ROLE_OVERLAP_PAIRS',label:'跨角色重叠片段对数'}];
@@ -207,6 +242,24 @@ function release():PipelineRelease {
  for(const n of converted)if(n.onError==='FALLBACK'){const f=converted.find(v=>v.nodeId===n.fallbackNodeId);if(!f||f.enabled||f.nodeId===n.nodeId||f.onError==='FALLBACK'||f.dependsOn.some(id=>!n.dependsOn.includes(id)))throw Error('备用节点须停用、非递归，且依赖属于源节点依赖');}
  const priority=object(priorities.value,'优先级'),override=object(overrides.value,'覆盖映射');
  if(Object.values(priority).some(v=>!Number.isSafeInteger(v))||Object.values(override).some(v=>typeof v!=='string'))throw Error('优先级必须为整数，覆盖映射必须为节点编码');
+ let custom:FusionExtensionBinding|undefined;
+ if(fusion.value.method==='CUSTOM'){
+  const binding=fusion.value.custom;if(!binding)throw Error('请选择已安装的融合扩展版本');validCustomIdentity(binding);
+  custom={strategyId:binding.strategyId,version:binding.version,implementationHash:binding.implementationHash,parameters:parameterMap(object(customParameters.value,'扩展参数'))};
+ }
+ let nodeWeights:Record<string,string>|undefined;
+ if(fusion.value.method==='WEIGHTED'){
+  const supplied=object(weights.value,'节点权重');
+  if(Object.keys(supplied).length!==converted.length||Object.keys(supplied).some(id=>!ids.has(id)||id.length>128||/[\u0000-\u001f\u007f-\u009f]/.test(id)))throw Error('权重须恰好覆盖当前所有节点');
+  for(const value of Object.values(supplied)){
+   validateDecimalOperand(value);
+   if(typeof value!=='string'||value.length>32||!/^(0|[1-9][0-9]*)(?:\.[0-9]{1,12})?$/.test(value))throw Error('权重须为最多12位小数的正十进制JSON字符串');
+   const [whole,fraction='']=value.split('.'),integer=BigInt(whole!);
+   if(!/[1-9]/.test(value)||integer>1000000n||integer===1000000n&&/[1-9]/.test(fraction))throw Error('权重须大于0且不超过1000000');
+  }
+  nodeWeights=supplied as Record<string,string>;
+ }
+
  if(publicationGate.value){const p=publicationGate.value;for(const ratio of [p.minimumRiskRecall,p.minimumOverallF1,p.minimumRegressionPass,p.minimumStructuredSuccess])if(typeof ratio!=='number'||!Number.isFinite(ratio)||ratio<0||ratio>1)throw Error('发布门禁比率必须为0–1');if(!Number.isInteger(p.maximumP95Ms)||p.maximumP95Ms<1||p.maximumP95Ms>300000||!Number.isInteger(p.minimumSamples)||p.minimumSamples<1||p.minimumSamples>1000)throw Error('发布门禁样本/耗时阈值无效');}
  for(const item of items.value){validateNumeric(item.numericPredicate);validateNumeric(item.appliesWhenNumericPredicate);if(item.appliesWhenNumericPredicate&&!item.appliesWhenFindingCode?.trim())throw Error('数值适用条件需要选择事实编码');}
  const labels=validateFindingLabelPolicy(labelPolicy.value);
@@ -220,7 +273,7 @@ function release():PipelineRelease {
   completionEditor.value?.validated(); // Reject invalid in-progress JSON rather than saving the previous valid value.
   completion=validateParallelCompletionPolicy(completionPolicy.value,converted);
  }
- return {...(review?{reviewPolicy:review}:{}),...(risk?{riskPolicy:risk}:{}),...(labels?{labelPolicy:labels}:{}),...(actions?{actionPolicy:actions}:{}),...(publicationGate.value?{publicationGate:{...publicationGate.value}}:{}),schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:parallel.value?(completion?'iqc-pipeline-parallel-v2':'iqc-pipeline-parallel-v1'):'iqc-pipeline-v1',nodes:converted,...(completion?{completionPolicy:completion}:{})},fusion:{...fusion.value,nodePriority:priority as Record<string,number>,overrideNodeByCode:override as Record<string,string>},items:items.value.map(({points,veto,...i})=>({...i,appliesWhenFindingCode:i.appliesWhenFindingCode?.trim()||null})),scoring:validateScoringPolicy(scoring.value,items.value.map(i=>({itemCode:i.itemCode,points:i.points,veto:i.veto})),nodes.value.map(n=>n.factCode).filter(Boolean),labels)};
+ return {...(review?{reviewPolicy:review}:{}),...(risk?{riskPolicy:risk}:{}),...(labels?{labelPolicy:labels}:{}),...(actions?{actionPolicy:actions}:{}),...(publicationGate.value?{publicationGate:{...publicationGate.value}}:{}),schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:parallel.value?(completion?'iqc-pipeline-parallel-v2':'iqc-pipeline-parallel-v1'):'iqc-pipeline-v1',nodes:converted,...(completion?{completionPolicy:completion}:{})},fusion:{...fusion.value,nodePriority:priority as Record<string,number>,overrideNodeByCode:override as Record<string,string>,nodeWeights,custom},items:items.value.map(({points,veto,...i})=>({...i,appliesWhenFindingCode:i.appliesWhenFindingCode?.trim()||null})),scoring:validateScoringPolicy(scoring.value,items.value.map(i=>({itemCode:i.itemCode,points:i.points,veto:i.veto})),nodes.value.map(n=>n.factCode).filter(Boolean),labels)};
 }
 defineExpose({release});
 </script>
@@ -237,7 +290,7 @@ defineExpose({release});
 <p>添加后选择已发布能力和事实定义。</p></aside>
 <section class="designer-canvas" aria-label="流水线编排画布" @dragover.prevent @drop.prevent.stop="dropLibraryNode"><h4>编排画布</h4>
 <a-alert v-if="graphEditError" type="error" show-icon :message="graphEditError"/>
-<PipelineDependencyGraph :nodes="nodes" :disabled="disabled" @select="selectGraphNode" @connect="graphConnection($event)" @disconnect="graphConnection($event,true)"/>
+<PipelineDependencyGraph ref="graphEditor" :nodes="nodes" :disabled="disabled" @select="selectGraphNode" @connect="graphConnection($event)" @disconnect="graphConnection($event,true)"/>
 </section>
 <section ref="propertiesPanel" class="node-properties" aria-label="节点属性"><h4>节点属性</h4><p>选择画布节点查看配置。调整顺序不会自动修改依赖或策略。</p><a-empty v-if="!nodes.length" description="从节点库添加检测节点"/>
 <a-collapse v-model:active-key="openNodes"><a-collapse-panel v-for="(node,index) in nodes" :key="index" :data-node-index="index" :header="`${index+1}. ${node.name} (${node.nodeId})`">
@@ -270,7 +323,7 @@ defineExpose({release});
 <a-collapse><a-collapse-panel key="mapping" header="高级输入映射与输出校验"><a-form-item label="输入映射（目标字段 → JSON pointer）"><a-textarea v-model:value="node.inputJson" :rows="3" :disabled="disabled"/></a-form-item><a-form-item label="输出变量 schema（JSON 或 null）"><a-textarea v-model:value="node.outputJson" :rows="3" :disabled="disabled"/></a-form-item><p>路径使用 /input、/variables、/upstream。保留空映射时使用原始输入。</p></a-collapse-panel></a-collapse>
 </a-form></a-collapse-panel></a-collapse>
 </section></div>
-<h3>事实融合</h3><a-form v-if="fusion" layout="vertical"><a-form-item label="政策标识 / 版本"><a-space><a-input v-model:value="fusion.id" :disabled="disabled"/><a-input-number v-model:value="fusion.version" :min="1" :precision="0" :disabled="disabled"/></a-space></a-form-item><a-form-item label="融合方式"><a-select v-model:value="fusion.method" :options="options(['PRIORITY','VOTING','OVERRIDE','CONFIDENCE'])" :disabled="disabled"/></a-form-item><a-form-item label="节点优先级（JSON）"><a-textarea v-model:value="priorities" :rows="2" :disabled="disabled"/></a-form-item><a-form-item v-if="fusion.method==='OVERRIDE'" label="事实编码 → 覆盖节点（JSON）"><a-textarea v-model:value="overrides" :rows="2" :disabled="disabled"/></a-form-item><template v-if="fusion.method==='CONFIDENCE'"><a-form-item label="校准标识"><a-input v-model:value="fusion.confidenceCalibrationId" :disabled="disabled"/></a-form-item><a-form-item label="已校准节点"><a-select v-model:value="fusion.calibratedNodeIds" mode="multiple" :options="options(nodes.map(n=>n.nodeId))" :disabled="disabled"/></a-form-item><a-alert type="info" message="当前RULE/DLS/LLM/METRIC适配器未输出已校准置信度，选择此政策不会产生确定的融合值。"/></template></a-form>
+<h3>事实融合</h3><a-form v-if="fusion" layout="vertical"><a-form-item label="政策标识 / 版本"><a-space><a-input v-model:value="fusion.id" :disabled="disabled"/><a-input-number v-model:value="fusion.version" :min="1" :precision="0" :disabled="disabled"/></a-space></a-form-item><a-form-item label="融合方式"><a-select v-model:value="fusion.method" :options="options(['PRIORITY','VOTING','WEIGHTED','OVERRIDE','CONFIDENCE','CUSTOM'])" :disabled="disabled"/></a-form-item><template v-if="fusion.method==='CUSTOM'"><a-form-item label="已安装扩展版本"><a-select :value="selectedCustomStrategy" :loading="customLoading" :disabled="disabled" :options="customStrategies.map(row=>({value:strategyKey(row),label:`${row.name} · ${row.strategyId} v${row.version} · ${row.implementationHash.slice(0,12)}`}))" placeholder="请选择服务端已安装的精确版本" @change="chooseCustomStrategy"/><a-button :disabled="disabled" :loading="customLoading" @click="refreshCustomStrategies">刷新扩展目录</a-button></a-form-item><a-alert v-if="customError" type="warning" :message="customError"/><a-alert v-else-if="customUnavailable" type="warning" message="当前绑定的精确版本或实现摘要未安装。请保留历史记录，选择可用版本并重新试跑、评测和发布；页面不会自动切换版本。"/><p v-if="fusion.custom">冻结绑定：{{fusion.custom.strategyId}} / v{{fusion.custom.version}} · {{fusion.custom.implementationHash}}</p><a-form-item label="扩展参数（JSON字符串对象）"><a-textarea v-model:value="customParameters" :disabled="disabled" :rows="4"/></a-form-item><a-alert type="info" message="发布后固定所选版本、实现摘要和参数；扩展缺失或摘要变化会拒绝执行。扩展保留原始事实与证据，不输出校准置信度。"/></template><a-form-item label="节点优先级（JSON）"><a-textarea v-model:value="priorities" :rows="2" :disabled="disabled"/></a-form-item><template v-if="fusion.method==='WEIGHTED'"><a-form-item label='节点权重（十进制JSON字符串，例如 {"node_1":"0.75","node_2":"0.25"}）'><a-textarea v-model:value="weights" :rows="4" :disabled="disabled"/><a-button :disabled="disabled||!nodes.length" @click="weights=JSON.stringify(Object.fromEntries(nodes.map(n=>[n.nodeId,'1'])),null,2)">用当前节点生成等权配置（覆盖）</a-button></a-form-item><a-alert type="info" message="同一事实须超过全部输入节点权重一半才接受已知值；未知、错误和未执行仍计入分母。权重不表示置信度，平票保留未决状态。"/></template><a-form-item v-if="fusion.method==='OVERRIDE'" label="事实编码 → 覆盖节点（JSON）"><a-textarea v-model:value="overrides" :rows="2" :disabled="disabled"/></a-form-item><template v-if="fusion.method==='CONFIDENCE'"><a-form-item label="校准标识"><a-input v-model:value="fusion.confidenceCalibrationId" :disabled="disabled"/></a-form-item><a-form-item label="已校准节点"><a-select v-model:value="fusion.calibratedNodeIds" mode="multiple" :options="options(nodes.map(n=>n.nodeId))" :disabled="disabled"/></a-form-item><a-alert type="info" message="当前RULE/DLS/LLM/METRIC适配器未输出已校准置信度，选择此政策不会产生确定的融合值。"/></template></a-form>
 <FindingLabelPolicyEditor :key="policyEditorGeneration" v-model="labelPolicy" :finding-codes="nodes.map(node=>node.factCode).filter(Boolean)" :disabled="disabled" @action="addLabelAction"/>
 <a-alert v-if="actionError" type="error" :message="actionError" show-icon/><ActionPolicyEditor :key="`actions-${policyEditorGeneration}`" v-model="actionPolicy" :labels="labelPolicy" :finding-codes="nodes.map(node=>node.factCode).filter(Boolean)" :item-codes="items.map(item=>item.itemCode).filter(Boolean)" :disabled="disabled"/>
 <h3>独立风险政策</h3><a-switch :checked="!!riskPolicy" :disabled="disabled" @change="configureRisk"/><p>匹配规则取最高风险等级。未知条件可能提高等级时保留未知。标签来自本政策的标签绑定，业务字段使用会话执行时保存的上下文；缺失字段保持未知。</p>

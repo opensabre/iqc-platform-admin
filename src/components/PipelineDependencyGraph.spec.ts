@@ -33,6 +33,12 @@ describe('pipeline dependency visualization',()=>{
     buttons[1].dispatchEvent(new MouseEvent('click',{bubbles:true}));expect(select).toHaveBeenLastCalledWith(1);
     buttons[0].dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));expect(select).toHaveBeenLastCalledWith(0);
     nodes.value=[node('first',['missing'])];await nextTick();
-    expect(host.querySelector('svg')).toBeNull();expect(host.textContent).toContain('依赖须指向前序节点');
+    // Invalid references remain visible for repair without rendering a phantom edge.
+    expect(host.querySelector('svg')).not.toBeNull();expect(host.textContent).toContain('依赖须指向前序节点');
+    const remaining=host.querySelectorAll('g.graph-node[role="button"]');
+    expect(remaining).toHaveLength(1);
+    expect(host.querySelectorAll('g[aria-label^="选择依赖连接"]')).toHaveLength(0);
+    remaining[0].dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+    expect(select).toHaveBeenLastCalledWith(0);
   });
 });

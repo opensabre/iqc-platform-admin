@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { message } from "ant-design-vue";
 import {
@@ -12,6 +12,7 @@ import {
   rejectRule,
   submitRule,
   testRule,
+  rulePayloadRestricted,
   type QualityRule,
   type QualityRuleVersion,
   type RuleTestResult,
@@ -24,6 +25,16 @@ import DlsDocumentEditor from "./DlsDocumentEditor.vue";
 const route = useRoute();
 const { can } = usePermission();
 const rules = ref<QualityRule[]>([]);
+const versionRestricted=ref(false),readError=ref('');
+let disposed=false,listGeneration=0,versionGeneration=0,testGeneration=0,importGeneration=0;
+function protectRule<T extends QualityRule|QualityRuleVersion>(row:T):T{return rulePayloadRestricted(row)?{...row,expression:null,description:null}:row;}
+function protectTest(value:RuleTestResult):RuleTestResult{
+ if(!rulePayloadRestricted(value))return value;
+ const status=['HIT','NOT_HIT','ERROR','NOT_SUPPORTED'].includes(value.resultStatus)?value.resultStatus:'UNKNOWN';
+ return {matched:value.matched,resultStatus:status,matchedText:null,reason:status==='NOT_SUPPORTED'?'此类型规则请在质检沙盒中测试':'测试回执正文未展示',evidence:[],privacy:value.privacy};
+}
+function protectImport(value:DlsImportResult):DlsImportResult{return rulePayloadRestricted(value)?{...value,items:value.items.map(item=>({...item,warnings:[],message:'诊断正文未展示'}))}:value;}
+
 const open = ref(false);
 const saving = ref(false);
 const testOpen = ref(false);
@@ -161,48 +172,52 @@ const expressionHelp = computed(() => {
     : "输入需要比较的文本";
 });
 
-async function refresh() {
-  try {
-    rules.value = await listRules();
-  } catch {
-    message.error("规则加载失败");
-  }
+async function refresh(){
+ const ticket=++listGeneration;rules.value=[];readError.value='';
+ try{
+  const rows=await listRules();if(disposed||ticket!==listGeneration)return;rules.value=rows.map(protectRule);
+  if(versionRule.value){const current=rules.value.find(row=>row.id===versionRule.value?.id);if(!current||rulePayloadRestricted(current)){versionRestricted.value=true;versionForm.value=emptyForm();versions.value=[];++versionGeneration;}}
+ }catch{if(!disposed&&ticket===listGeneration)readError.value='规则重新读取失败，请重试；已完成操作不会撤销。';}
 }
 async function openRuleFromQuery() {
   const ruleId = typeof route.query.ruleId === "string" ? route.query.ruleId : "";
-  if (!ruleId) return;
+  if (disposed||!ruleId) return;
   const rule = rules.value.find((item) => item.id === ruleId);
   if (rule) await openVersions(rule);
   else message.warning("未找到对应规则，可能已删除或无权查看");
 }
 async function submit(id: string) {
+  if(disposed)return;
   try {
-    await submitRule(id);
+    await submitRule(id);if(disposed)return;
     message.success("规则已提交审批");
     await refresh();
   } catch {
-    message.error("规则提交审批失败");
+    if(!disposed)message.error("规则提交审批失败");
   }
 }
 async function approve(id: string) {
+  if(disposed)return;
   try {
-    await approveRule(id);
+    await approveRule(id);if(disposed)return;
     message.success("规则已审批发布");
     await refresh();
   } catch {
-    message.error("规则审批失败");
+    if(!disposed)message.error("规则审批失败");
   }
 }
 async function reject(id: string) {
+  if(disposed)return;
   try {
-    await rejectRule(id);
+    await rejectRule(id);if(disposed)return;
     message.success("规则已驳回");
     await refresh();
   } catch {
-    message.error("规则驳回失败");
+    if(!disposed)message.error("规则驳回失败");
   }
 }
 function startCreate() {
+  if(disposed||saving.value||!can("iqc:rule:manage"))return;
   if (!ruleTypes.value.length) {
     message.error("规则类型字典尚未加载，无法创建规则");
     return;
@@ -259,27 +274,31 @@ watch(() => form.value.ruleType, (type) => {
   }
 });
 async function save() {
+  if(disposed||saving.value||!open.value||!can("iqc:rule:manage"))return;
   if (!form.value.name || !form.value.code || !form.value.expression)
     return void message.warning("请填写名称、编码和规则配置");
   saving.value = true;
   try {
-    await createRule(form.value);
+    await createRule({...form.value});if(disposed)return;
     message.success("规则已创建");
     open.value = false;
     await refresh();
   } catch {
-    message.error("规则创建失败，请检查配置格式和编码");
+    if(!disposed)message.error("规则创建结果未确认，请保留配置并重新读取核对编码。");
   } finally {
-    saving.value = false;
+    if(!disposed)saving.value = false;
   }
 }
 function openTest(id: string) {
+  if(disposed||testing.value||!can("iqc:rule:test"))return;++testGeneration;
   testRuleId.value = id;
   testContent.value = "";
   testResult.value = undefined;
   testOpen.value = true;
 }
 async function runTest() {
+  if(disposed||testing.value||!testOpen.value||!can("iqc:rule:test"))return;
+  const ticket=++testGeneration,id=testRuleId.value;testResult.value=undefined;
   if (!testContent.value.trim()) return void message.warning("请输入测试文本");
   testing.value = true;
   try {
@@ -288,16 +307,17 @@ async function runTest() {
       const role = matched?.[1]?.toLowerCase();
       return { sequenceNo:index + 1, speakerRole:role === "user" || role === "客户" ? "user" as const : "agent" as const, content:matched ? matched[2] : line };
     }).filter((item) => item.content.trim()) : [];
-    testResult.value = await testRule(testRuleId.value, testContent.value, messages);
+    const result=await testRule(id,testContent.value,messages);if(disposed||ticket!==testGeneration)return;testResult.value=protectTest(result);
   } catch {
-    message.error("规则测试失败");
+    if(!disposed&&ticket===testGeneration)message.error("规则测试未获结果，请核对权限和输入后重试。");
   } finally {
-    testing.value = false;
+    if(!disposed&&ticket===testGeneration)testing.value = false;
   }
 }
 async function openVersions(rule: QualityRule) {
+  if(disposed||versionSaving.value)return;const ticket=++versionGeneration;versions.value=[];versionRestricted.value=rulePayloadRestricted(rule)||typeof rule.expression!=='string'||!rule.expression.trim();
   versionRule.value = rule;
-  versionForm.value = {
+  versionForm.value = versionRestricted.value?emptyForm():{
     name: rule.name,
     code: rule.code,
     category: rule.category || "CUSTOM",
@@ -311,25 +331,27 @@ async function openVersions(rule: QualityRule) {
   };
   versionOpen.value = true;
   try {
-    versions.value = await listRuleVersions(rule.id);
+    const rows=await listRuleVersions(rule.id);if(disposed||ticket!==versionGeneration)return;versions.value=rows.map(protectRule);if(rows.some(rulePayloadRestricted)){versionRestricted.value=true;versionForm.value=emptyForm();}
   } catch {
-    message.error("版本加载失败");
+    if(!disposed&&ticket===versionGeneration){versionRestricted.value=true;versionForm.value=emptyForm();message.error("版本读取未获确认，未加载配置编辑器，请重新读取。");}
   }
 }
 async function saveVersion() {
+  if(disposed||versionSaving.value||versionRestricted.value||!versionOpen.value||!can("iqc:rule:manage"))return;
   if (!versionRule.value || !versionForm.value.expression)
     return void message.warning("请填写版本配置");
+  const id=versionRule.value.id,requested={...versionForm.value};
   versionSaving.value = true;
   try {
-    await createRuleVersion(versionRule.value.id, versionForm.value);
-    await submitRule(versionRule.value.id);
+    await createRuleVersion(id,requested);if(disposed)return;
+    await submitRule(id);if(disposed)return;
     message.success("新版本已创建并提交审批");
-    versions.value = await listRuleVersions(versionRule.value.id);
+    const ticket=++versionGeneration;versions.value=[];const rows=await listRuleVersions(id);if(disposed||ticket!==versionGeneration)return;versions.value=rows.map(protectRule);if(rows.some(rulePayloadRestricted)){versionRestricted.value=true;versionForm.value=emptyForm();}
     await refresh();
   } catch {
-    message.error("规则版本创建或提交失败");
+    if(!disposed)message.error("版本创建或提交未确认，请先重新读取核对已有草稿及状态，避免重复创建。");
   } finally {
-    versionSaving.value = false;
+    if(!disposed)versionSaving.value = false;
   }
 }
 async function loadDictionaries() {
@@ -340,40 +362,46 @@ async function loadDictionaries() {
       "iqc_risk_level",
       "iqc_target_role",
     ]);
-    ruleTypes.value = data.iqc_rule_type || [];
+    if(disposed)return;ruleTypes.value = data.iqc_rule_type || [];
     if (!ruleTypes.value.length) message.error("后端未发布规则类型字典");
     if (data.iqc_rule_category?.length) ruleCategories.value = data.iqc_rule_category;
     if (data.iqc_risk_level?.length) riskLevels.value = data.iqc_risk_level;
     if (data.iqc_target_role?.length) targetRoles.value = data.iqc_target_role;
   } catch {
-    ruleTypes.value = [];
+    if(disposed)return;ruleTypes.value = [];
     message.error("规则类型字典加载失败");
   }
 }
 async function selectDlsFile(event: Event) {
+  if(disposed||dlsImporting.value||!can("iqc:rule:import"))return;const ticket=++importGeneration;dlsImportResult.value=undefined;
   const input = event.target as HTMLInputElement;
   const file = input.files?.[0];
   input.value = "";
   if (!file) return;
   dlsFile.value = file; dlsImporting.value = true;
   try {
-    dlsImportResult.value = await importDlsRules(file, true);
+    const result=await importDlsRules(file,true);if(disposed||ticket!==importGeneration)return;dlsImportResult.value=protectImport(result);
     dlsImportOpen.value = true;
   } catch {
-    message.error("DLS 文件预检失败");
-  } finally { dlsImporting.value = false; }
+    if(!disposed&&ticket===importGeneration)message.error("DLS 文件预检失败");
+  } finally { if(!disposed&&ticket===importGeneration)dlsImporting.value = false; }
 }
 async function confirmDlsImport() {
-  if (!dlsFile.value) return;
+  if(disposed||dlsImporting.value||!dlsFile.value||!can("iqc:rule:import"))return;const ticket=++importGeneration;
   dlsImporting.value = true;
   try {
-    dlsImportResult.value = await importDlsRules(dlsFile.value, false);
+    const result=await importDlsRules(dlsFile.value,false);if(disposed||ticket!==importGeneration)return;dlsImportResult.value=protectImport(result);
     message.success(`已创建 ${dlsImportResult.value.createdCount} 条 DLS 草稿规则`);
     await refresh();
   } catch {
-    message.error("DLS 规则导入失败");
-  } finally { dlsImporting.value = false; }
+    if(!disposed&&ticket===importGeneration)message.error("DLS 导入结果未确认，请核对已有来源规则后重试。");
+  } finally { if(!disposed&&ticket===importGeneration)dlsImporting.value = false; }
 }
+watch(versionOpen,value=>{if(!value){++versionGeneration;versions.value=[];versionRule.value=undefined;versionForm.value=emptyForm();versionRestricted.value=false;}});
+watch(testOpen,value=>{if(!value){++testGeneration;testResult.value=undefined;testContent.value='';testRuleId.value='';testing.value=false;}});
+watch(dlsImportOpen,value=>{if(!value){++importGeneration;dlsImportResult.value=undefined;dlsFile.value=undefined;}});
+watch(open,value=>{if(!value)form.value=emptyForm();});
+onBeforeUnmount(()=>{disposed=true;++listGeneration;++versionGeneration;++testGeneration;++importGeneration;rules.value=[];versions.value=[];versionRule.value=undefined;form.value=emptyForm();versionForm.value=emptyForm();testContent.value='';testResult.value=undefined;dlsFile.value=undefined;dlsImportResult.value=undefined;});
 onMounted(async () => {
   await refresh();
   await openRuleFromQuery();
@@ -382,6 +410,7 @@ onMounted(async () => {
 </script>
 
 <template>
+  <a-alert v-if="readError" type="error" :message="readError"/>
   <section class="page-intro">
     <div>
       <span class="section-kicker">PROFESSIONAL RULE CENTER</span>
@@ -424,9 +453,7 @@ onMounted(async () => {
         :width="70"
       /><a-table-column title="类型"><template #default="{ record }">{{ ruleTypeLabel(record.ruleType) }}</template></a-table-column><a-table-column
         title="表达式"
-        data-index="expression"
-        :ellipsis="true"
-      /><a-table-column title="状态" data-index="status" /><a-table-column
+        :ellipsis="true"><template #default="{record}">{{record.expression??'正文未展示'}}</template></a-table-column><a-table-column title="状态" data-index="status" /><a-table-column
         title="操作"
         :width="270"
         ><template #default="{ record }"
@@ -461,13 +488,14 @@ onMounted(async () => {
       ></a-table
     ></a-card
   >
-  <a-modal v-model:open="dlsImportOpen" title="DLS 导入预检" width="860" :confirm-loading="dlsImporting"
+  <a-modal v-model:open="dlsImportOpen" title="DLS 导入预检" width="860" :confirm-loading="dlsImporting" :closable="!dlsImporting" :mask-closable="!dlsImporting" :keyboard="!dlsImporting"
     :ok-button-props="{ disabled: !dlsCanImport }"
     ok-text="创建草稿" @ok="confirmDlsImport">
     <a-alert type="info" show-icon style="margin-bottom: 16px"
       :message="`${dlsImportResult?.fileName || ''}：${dlsImportResult?.validCount || 0} 个工作表通过，${dlsImportResult?.failedCount || 0} 个失败`"
       description="测试词槽和测试规则默认排除；导入后仍需测试、提交审批和发布。" />
-    <a-table :data-source="dlsImportResult?.items || []" row-key="sheetName" :pagination="false" size="small">
+    <a-alert v-if="dlsImportResult&&rulePayloadRestricted(dlsImportResult)" type="info" message="导入状态和计数已保留，诊断正文未展示。"/>
+    <a-table :data-source="dlsImportResult?.items || []" :row-key="(_row:unknown,index:number)=>String(index)" :pagination="false" size="small">
       <a-table-column title="工作表" data-index="sheetName" />
       <a-table-column title="最终规则" data-index="ruleName" />
       <a-table-column title="定义数" data-index="definitionCount" :width="80" />
@@ -648,7 +676,7 @@ onMounted(async () => {
     ><a-form layout="vertical"
       ><a-form-item :label="testingDls ? '测试会话' : '测试文本'" required
         ><a-textarea
-          v-model:value="testContent"
+          v-model:value="testContent" :disabled="testing"
           :rows="6"
           :placeholder="testingDls ? '每行一条消息，例如：\n客户：我要投诉\n坐席：请拨打客服电话' : '输入一段真实消息文本'" /></a-form-item></a-form
     ><a-alert
@@ -660,7 +688,7 @@ onMounted(async () => {
           ? 'error'
           : 'info'
       "
-      :message="testResult.reason"
+      :message="`${testResult.resultStatus} · ${testResult.reason}`"
       :description="
         testResult.matchedText
           ? `命中片段：${testResult.matchedText}`
@@ -676,11 +704,11 @@ onMounted(async () => {
     v-model:open="versionOpen"
     :title="`规则版本：${versionRule?.name || ''}`"
     width="min(1200px, calc(100vw - 64px))"
-    :confirm-loading="versionSaving"
+    :confirm-loading="versionSaving" :closable="!versionSaving" :mask-closable="!versionSaving" :keyboard="!versionSaving" :ok-button-props="{disabled:versionRestricted}"
     :footer="can('iqc:rule:manage') ? undefined : null"
     ok-text="创建并提交新版本"
     @ok="saveVersion"
-    ><a-table
+    ><a-alert v-if="versionRestricted" type="info" message="规则正文受限或未提供，未加载新版本编辑器。请核对完整会话、PII及LLM所需Prompt权限后重新读取。"/><a-table
       :data-source="versions"
       :pagination="false"
       row-key="id"
@@ -689,13 +717,12 @@ onMounted(async () => {
         title="状态"
         data-index="status" /><a-table-column
         title="表达式"
-        data-index="expression"
-        :ellipsis="true" /><a-table-column
+        :ellipsis="true"><template #default="{record}">{{record.expression??'正文未展示'}}</template></a-table-column><a-table-column
         title="扣分"
         data-index="deduction" /><a-table-column
         title="风险"
         data-index="riskLevel" /></a-table
-    ><template v-if="can('iqc:rule:manage')"><a-divider /><a-form layout="vertical"
+    ><template v-if="can('iqc:rule:manage')&&!versionRestricted"><a-divider /><a-form layout="vertical"
       ><a-form-item label="新版本配置" required>
         <DlsDocumentEditor v-if="versionForm.ruleType === 'DLS'" v-model="versionForm.expression" />
         <a-textarea v-else v-model:value="versionForm.expression" :rows="6" />
