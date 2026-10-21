@@ -51,7 +51,7 @@ const messageOptions = computed(() => messages.value.map(item => ({ value: item.
   label: `#${item.sequenceNo} ${item.speakerRole} ${(item.content == null ? "正文未展示" : item.content.slice(0, 80))}` })));
 function display(value: unknown) { return value === true ? "是" : value === false ? "否" : value == null ? "—" : String(value); }
 async function refresh() {
-  if (!can("iqc:review:view")) return;
+  if (!can("iqc:review:label:history")) return;
   const ticket = ++generation, id = props.label.id;
   loaded.value = false; loading.value = true; error.value = "";
   try {
@@ -70,7 +70,7 @@ watch(() => props.label.id, () => {
 }, { immediate: true });
 async function submit() {
   const current = command.value;
-  if (!current || busy.value || !can(current.kind === "REQUEST" ? "iqc:review:create" : "iqc:review:decide")) return;
+  if (!current || busy.value || !can(current.kind === "REQUEST" ? "iqc:review:label:create" : "iqc:review:label:decide")) return;
   busy.value = true; error.value = "";
   const id = props.label.id;
   try {
@@ -86,13 +86,13 @@ async function submit() {
   } finally { busy.value = false; }
 }
 async function request() {
-  if (!editable.value || pending.value || !can("iqc:review:create") || !requestComment.value.trim()) return;
+  if (!editable.value || pending.value || !can("iqc:review:label:create") || !requestComment.value.trim()) return;
   command.value = { kind: "REQUEST", id: props.label.id,
     payload: { expectedRevision: revision.value, requestId: crypto.randomUUID(), comment: requestComment.value.trim() } };
   await submit();
 }
 async function decide(rejected: boolean) {
-  if (!editable.value || !pending.value || !can("iqc:review:decide") || !comment.value.trim()) return;
+  if (!editable.value || !pending.value || !can("iqc:review:label:decide") || !comment.value.trim()) return;
   if (!rejected && (!status.value || status.value === "KNOWN" && (value.value === undefined || !evidence.value.length))) return;
   const labelDecision: LabelValueDecision | undefined = rejected ? undefined : {
     status: status.value!, value: status.value === "KNOWN" ? value.value! : null,
@@ -109,7 +109,7 @@ async function decide(rejected: boolean) {
   <section aria-label="标签值复核">
     <p>机器结果：{{ machine.title }} · {{ machine.value }}。人工修订独立保存，不覆盖机器标签值或评分。</p>
     <a-alert v-if="!eligible" type="info" message="此标签值不是有效的新版冻结结果，暂不能人工修订。" />
-    <a-alert v-else-if="!can('iqc:review:view')" type="info" message="没有查看标签复核的权限。" />
+    <a-alert v-else-if="!can('iqc:review:label:history')" type="info" message="没有查看标签复核的权限。" />
     <template v-else>
       <a-space><a-button :disabled="loading || busy || !!command" @click="refresh">刷新复核历史</a-button>
         <a-button v-if="command" :loading="busy" :disabled="busy" @click="submit">重试原提交</a-button></a-space>
@@ -118,13 +118,13 @@ async function decide(rejected: boolean) {
       <a-alert v-if="damaged" type="error" message="历史人工修订无法验证，已停止后续操作，请联系管理员。" />
       <a-spin :spinning="loading">
         <p v-if="latestCompleted">当前有效人工修订：{{ latestCompleted.status === 'KNOWN' ? display(latestCompleted.value) : '未知' }}；机器值仍保留。</p>
-        <a-form v-if="loaded && !pending && can('iqc:review:create')" layout="vertical">
+        <a-form v-if="loaded && !pending && can('iqc:review:label:create')" layout="vertical">
           <a-form-item label="申请原因"><a-textarea v-model:value="requestComment" :maxlength="1000" :rows="2" :disabled="!editable" /></a-form-item>
           <a-button type="primary" :disabled="!editable || !requestComment.trim()" @click="request">发起标签复核</a-button>
         </a-form>
         <a-card v-if="pending" size="small" :title="`第 ${pending.reviewRevision} 轮 · 待复核`">
           <p>申请原因：{{ pending.requestComment }}</p>
-          <a-form v-if="can('iqc:review:decide')" layout="vertical">
+          <a-form v-if="can('iqc:review:label:decide')" layout="vertical">
             <a-form-item label="人工状态"><a-select v-model:value="status" :disabled="!editable" :options="[{ value: 'KNOWN', label: '确定' }, { value: 'UNKNOWN', label: '未知' }]" /></a-form-item>
             <a-form-item v-if="status === 'KNOWN'" :label="`人工值（${valueType}）`">
               <a-select v-if="valueType === 'BOOLEAN'" v-model:value="value" :disabled="!editable" :options="[{ value: true, label: '是' }, { value: false, label: '否' }]" />

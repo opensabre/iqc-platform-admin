@@ -200,3 +200,8 @@ GET /schemes/published目录及schemeId游标历史先检查当前scheme:view并
 原IqcPage服务查询不变，当前业务review:view、标签review:label:queue分别在业务前刷新授权/no-store，查询审计不收正文。独立ReviewQueuePage响应保留records/current/size/total并加iqc-review-queue-read-v1隐私元数据。FULL+PII齐备回原requestComment；其它组合扣留评论，对taskName/createdBy及标签labelName/valueDescription沿原PII mask。业务record重建、标签DTO复制，原对象/SQL范围/排序分页/ID/状态/currentResult不改，业务stage直接保留原已校验枚举，不重新解析已清理workflowMetadata为INITIAL。
 
 页面已知受限或未知privacy清除评论并提示未展示；卸载使队列和标签历史代次失效/清行和selected，关闭历史清引用。旧无privacy API兼容保留。ResultReview历史与命令返回的reviewedResultJson/评论、人工改分原因仍待配套安全工作流/UI投影；此批不覆盖那些接口。当前仅编译构建，实际四grant/源不变/组织SQL/分页stage/当前授权和浏览器待验。
+
+
+## 标签复核细分权限对齐（2026-10-21）
+
+以QualityOperationsController和现有V20260927_01权限脚本为准：LabelReviewQueue请求/展示用iqc:review:label:queue，队列历史按钮及handler单独用label:history；LabelValueReviewPanel读取/发起/裁决及submit handler分别用label:history/create/decide；tasks标签表和路由定位打开复核用label:history。此前混用通用review:view/create/decide会阻止只有标签权限的账号，也会给只有通用权限的账号显示最终被后端拒绝的操作。既有result:view/task:view及服务端授权/组织范围仍适用，不新增权限码/角色/接口。实际独立grant组合/撤权/浏览器待验，本批仅构建。
