@@ -224,3 +224,10 @@ LabelValueReviewPanel区分未展示和损坏：存在但未知/受限privacy清
 ## 标签权限回归夹具集成（2026-10-22）
 
 从B已提交a2b90f3同步LabelReviewQueue.spec.ts、LabelValueReviewPanel.spec.ts，生产代码保持当前标签正文保护版本。覆盖标签专属grant、通用grant不能替代、queue/history独立、按钮和重试前撤权。B曾在其组合分支运行两文件14项并构建通过（日志见协作台账）；Root本次仅同步既有测试及构建，不把B旧分支结果当当前隐私/评分/序列化全部验收，不运行测试。
+
+
+## 消息复核历史与回执（2026-10-22）
+
+复用既有标签review响应copy字段处理为私有reviewRead，消息路径使用iqc-message-review-read-v1，不新增持久模型。消息history FULL+PII才回原评论/JSON，命令receipt始终扣留，原original/final数值、状态、风险、ID/hash保留，创建人/复核人沿原mask。request/decide入口在原业务分支前检查固定review:create/decide当前授权；history已有review:view/no-store/QUERY不收正文。原service范围与裁决不变；业务review JSON/工作流本批未扣留，仍待完整配套。
+
+旧质量运营页按当前tab及其原grant分别查询review/feedback/sample，report只在report:view具备时查询，不再无条件四接口联读。消息评论受限显示未展示，表单不填历史评论；提交固定目标/复制payload，handler检查decide并防重复，提交中禁止关闭/改动，关闭清表单/selected，卸载清列表/输入/代次，迟到响应不回填。字段保护和页面运行未独立验收，当前仅编译构建；原组织/role/PDP/browser与I1–I7保持待验。

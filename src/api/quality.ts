@@ -3,7 +3,7 @@ import type { BusinessItemResult, BusinessScoringResult } from "./results";
 import type { PageResult } from "./tasks";
 
 export interface ResultFeedback { id:string; resultId:string; feedbackType:string; comment?:string; status:string; createdTime?:string }
-export interface ResultReview { id:string; resultId:string; status:string; originalStatus:string; originalScore?:number; originalRiskLevel?:string; finalStatus?:string; finalScore?:number; finalRiskLevel?:string; reviewComment?:string; reviewerId?:string; reviewedTime?:string }
+export interface ResultReview { privacy?:import("@/api/config").AssetReadPrivacy; id:string; resultId:string; status:string; originalStatus:string; originalScore?:number; originalRiskLevel?:string; finalStatus?:string; finalScore?:number; finalRiskLevel?:string; reviewComment?:string|null; reviewerId?:string; reviewedTime?:string }
 export interface SampleReadPrivacy {
  policyVersion:string;canonicalPayloadVisible:boolean;canReadFull:boolean;canReadPii:boolean;withheldFields:string[];candidateContentVisible?:boolean;
  previewState?:'NOT_INCLUDED'|'INVALID_GOLD'|'AVAILABLE'|'GOLD_ENDPOINT_REQUIRED'|'RELOAD_REQUIRED'|'SUMMARY_ONLY';
