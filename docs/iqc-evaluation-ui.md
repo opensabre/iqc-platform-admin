@@ -26,3 +26,5 @@
 报告沿用businessMetrics.labelAccuracy/comparableLabels/labelGold，展示准确率与“可比 / Gold”数量；零可比显示原有未测量文案。后端只比较冻结绑定地址对应的已知合法投影，不把旧名称键、缺输出或未知状态计为正确值。该显示依赖对应后端标签指标版本；本轮没有切换默认release协议。
 
 验证：原64670 `pnpm type-check`终态0，日志`/tmp/iqc-b-label-ui-typecheck.log`；Node22.22.2/pnpm8.7.6与声明版本存在既有提示。仅类型检查与diff检查，不代表此次标签展示已经真实浏览器或后端SQL整链验证。
+
+Gold编辑器高级标签期望提示已同步为绑定地址，给出`/labelId/valueCode`例子及JSON Pointer转义说明，提醒冻结绑定与旧名称键缺测语义。原63938 `pnpm type-check`终态0，日志`/tmp/iqc-b-label-gold-ui.log`；仅文案和类型检查，无新增浏览器证据。
