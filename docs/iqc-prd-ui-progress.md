@@ -253,3 +253,7 @@ BusinessReviewPanel正文受限时不解析为坏投影，显示未展示并禁�
 ## A/B前端固定提交组合（2026-10-22）
 
 当前A4f69e90合并Ba2b90f3，共同祖先4455aa2。生产页面/导航及标签权限回归已在A；实际新增仅PipelineDependencyGraph既有spec对错误图仍可修正的预期，保留无虚构依赖边和节点选择断言。当前Root仅构建，不运行测试；B269组件回归归38f8592，标签14项归a2b90f3，不外推为含新指标/复核隐私的当前头全通过。后端已5147226统一，完整角色/browser/运行和PRD验收继续待。
+
+## B 统一头与改分隐私回归
+
+581a604组合A f4e6e2b后，39文件274项测试全部通过（/tmp/iqc-b-ui-integrated-tests.log），原70538构建终态0（/tmp/iqc-b-ui-integrated-build.log，Vite 1m44s，既有chunk提示）。Node22.22.2/pnpm8.7.6与声明版本有差异。新增ManualScoreReviewEditor两项检查受限历史原因不展示/不自动带入、原有效数字保留且新原因必填，以及卸载后的迟到响应；该文件5项全过（/tmp/iqc-b-ui-manual-score-privacy.log）。新增仅测试，不重复称全量276已运行；真实PDP/组织角色及浏览器链路尚未完成。
