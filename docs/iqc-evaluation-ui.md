@@ -26,3 +26,7 @@
 报告沿用businessMetrics.labelAccuracy/comparableLabels/labelGold，展示准确率与“可比 / Gold”数量；零可比显示原有未测量文案。后端只比较冻结绑定地址对应的已知合法投影，不把旧名称键、缺输出或未知状态计为正确值。该显示依赖对应后端标签指标版本；本轮没有切换默认release协议。
 
 验证：原64670 `pnpm type-check`终态0，日志`/tmp/iqc-b-label-ui-typecheck.log`；Node22.22.2/pnpm8.7.6与声明版本存在既有提示。仅类型检查与diff检查，不代表此次标签展示已经真实浏览器或后端SQL整链验证。
+
+## 2026-10-23 会话引用来源校验
+
+原评测报告增加CitationGroundingPanel，只展示可选iqc-citation-grounding-report-v1协议。覆盖分母为冻结样本×LLM节点，区分完整/部分/未测量；引用错误率仅针对已观测引用，零分母显示未测量。展示坏容器及无效诊断，不将缺失产物或旧轨迹填零。没有额外请求/权限/原文，沿用父报告授权和清理流程。新批次仅构建检查，无新增/运行测试或浏览器证明，完整事实幻觉指标仍未完成。
