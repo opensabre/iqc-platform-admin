@@ -33,6 +33,7 @@ export interface BusinessPolicyGroup {
   mode: string; baseScore?: number; passingScore: number; taskIds: string[]; conversationCount: number; executionIds: string[];
   missingResultCount: number; missingReviewCount: number; pendingReviewCount: number;
   machine: BusinessScoreSummary; reviewed: BusinessScoreSummary;
+  reviewChanges?:{schemaVersion:string;scope:string;reviewedResults:number;modifiedResults:number;itemOrScoreChangedResults:number;findingChangedResults:number;effectiveNumericScoreChangedResults:number;modificationRate:number|null;reviewCoverage:number|null}|null;
   items?: BusinessReportItem[];
 }
 export interface BusinessItemSummary {
