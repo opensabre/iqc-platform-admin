@@ -40,3 +40,6 @@ export const createEvaluationTask=(body:EvaluationTaskRequest)=>http.post<import
 export const listEvaluationResults=(id:string,executionId?:string,current=1)=>http.get<PageResult<EvaluationResult>>(`${evaluationTasks}/${encodeURIComponent(id)}/results`,{params:{executionId,current,size:20}}).then(r=>r.data);
 export const getEvaluationResult=(id:string,resultId:string)=>http.get<EvaluationResult>(`${evaluationTasks}/${encodeURIComponent(id)}/results/${encodeURIComponent(resultId)}`).then(r=>r.data);
 export const getEvaluationReport=(id:string,executionId?:string)=>http.get<EvaluationReport>(`${evaluationTasks}/${encodeURIComponent(id)}/report`,{params:{executionId}}).then(r=>r.data);
+
+export interface ModelConsistencyReport {schemaVersion:string;scope:string;expectedPairs:number;comparablePairs:number;agreeingPairs:number;comparisonCoverage:number|null;agreementRate:number|null;excludedReasons:Record<string,number>}
+export const getModelConsistency=(id:string,executionId:string,referenceTaskId:string,referenceExecutionId:string)=>http.get<ModelConsistencyReport>(`${evaluationTasks}/${encodeURIComponent(id)}/consistency`,{params:{executionId,referenceTaskId,referenceExecutionId}}).then(r=>r.data);
