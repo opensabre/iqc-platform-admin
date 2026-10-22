@@ -8,6 +8,14 @@ const {can}=usePermission();
 const authorized=computed(()=>props.taskId?can('iqc:task:model-calls:view'):can('iqc:model-gateway:calls:view'));
 const rows=ref<ModelCall[]>([]),loading=ref(false),error=ref(''),current=ref(1),total=ref(0),status=ref<ModelCallStatus>();
 const summary=ref<CostSummary>(),callPrivacy=ref<ModelCallPrivacy>();
+const conversationDraft=ref(''),conversationFilter=ref<string>();
+function applyConversation(){
+  const value=conversationDraft.value.trim();
+  if(value&&!/^[A-Za-z0-9:_-]{1,64}$/.test(value)){message.error('请输入有效会话标识');return;}
+  conversationFilter.value=value||undefined;
+}
+function clearConversation(){conversationDraft.value='';conversationFilter.value=undefined;}
+
 const evidenceRestricted=computed(()=>!!callPrivacy.value&&(callPrivacy.value.policyVersion!=='iqc-model-call-read-v1'||callPrivacy.value.evidenceVisible!==true||callPrivacy.value.canReadFull!==true||callPrivacy.value.canReadPii!==true||callPrivacy.value.canReadPrompt!==true));
 let generation=0,capacityGeneration=0;
 const diagnostic=ref<ModelDiagnostic>(),diagnosticOpen=ref(false),diagnosticLoading=ref(false),diagnosticError=ref('');
@@ -86,22 +94,26 @@ async function load(page=current.value){
   closeDiagnostic();const ticket=++generation;rows.value=[];summary.value=undefined;callPrivacy.value=undefined;error.value='';
   if(!authorized.value){loading.value=false;total.value=0;return;}
   loading.value=true;
-  try{const result=props.taskId?await listTaskModelCalls(props.taskId,props.executionId,status.value,page):await listModelCalls(status.value,page);if(ticket===generation){rows.value=result.records;summary.value=result.costSummary;callPrivacy.value=result.privacy;current.value=page;total.value=result.total;}}
+  try{const result=props.taskId?await listTaskModelCalls(props.taskId,props.executionId,status.value,page,20,conversationFilter.value):await listModelCalls(status.value,page);if(ticket===generation){rows.value=result.records;summary.value=result.costSummary;callPrivacy.value=result.privacy;current.value=page;total.value=result.total;}}
   catch{if(ticket===generation)error.value='模型调用记录未能加载，请重试。';}
   finally{if(ticket===generation)loading.value=false;}
 }
-watch([status,authorized,()=>props.taskId,()=>props.executionId],()=>{current.value=1;total.value=0;void load(1);},{immediate:true});
+watch(()=>props.taskId,clearConversation);
+watch([status,authorized,()=>props.taskId,()=>props.executionId,conversationFilter],()=>{current.value=1;total.value=0;void load(1);},{immediate:true});
 onBeforeUnmount(()=>{generation++;capacityGeneration++;reconciliationGeneration++;closeDiagnostic();});
 </script>
 <template>
 <section v-if="authorized||capacityOpen">
 <template v-if="authorized">
 <a-space><h3>模型调用记录</h3><a-select v-model:value="status" allow-clear placeholder="全部状态" style="width:160px" :options="[{value:'RESERVED',label:'响应未确认'},{value:'CONFIRMED',label:'响应已确认'},{value:'UNKNOWN',label:'请求结果未知'}]"/><a-button :disabled="loading" @click="load()">刷新</a-button></a-space>
+<a-space v-if="props.taskId" style="margin-bottom:12px"><a-input v-model:value="conversationDraft" placeholder="会话 ID（留空查看整个任务）" :maxlength="64" style="width:340px" @press-enter="applyConversation"/><a-button @click="applyConversation">按会话查询</a-button><a-button @click="clearConversation">清除筛选</a-button></a-space>
+<p v-if="props.taskId">当前会话范围：{{conversationFilter||'整个任务'}} · 执行范围：{{props.executionId||'全部执行轮次（包含重试）'}}</p>
 <a-alert type="info" :message="`${props.taskId?'这里展示本任务明确关联的模型调用，未关联旧记录不推测归属。':'这里展示全局模型调用。'}响应已确认不代表质检成功；缺失用量显示未知。已恢复占用会另行标记。`"/>
 <div v-if="summary" class="cost-summary">
 <p>当前筛选全部调用：{{summary.callCount}} · 已知费用调用：{{summary.knownCount}} · 未知费用调用：{{summary.unknownCount}}</p>
 <p v-for="group in summary.currencies" :key="group.currency??'unknown'">{{group.currency??'币种未知'}}：已知费用小计 {{group.knownSubtotal??'未知'}} · 未知费用调用 {{group.unknownCount}}</p>
 <p>小计按冻结声明价计算，未知费用未计入；不同币种分别展示，不等同供应商账单。</p>
+<p v-if="props.taskId&&conversationFilter">此会话在当前任务、执行及状态筛选内的已记录调用费用如上。只有未知费用调用为 0 时，小计才覆盖全部匹配账本调用；无记录不表示零成本。工具续调、降级及重试如已关联此会话均按各条实际调用累计，未关联旧记录无法补算。</p>
 </div>
 <a-alert v-if="evidenceRestricted" type="info" message="人工核对凭据及部分模型展示文本受权限限制；用量、费用与统计保持原值，未展示不等于没有凭据。"/><a-alert v-if="error" type="error" :message="error"/>
 <a-table :data-source="rows" :loading="loading" row-key="callId" :pagination="false" :scroll="{x:1600}" :columns="[{title:'开始 UTC',dataIndex:'reservedAtUtc'},{title:'完成 UTC',dataIndex:'settledAtUtc'},{title:'响应状态',key:'status'},{title:'用量状态',key:'usageStatus'},{title:'输入 Token',key:'inputTokens'},{title:'输出 Token',key:'outputTokens'},{title:'总 Token',key:'totalTokens'},{title:'缓存读 Token',key:'cacheReadInputTokens'},{title:'缓存写 Token',key:'cacheWriteInputTokens'},{title:'请求模型',dataIndex:'requestedModelName'},{title:'响应模型',dataIndex:'responseModelId'},{title:'模型配置版本',dataIndex:'modelProfileVersion'},{title:'部署声明',key:'deploymentRef'},{title:'上下文窗口声明',key:'contextWindowTokens'},{title:'请求输出上限',key:'outputLimit'},{title:'输出限制观测',key:'outputLimitStatus'},{title:'声明价格费用',key:'cost'},{title:'费用状态',key:'costStatus'},{title:'预算Token预留',key:'budgetReservedTokens'},{title:'预算金额预留',key:'budgetReservedCost'},{title:'预算状态',key:'budgetStatus'},{title:'人工预算事实',key:'reconciliation'},{title:'任务',dataIndex:'taskId'},{title:'执行轮次',dataIndex:'executionId'},{title:'节点',dataIndex:'nodeId'},{title:'检测轮次',key:'runIndex'},{title:'工具回合',key:'toolRoundIndex'},{title:'工具执行证据 UTC',dataIndex:'toolExecutionStartedAtUtc'},{title:'会话',dataIndex:'conversationId'},{title:'规则',dataIndex:'ruleId'},{title:'逻辑记录',dataIndex:'logicalRecordId'},{title:'模型键',dataIndex:'modelKey'},{title:'错误类型',dataIndex:'errorType'},{title:'容量恢复',key:'released'},{title:'操作',key:'actions',fixed:'right',width:180}]">

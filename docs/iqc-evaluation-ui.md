@@ -32,3 +32,7 @@
 原评测报告增加CitationGroundingPanel，只展示可选iqc-citation-grounding-report-v1协议。覆盖分母为冻结样本×LLM节点，区分完整/部分/未测量；引用错误率仅针对已观测引用，零分母显示未测量。展示坏容器及无效诊断，不将缺失产物或旧轨迹填零。没有额外请求/权限/原文，沿用父报告授权和清理流程。新批次仅构建检查，无新增/运行测试或浏览器证明，完整事实幻觉指标仍未完成。
 
 Gold编辑器高级标签期望提示已同步为绑定地址，给出`/labelId/valueCode`例子及JSON Pointer转义说明，提醒冻结绑定与旧名称键缺测语义。原63938 `pnpm type-check`终态0，日志`/tmp/iqc-b-label-gold-ui.log`；仅文案和类型检查，无新增浏览器证据。
+
+## 2026-10-23 任务单会话费用入口
+
+复用ModelGatewayCalls及任务调用列表API添加conversationId可选筛选和生效范围提示，保留原Task/EID/状态条件、未知费用与按币种分组。切换任务清筛选，原generation/卸载/授权流程继续保护旧响应；全执行范围包括重试，旧未关联记录不猜测归属，无记录不等于零成本。本批构建检查，无新增/运行测试或真实浏览器证据，详情见后端iqc-model-gateway.md。
