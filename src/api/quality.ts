@@ -3,7 +3,7 @@ import type { BusinessItemResult, BusinessScoringResult } from "./results";
 import type { PageResult } from "./tasks";
 
 export interface ResultFeedback { id:string; resultId:string; feedbackType:string; comment?:string; status:string; createdTime?:string }
-export interface ResultReview { id:string; resultId:string; status:string; originalStatus:string; originalScore?:number; originalRiskLevel?:string; finalStatus?:string; finalScore?:number; finalRiskLevel?:string; reviewComment?:string; reviewerId?:string; reviewedTime?:string }
+export interface ResultReview { privacy?:import("@/api/config").AssetReadPrivacy; id:string; resultId:string; status:string; originalStatus:string; originalScore?:number; originalRiskLevel?:string; finalStatus?:string; finalScore?:number; finalRiskLevel?:string; reviewComment?:string|null; reviewerId?:string; reviewedTime?:string }
 export interface SampleReadPrivacy {
  policyVersion:string;canonicalPayloadVisible:boolean;canReadFull:boolean;canReadPii:boolean;withheldFields:string[];candidateContentVisible?:boolean;
  previewState?:'NOT_INCLUDED'|'INVALID_GOLD'|'AVAILABLE'|'GOLD_ENDPOINT_REQUIRED'|'RELOAD_REQUIRED'|'SUMMARY_ONLY';
@@ -33,6 +33,7 @@ export interface BusinessPolicyGroup {
   mode: string; baseScore?: number; passingScore: number; taskIds: string[]; conversationCount: number; executionIds: string[];
   missingResultCount: number; missingReviewCount: number; pendingReviewCount: number;
   machine: BusinessScoreSummary; reviewed: BusinessScoreSummary;
+  reviewChanges?:{schemaVersion:string;scope:string;reviewedResults:number;modifiedResults:number;itemOrScoreChangedResults:number;findingChangedResults:number;effectiveNumericScoreChangedResults:number;modificationRate:number|null;reviewCoverage:number|null}|null;
   items?: BusinessReportItem[];
 }
 export interface BusinessItemSummary {
@@ -62,9 +63,11 @@ export interface BusinessReviewDecision {
   finalStatus: "PASS" | "FAIL" | "NOT_APPLICABLE"; reason: string; evidenceMessageIds: string[]; feedbackCategory?: ReviewFeedbackCategory | null;
 }
 export interface BusinessReview {
+  privacy?:import("@/api/config").AssetReadPrivacy;
+  reviewPresentation?:{policyVersion:string;state:string;stage:ReviewStage|"INVALID";workflow?:ReviewWorkflow|null};
   id: string; targetType: "BUSINESS"; businessResultId: string; reviewRevision: number;
-  status: "PENDING" | "COMPLETED" | "REJECTED"; requestComment?: string; reviewComment?: string;
-  createdBy?: string; reviewerId?: string; reviewedTime?: string; reviewedResultJson?: string;
+  status: "PENDING" | "COMPLETED" | "REJECTED"; requestComment?: string|null; reviewComment?: string|null;
+  createdBy?: string; reviewerId?: string; reviewedTime?: string; reviewedResultJson?: string|null;
 }
 export interface BusinessReviewProjection {
   sourceResultId: string;
@@ -79,10 +82,11 @@ export const requestBusinessReview = (resultId: string, data: BusinessReviewRequ
 export const decideBusinessReview = (reviewId: string, data: BusinessReviewVerdict) => http.post<BusinessReview>(`/iqc/quality-operations/reviews/${reviewId}/decision`, { ...data, targetType: "BUSINESS" }).then(r => r.data);
 
 export interface LabelValueReview {
+  privacy?:import("@/api/config").AssetReadPrivacy;
   id: string; targetType: "LABEL"; labelResultId: string; reviewRevision: number;
-  status: "PENDING" | "COMPLETED" | "REJECTED"; requestComment?: string;
-  reviewComment?: string; createdBy?: string; reviewerId?: string; reviewedTime?: string;
-  reviewedResultJson?: string;
+  status: "PENDING" | "COMPLETED" | "REJECTED"; requestComment?: string|null;
+  reviewComment?: string|null; createdBy?: string; reviewerId?: string; reviewedTime?: string;
+  reviewedResultJson?: string|null;
 }
 export interface LabelValueDecision {
   status: "KNOWN" | "UNKNOWN"; value: string | number | boolean | null; evidenceMessageIds: string[];
@@ -136,6 +140,6 @@ export const getHumanFindingContext=(resultId:string)=>http.get<HumanFindingCont
 
 export interface ScoreAdjustment {sourceResultId:string;expectedScoringHash:string;finalScore:string;reason:string}
 export interface ManualScoreProjection {adjustment:ScoreAdjustment;status:'APPLIED'|'STALE';computedScoringHash:string;effectiveScore:number|null}
-export interface ScoreReviewContext {sourceResultId:string;sourceHash:string;computedScoringHash:string;computedScoreStatus:string;computedScore:string|null;manualScore:ManualScoreProjection|null}
+export interface ScoreReviewContext {privacy?:import("@/api/config").AssetReadPrivacy;sourceResultId:string;sourceHash:string;computedScoringHash:string;computedScoreStatus:string;computedScore:string|null;manualScore:(Omit<ManualScoreProjection,"adjustment"> & {adjustment:Omit<ScoreAdjustment,"reason"> & {reason?:string|null}})|null}
 export const getScoreReviewContext=(resultId:string)=>http.get<ScoreReviewContext>('/iqc/quality-operations/reviews',
  {params:{targetType:'BUSINESS',resultId,view:'SCORE_CONTEXT'}}).then(response=>response.data);

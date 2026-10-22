@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { message, Modal } from "ant-design-vue";
 import { decideReview, getQualityReport, listFeedbacks, listReviews, listSamples, type QualityReport, type QualitySample, type ResultFeedback, type ResultReview } from "@/api/quality";
 import { usePermission } from "@/composables/permission";
@@ -22,11 +22,39 @@ const active=ref("business"), loading=ref(false), reviews=ref<ResultReview[]>([]
 const report=ref<QualityReport>();
 const decisionOpen=ref(false), selected=ref<ResultReview>(), form=ref({decision:"APPROVED",finalStatus:"HIT",finalScore:100,finalRiskLevel:"LOW",comment:""});
 const {can}=usePermission();
-async function refresh(){if(active.value==='business-report'){await businessReport.value?.refresh();return;}if(active.value==='business'){await queue.value?.refresh();return;}if(active.value==='labels'){await labelQueue.value?.refresh();return;}loading.value=true;try{[reviews.value,feedbacks.value,samples.value,report.value]=await Promise.all([listReviews(),listFeedbacks(),listSamples(),getQualityReport()]);}catch{message.error("质量运营数据加载失败");}finally{loading.value=false;}}
-function openDecision(row:ResultReview){selected.value=row;form.value={decision:"APPROVED",finalStatus:row.originalStatus,finalScore:row.originalScore??100,finalRiskLevel:row.originalRiskLevel||"LOW",comment:""};decisionOpen.value=true;}
-async function saveDecision(){if(!selected.value)return;try{await decideReview(selected.value.id,form.value);message.success("复核结论已保存");decisionOpen.value=false;await refresh();}catch{message.error("复核处理失败");}}
+let disposed=false,generation=0;const deciding=ref(false);
+function reviewWithheld(row:ResultReview){const p=row.privacy;return !!p&&(p.policyVersion!=="iqc-message-review-read-v1"||!p.canonicalPayloadVisible||!p.canReadFull||!p.canReadPii);}
+const commentsWithheld=computed(()=>reviews.value.some(reviewWithheld));
+async function refresh(){
+ if(disposed)return;const ticket=++generation;
+ if(active.value==='business-report'){await businessReport.value?.refresh();return;}
+ if(active.value==='business'){await queue.value?.refresh();return;}
+ if(active.value==='labels'){await labelQueue.value?.refresh();return;}
+ const tab=active.value;loading.value=true;
+ try{
+  const rows=tab==='reviews'&&can('iqc:review:view')?await listReviews():tab==='feedback'&&can('iqc:result:view')?await listFeedbacks():tab==='samples'&&can('iqc:sample:view')?await listSamples():[];
+  if(disposed||ticket!==generation)return;
+  if(tab==='reviews')reviews.value=(rows as ResultReview[]).map(row=>reviewWithheld(row)?{...row,reviewComment:null}:row);
+  if(tab==='feedback')feedbacks.value=rows as ResultFeedback[];
+  if(tab==='samples')samples.value=rows as QualitySample[];
+  const stats=can('iqc:report:view')?await getQualityReport():undefined;
+  if(!disposed&&ticket===generation)report.value=stats;
+ }catch{if(!disposed&&ticket===generation)message.error('质量运营数据加载失败');}
+ finally{if(!disposed&&ticket===generation)loading.value=false;}
+}
+function openDecision(row:ResultReview){if(disposed||deciding.value||!can('iqc:review:decide'))return;selected.value=row;form.value={decision:'APPROVED',finalStatus:row.originalStatus,finalScore:row.originalScore??100,finalRiskLevel:row.originalRiskLevel||'LOW',comment:''};decisionOpen.value=true;}
+async function saveDecision(){
+ if(disposed||deciding.value||!selected.value||!can('iqc:review:decide'))return;
+ const id=selected.value.id,payload={...form.value};deciding.value=true;
+ try{await decideReview(id,payload);if(disposed)return;message.success('复核结论已保存');decisionOpen.value=false;await refresh();}
+ catch{if(!disposed)message.error('复核处理未确认，请核对历史后再重试');}finally{if(!disposed)deciding.value=false;}
+}
+watch(decisionOpen,visible=>{if(!visible){selected.value=undefined;form.value={decision:'APPROVED',finalStatus:'HIT',finalScore:100,finalRiskLevel:'LOW',comment:''};}});
+onBeforeUnmount(()=>{disposed=true;generation++;reviews.value=[];feedbacks.value=[];samples.value=[];report.value=undefined;selected.value=undefined;form.value.comment='';});
+
 </script>
 <template>
+  <a-alert v-if="active==='reviews' && commentsWithheld" type="info" show-icon message="消息复核评论未展示；原始结论和最终状态保持可见。" />
   <a-alert v-if="['reviews','feedback'].includes(active)" type="info" show-icon message="此页签及下方统计仅包含旧消息结果；业务质检项和标签值请切换对应待办。" style="margin-bottom:16px" />
   <a-alert v-if="active==='samples'" type="info" show-icon message="样本启用或进入候选池不代表金标审核通过。标注后需由另一位审核人确认，评测数据集只冻结精确批准版本。" style="margin-bottom:16px" />
   <section class="page-intro"><div><span class="section-kicker">QUALITY OPERATIONS</span><h2>质量运营</h2><p>集中处理人工复核、误判漏判反馈和标准样本沉淀。</p></div><a-button @click="refresh">刷新</a-button></section>
@@ -40,5 +68,5 @@ async function saveDecision(){if(!selected.value)return;try{await decideReview(s
     <a-tab-pane key="samples" tab="样本库"><a-alert type="info" show-icon message="业务复核会话候选保存完整输入与裁决；CANDIDATE 需完成独立金标审核后才能冻结进入数据集。" /><a-table :data-source="samples" :loading="loading" row-key="id"><a-table-column title="名称" data-index="name"/><a-table-column title="类型" data-index="sampleType"/><a-table-column title="内容快照" ellipsis><template #default="{record}">{{record.privacy?.candidateContentVisible===false?"内容受权限限制":record.contentSnapshot||"—"}}</template></a-table-column><a-table-column title="状态" data-index="status"/><a-table-column title="金标状态"><template #default="{record}">{{record.goldStatus||'UNLABELLED'}}</template></a-table-column><a-table-column title="时间" data-index="createdTime"/><a-table-column title="操作"><template #default="{record}"><a-button v-if="can('iqc:gold:view')" type="link" @click="openGold(record)">金标标注与审核</a-button></template></a-table-column></a-table></a-tab-pane>
   </a-tabs></a-card>
   <a-drawer :open="goldOpen" title="金标样本" :width="960" :destroy-on-close="true" :mask-closable="false" :keyboard="false" @close="closeGold"><GoldSampleEditor v-if="goldSampleId" ref="goldEditor" :sample-id="goldSampleId" @changed="refresh" /></a-drawer>
-  <a-modal v-model:open="decisionOpen" title="处理人工复核" @ok="saveDecision"><a-form layout="vertical"><a-form-item label="决定"><a-select v-model:value="form.decision"><a-select-option value="APPROVED">确认原结论</a-select-option><a-select-option value="CORRECTED">修正结论</a-select-option><a-select-option value="REJECTED">退回</a-select-option></a-select></a-form-item><template v-if="form.decision==='CORRECTED'"><a-form-item label="结果状态"><a-select v-model:value="form.finalStatus"><a-select-option value="HIT">命中</a-select-option><a-select-option value="NOT_HIT">未命中</a-select-option><a-select-option value="ERROR">错误</a-select-option></a-select></a-form-item><a-form-item label="最终分数"><a-input-number v-model:value="form.finalScore" :min="0" :max="100"/></a-form-item><a-form-item label="风险"><a-select v-model:value="form.finalRiskLevel"><a-select-option value="LOW">低</a-select-option><a-select-option value="MEDIUM">中</a-select-option><a-select-option value="HIGH">高</a-select-option></a-select></a-form-item></template><a-form-item label="复核说明"><a-textarea v-model:value="form.comment" :rows="3"/></a-form-item></a-form></a-modal>
+  <a-modal v-model:open="decisionOpen" title="处理人工复核" :confirm-loading="deciding" :closable="!deciding" :mask-closable="!deciding" :keyboard="!deciding" :cancel-button-props="{disabled:deciding}" @ok="saveDecision"><a-form layout="vertical" :disabled="deciding"><a-form-item label="决定"><a-select v-model:value="form.decision"><a-select-option value="APPROVED">确认原结论</a-select-option><a-select-option value="CORRECTED">修正结论</a-select-option><a-select-option value="REJECTED">退回</a-select-option></a-select></a-form-item><template v-if="form.decision==='CORRECTED'"><a-form-item label="结果状态"><a-select v-model:value="form.finalStatus"><a-select-option value="HIT">命中</a-select-option><a-select-option value="NOT_HIT">未命中</a-select-option><a-select-option value="ERROR">错误</a-select-option></a-select></a-form-item><a-form-item label="最终分数"><a-input-number v-model:value="form.finalScore" :min="0" :max="100"/></a-form-item><a-form-item label="风险"><a-select v-model:value="form.finalRiskLevel"><a-select-option value="LOW">低</a-select-option><a-select-option value="MEDIUM">中</a-select-option><a-select-option value="HIGH">高</a-select-option></a-select></a-form-item></template><a-form-item label="复核说明"><a-textarea v-model:value="form.comment" :rows="3"/></a-form-item></a-form></a-modal>
 </template>

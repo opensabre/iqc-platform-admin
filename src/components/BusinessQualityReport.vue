@@ -139,6 +139,12 @@ defineExpose({ refresh });
         <p class="task-scope">任务范围：{{ group.taskIds.join('、') }}</p>
         <p class="task-scope">执行实例：{{ group.executionIds.length ? group.executionIds.join('、') : '所选范围暂无结果' }}</p>
         <a-space wrap><a-tag>缺失机器结果：{{ group.missingResultCount }}</a-tag><a-tag>无完成复核：{{ group.missingReviewCount }}</a-tag><a-tag>最新轮次待处理：{{ group.pendingReviewCount }}</a-tag></a-space>
+        <a-card v-if="group.reviewChanges?.schemaVersion==='iqc-business-review-changes-v1'" title="业务结果人工修改率" size="small" style="margin:12px 0">
+          <p>已完成复核：{{group.reviewChanges.reviewedResults}} / {{group.conversationCount}} · 覆盖率 {{group.reviewChanges.reviewCoverage==null?'无样本':`${(group.reviewChanges.reviewCoverage*100).toFixed(2)}%`}}</p>
+          <p>相对机器结果有变更：{{group.reviewChanges.modifiedResults}} / {{group.reviewChanges.reviewedResults}} · 修改率 {{group.reviewChanges.modificationRate==null?'无完成复核':`${(group.reviewChanges.modificationRate*100).toFixed(2)}%`}}</p>
+          <p>项目、证据或计算评分变更：{{group.reviewChanges.itemOrScoreChangedResults}} · 事实值、状态、严重度或证据变更：{{group.reviewChanges.findingChangedResults}} · 人工覆盖数字变更：{{group.reviewChanges.effectiveNumericScoreChangedResults}}</p>
+          <a-alert type="info" show-icon message="按所选执行与冻结标准分组，比较最近完成复核和原机器结果；未复核不当作未修改，分类可重叠。单改原因、反馈分类或证据顺序不计变更；不含独立标签复核。" />
+        </a-card>
         <a-table :columns="columns" :data-source="[{ ...group.machine, source: '机器评分' }, { ...group.reviewed, source: group.reviewed.manualOverrides?'复核计算评分':'人工复核' }]" row-key="source" :pagination="false" :scroll="{ x: 1000 }">
           <template #bodyCell="{ column, text }">
             <template v-if="column.dataIndex === 'averageScore'">{{ text == null ? '—' : text }}</template>

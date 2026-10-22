@@ -205,3 +205,51 @@ GET /schemes/published目录及schemeId游标历史先检查当前scheme:view并
 ## 标签复核细分权限对齐（2026-10-21）
 
 以QualityOperationsController和现有V20260927_01权限脚本为准：LabelReviewQueue请求/展示用iqc:review:label:queue，队列历史按钮及handler单独用label:history；LabelValueReviewPanel读取/发起/裁决及submit handler分别用label:history/create/decide；tasks标签表和路由定位打开复核用label:history。此前混用通用review:view/create/decide会阻止只有标签权限的账号，也会给只有通用权限的账号显示最终被后端拒绝的操作。既有result:view/task:view及服务端授权/组织范围仍适用，不新增权限码/角色/接口。实际独立grant组合/撤权/浏览器待验，本批仅构建。
+
+
+## 人工改分上下文原因投影（2026-10-22）
+
+SCORE_CONTEXT沿现有reviews固定review:view当前授权/no-store及原service组织/来源/计算hash校验，独立ScoreReviewContextRead只控制前轮manualScore.adjustment.reason：FULL+PII齐备回原原因，否则该字段null，iqc-score-review-context-read-v1声明扣留。computedScore/hash/status、APPLIED/STALE、effectiveScore、原finalScore字符串和source/expectedScoringHash完全保留；没有manualScore仍null，不把旧原因扣留变成未改分或零分。不需要Prompt授权，不修改原ManualScoreProjection/ScoreAdjustment/评估及存储。
+
+ManualScoreReviewEditor原本不以旧原因填表，新一轮原因始终重新必填；现提示前轮原因未展示，仍可用原评分基准编辑。存在但未知/受限privacy剔除旧原因；保留旧无privacy兼容。卸载清评分上下文/输入并失效请求代次。当前仅编译构建，四grant/精确分数及状态/hash不变/源字节不变、实际授权/浏览器仍待独立验收。ResultReview历史与命令正文仍待。
+
+
+## 标签复核历史与回执（2026-10-22）
+
+标签history/create/decide先检查原固定label:history/create/decide当前授权/no-store，历史QUERY审计不收正文。ResultReview响应copy新增非持久null省略privacy，内部存储/旧快照不设字段。专门history仅FULL+PII齐备回原requestComment/reviewComment/reviewedResultJson；其它组合扣留三字段，创建人/复核人沿原mask，ID/轮次/状态/分数/hash等保留。所有标签命令回执无论敏感grant均扣留正文，前端沿原刷新历史取最终详情，不改复核幂等/锁/来源/组织范围。无需Prompt。
+
+LabelValueReviewPanel区分未展示和损坏：存在但未知/受限privacy清正文评论、显式提示、停止用不完整历史裁决；合法完整旧body原验证保留，无privacy旧接口兼容。LabelReviewQueue历史结论显示复核正文未展示而不猜值。组件卸载清历史/消息/命令草稿并失效请求；已发出的写入不取消，迟到响应不触发刷新。实际grant/源字节/旧内部JSON/命令回执/当前授权及组织/browser待独立验收，当前仅编译构建。业务/消息ResultReview历史与命令仍未投影，工作流stage须另行配套。
+
+
+## 标签权限回归夹具集成（2026-10-22）
+
+从B已提交a2b90f3同步LabelReviewQueue.spec.ts、LabelValueReviewPanel.spec.ts，生产代码保持当前标签正文保护版本。覆盖标签专属grant、通用grant不能替代、queue/history独立、按钮和重试前撤权。B曾在其组合分支运行两文件14项并构建通过（日志见协作台账）；Root本次仅同步既有测试及构建，不把B旧分支结果当当前隐私/评分/序列化全部验收，不运行测试。
+
+
+## 消息复核历史与回执（2026-10-22）
+
+复用既有标签review响应copy字段处理为私有reviewRead，消息路径使用iqc-message-review-read-v1，不新增持久模型。消息history FULL+PII才回原评论/JSON，命令receipt始终扣留，原original/final数值、状态、风险、ID/hash保留，创建人/复核人沿原mask。request/decide入口在原业务分支前检查固定review:create/decide当前授权；history已有review:view/no-store/QUERY不收正文。原service范围与裁决不变；业务review JSON/工作流本批未扣留，仍待完整配套。
+
+旧质量运营页按当前tab及其原grant分别查询review/feedback/sample，report只在report:view具备时查询，不再无条件四接口联读。消息评论受限显示未展示，表单不填历史评论；提交固定目标/复制payload，handler检查decide并防重复，提交中禁止关闭/改动，关闭清表单/selected，卸载清列表/输入/代次，迟到响应不回填。字段保护和页面运行未独立验收，当前仅编译构建；原组织/role/PDP/browser与I1–I7保持待验。
+
+
+## 业务复核历史与安全工作流展示（2026-10-22）
+
+业务history及request/decide各已有分支统一接入businessReview，复用reviewRead响应copy规则；history FULL+PII才回原评论/reviewedResultJson，命令永扣正文，不需Prompt。新增ResultReview.reviewPresentation非持久null省略字段；历史专门响应仅含iqc-review-workflow-presentation-v1、AVAILABLE/UNAVAILABLE、阶段及原ReviewWorkflow元数据。复用既有ReviewWorkflow构造校验，额外保持parentRevision小于当前轮次，初审无上游workflow；坏JSON/错误协议不自动补INITIAL。只解析显示用元数据，不重写裁决/源JSON/hash，原服务的锁/独立审核人/范围/计算/升级逻辑不改。
+
+BusinessReviewPanel正文受限时不解析为坏投影，显示未展示并禁止基于不完整历史变更；读取已知有效presentation保留二审/仲裁/终局含义，异常presentation禁操作。完整正文原评分/证据验证保留，无privacy历史旧接口兼容。命令后仍原刷新history；卸载清历史/输入/命令并失效代次，迟到命令响应不刷新。实际四grant/初审二审仲裁/坏协议/源字节/旧JSON、当前授权与组织SQL/浏览器仍待独立验收，本批仅编译构建，完整I1–I7未完成。
+
+
+## 置信度诊断报告展示（2026-10-22）
+
+原评测任务报告读取Finding指标新增confidenceDiagnostics协议，只在已知v1时显示coverage/未测量/Brier/ECE及10箱表，不加接口/路由。区间上界包含标识由服务端明确给出，均值/准确率/无样本不制造零值；旧报告无字段不显示。该诊断是已报告最终完整值置信度与冻结金标正确性的误差，非正类概率，不证明校准工件。算法/报告摘要及实际数值/HTTP/browser验收待独立验证，当前仅构建。
+
+
+## 业务人工修改率（2026-10-22）
+
+原业务质量报表按冻结标准展示reviewChanges：最近完成复核覆盖率、相对机器结果修改率以及项目/事实/有效改分三个可重叠分类。空分母明确无完成复核/无样本，不混入独立标签复核；原评分和分组表保留。协议未知或旧报告无字段时不展示。实际数值/多轮/组织及浏览器待B独立验收，目前仅构建。
+
+
+## A/B前端固定提交组合（2026-10-22）
+
+当前A4f69e90合并Ba2b90f3，共同祖先4455aa2。生产页面/导航及标签权限回归已在A；实际新增仅PipelineDependencyGraph既有spec对错误图仍可修正的预期，保留无虚构依赖边和节点选择断言。当前Root仅构建，不运行测试；B269组件回归归38f8592，标签14项归a2b90f3，不外推为含新指标/复核隐私的当前头全通过。后端已5147226统一，完整角色/browser/运行和PRD验收继续待。
