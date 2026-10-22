@@ -253,3 +253,18 @@ BusinessReviewPanel正文受限时不解析为坏投影，显示未展示并禁�
 ## A/B前端固定提交组合（2026-10-22）
 
 当前A4f69e90合并Ba2b90f3，共同祖先4455aa2。生产页面/导航及标签权限回归已在A；实际新增仅PipelineDependencyGraph既有spec对错误图仍可修正的预期，保留无虚构依赖边和节点选择断言。当前Root仅构建，不运行测试；B269组件回归归38f8592，标签14项归a2b90f3，不外推为含新指标/复核隐私的当前头全通过。后端已5147226统一，完整角色/browser/运行和PRD验收继续待。
+
+## B 统一头与改分隐私回归
+
+581a604组合A f4e6e2b后，39文件274项测试全部通过（/tmp/iqc-b-ui-integrated-tests.log），原70538构建终态0（/tmp/iqc-b-ui-integrated-build.log，Vite 1m44s，既有chunk提示）。Node22.22.2/pnpm8.7.6与声明版本有差异。新增ManualScoreReviewEditor两项检查受限历史原因不展示/不自动带入、原有效数字保留且新原因必填，以及卸载后的迟到响应；该文件5项全过（/tmp/iqc-b-ui-manual-score-privacy.log）。新增仅测试，不重复称全量276已运行；真实PDP/组织角色及浏览器链路尚未完成。
+
+## B 模型重复运行一致性入口
+
+原评测报告接ModelConsistencyPanel，显式输入参考Task/EID，调用原评测报告权限保护的consistency子资源；显示同模型/输入的节点事实值/状态/严重度一致率与可比较覆盖率，缺测/同源/输入变化等排除原因分列，不混称准确率或完整模型输出一致率。权限/目标/输入变化清旧结果，卸载失效迟到请求，未知协议拒绝显示。
+
+原74942 build terminal0，/tmp/iqc-b-model-consistency-ui-build.log（Vite1m3s/既有chunk提示）；原39035 ModelConsistencyPanel.spec.ts三项全过，/tmp/iqc-b-model-consistency-ui-tests.log；补测试类型标注后原59750 vue-tsc terminal0，/tmp/iqc-b-model-consistency-ui-types.log。没有重复跑全量；Node/pnpm仍与声明版本有差异。实际SQL重复产物、HTTP当前角色与真实浏览器联调待，完整I1–I7目标保持active。
+
+
+## 一致性A/B组合资源映射（2026-10-22）
+
+固定合并B已提交abdd53f。前端getModelConsistency复用已注册/report URL并传双方Task/EID，避免同report:view注册两URL覆盖；原报告请求、页面清理/缺测/撤权逻辑保留。B既有组件与受控浏览器证据归原分支旧路径，当前仅构建，新的实际网络/PDP/SQL联调待验。

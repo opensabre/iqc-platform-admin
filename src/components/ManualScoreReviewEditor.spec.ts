@@ -34,3 +34,20 @@ it('ignores an old result response after switching the result',async()=>{
  const props=reactive({resultId:'old',disabled:false});mount(props,vi.fn());props.resultId='new';await settle();resolve(context('old'));await settle();
  expect(host.querySelector('input')?.value).toBe('65');
 });
+it('withholds restricted prior reasons while retaining the applied score and requiring a new reason',async()=>{
+ api.context.mockResolvedValue({...context('result'),manualScore:{status:'APPLIED',computedScoringHash:'a'.repeat(64),effectiveScore:'90.25',
+  adjustment:{sourceResultId:'result',expectedScoringHash:'a'.repeat(64),finalScore:'90.25',reason:'private prior reason'}},
+  privacy:{policyVersion:'iqc-score-review-context-read-v1',canonicalPayloadVisible:false,canReadFull:true,canReadPii:false,canReadPrompt:true}});
+ const save=vi.fn();mount({resultId:'result',disabled:false},save);await settle();
+ expect(host.querySelector('input')?.value).toBe('90.25');expect(host.querySelector('textarea')?.value).toBe('');
+ expect(host.textContent).toContain('前轮改分原因未展示');expect(host.textContent).not.toContain('private prior reason');
+ const button=[...host.querySelectorAll('button')].find(b=>b.textContent?.includes('保存'))!;
+ expect(button.disabled).toBe(true);button.click();await settle();expect(save).not.toHaveBeenCalled();
+ const reason=host.querySelector('textarea')!;reason.value='new independent reason';reason.dispatchEvent(new Event('input'));await settle();
+ button.click();await settle();expect(save).toHaveBeenCalledWith(expect.objectContaining({finalScore:'90.25',reason:'new independent reason'}));
+});
+it('does not render a pending score context after unmount',async()=>{
+ let resolve!:(value:ReturnType<typeof context>)=>void;api.context.mockReturnValueOnce(new Promise(r=>{resolve=r;}));
+ const save=vi.fn();mount({resultId:'result',disabled:false},save);app.unmount();resolve(context('result'));await settle();
+ expect(host.textContent).toBe('');expect(save).not.toHaveBeenCalled();
+});
