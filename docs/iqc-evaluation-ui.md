@@ -20,3 +20,9 @@
 受控返回 expected2/comparable0/agreement null/SAME_ARTIFACT1/UNSUCCESSFUL_NODE1，页面显示覆盖率0/2、一致率“未测量 · 0/0”、重复引用和节点未成功；修改参考EID后旧指标立即清除。快照和请求记录存本机忽略目录 output/playwright/consistency-{unmeasured,cleared}.yml、consistency-network.txt。初始无身份服务时跳登录，preview的代理目标未配置；注入后检查属于真实浏览器+网络夹具，不是后端SQL/PDP端到端。CLI网络命令已按当前版本使用 requests。
 
 检查发现页头仍称发布门禁尚未接入，已改为“流水线发布仍须通过独立的发布门禁”，与后端现状和报告完整性提示一致。该修订仅文案；浏览器证据对应修订前构建。专用浏览器已关闭，43179 preview原48391主动Ctrl-C终态exit1，无发布部署。
+
+### 冻结标签投影准确率
+
+报告沿用businessMetrics.labelAccuracy/comparableLabels/labelGold，展示准确率与“可比 / Gold”数量；零可比显示原有未测量文案。后端只比较冻结绑定地址对应的已知合法投影，不把旧名称键、缺输出或未知状态计为正确值。该显示依赖对应后端标签指标版本；本轮没有切换默认release协议。
+
+验证：原64670 `pnpm type-check`终态0，日志`/tmp/iqc-b-label-ui-typecheck.log`；Node22.22.2/pnpm8.7.6与声明版本存在既有提示。仅类型检查与diff检查，不代表此次标签展示已经真实浏览器或后端SQL整链验证。
