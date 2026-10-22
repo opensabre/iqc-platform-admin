@@ -11,3 +11,12 @@
 验证：执行 vue-tsc + Vite 生产构建；没有新增或执行测试，没有运行数据库迁移、浏览器或角色验收。构建包含同工作树其他开发者的候选样本 UI；各自提交所属文件。现有大 chunk 提示仍在。
 
 结构化输出指标补充：展示server计数的逻辑LLM调用valid/total、未测量attempt与successRate，无LLM明确不适用。旧轨迹、超时丢失计数与无分母不合成成功率；不是实际网络调用成功率。Benchmark同范围差值保持null语义。最新vue-tsc+Vite构建成功，未新增或执行测试。
+
+## 模型一致性浏览器检查（2026-10-22）
+
+本机预览 e7b6837 构建产物，专用 Playwright 会话 iqc-b-consistency，以 page.route 注入身份、菜单、任务、报告和一致性响应。未填写参考身份时按钮禁用；填写后真实浏览器请求：
+`GET /api/iqc/evaluation/tasks/selected-task/consistency?executionId=selected-execution&referenceTaskId=reference-task&referenceExecutionId=prior-execution`。
+
+受控返回 expected2/comparable0/agreement null/SAME_ARTIFACT1/UNSUCCESSFUL_NODE1，页面显示覆盖率0/2、一致率“未测量 · 0/0”、重复引用和节点未成功；修改参考EID后旧指标立即清除。快照和请求记录存本机忽略目录 output/playwright/consistency-{unmeasured,cleared}.yml、consistency-network.txt。初始无身份服务时跳登录，preview的代理目标未配置；注入后检查属于真实浏览器+网络夹具，不是后端SQL/PDP端到端。CLI网络命令已按当前版本使用 requests。
+
+检查发现页头仍称发布门禁尚未接入，已改为“流水线发布仍须通过独立的发布门禁”，与后端现状和报告完整性提示一致。该修订仅文案；浏览器证据对应修订前构建。专用浏览器已关闭，43179 preview原48391主动Ctrl-C终态exit1，无发布部署。
