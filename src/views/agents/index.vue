@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import { useRouter } from "vue-router";
 import { approveAgent, createAgent, createAgentVersion, disableAgent, listAgents, listMcpServers, listModelProfiles, listRuleSets, listSkills, rejectAgent, submitAgent, agentPayloadRestricted, type AgentRuntimeConfig, type IqcMcpServer, type IqcModelProfile, type IqcSkill, type QualityAgent, type QualityRuleSet } from "@/api/config";
+import {listInstructionVersions,skillPayloadRestricted,type IqcInstructionVersion} from "@/api/config";
 import DictTag from "@/components/DictTag.vue";
 import { usePermission } from "@/composables/permission";
 
@@ -18,6 +19,36 @@ let listGeneration=0,assetGeneration=0,disposed=false;
 const writable=computed(()=>!restricted.value&&(selected.value?can('iqc:agent:version:manage'):can('iqc:agent:manage')));
 const form = ref({ name: "", code: "", description: "" });
 const runtime = ref<AgentRuntimeConfig>(defaults());
+const promptMode=ref(false),promptSourceId=ref(''),promptVersions=ref<IqcInstructionVersion[]>([]),promptLoading=ref(false),promptError=ref('');
+let promptGeneration=0;
+const promptBodyAccess=computed(()=>can('iqc:sensitive:conversation:read')&&can('iqc:sensitive:pii:read')&&can('iqc:sensitive:prompt:read'));
+async function loadPromptVersions(id:string){
+ const ticket=++promptGeneration;promptVersions.value=[];promptError.value='';promptLoading.value=false;
+ if(!id||!can('iqc:skill:view')||!promptBodyAccess.value)return;
+ promptLoading.value=true;
+ try{const rows=await listInstructionVersions(id);
+  if(disposed||ticket!==promptGeneration||!modalOpen.value||!can('iqc:skill:view')||!promptBodyAccess.value)return;
+  promptVersions.value=rows.filter(row=>row.skillId===id&&row.status==='ENABLED'&&!skillPayloadRestricted(row)&&!!row.instructions?.trim()&&row.instructions.length<=8000);
+  if(!promptVersions.value.length)promptError.value='没有可用且可读取正文的指令版本。';
+ }catch{if(ticket===promptGeneration)promptError.value='指令版本读取失败，请核对权限并重试。';}
+ finally{if(ticket===promptGeneration)promptLoading.value=false;}
+}
+function togglePromptMode(enabled:boolean){
+ if(disposed||saving.value||!writable.value||runtime.value.schemaVersion!=='3.0')return;
+ promptMode.value=enabled;++promptGeneration;promptVersions.value=[];promptError.value='';promptLoading.value=false;
+ if(!enabled){delete runtime.value.promptAsset;promptSourceId.value='';}
+ else if(promptSourceId.value)void loadPromptVersions(promptSourceId.value);
+}
+function choosePromptSource(id:string){
+ if(disposed||saving.value||!writable.value||!promptMode.value||!can('iqc:skill:view'))return;
+ promptSourceId.value=id;delete runtime.value.promptAsset;void loadPromptVersions(id);
+}
+function choosePromptVersion(versionNo:number){
+ if(disposed||saving.value||!writable.value||!promptMode.value||!can('iqc:skill:view')||!promptBodyAccess.value)return;
+ const source=promptVersions.value.find(row=>row.skillId===promptSourceId.value&&row.versionNo===versionNo);
+ if(!source?.instructions)return;
+ runtime.value.systemPrompt=source.instructions;runtime.value.promptAsset={skillId:source.skillId,versionNo:source.versionNo};
+}
 const primaryModel = computed(() => models.value.find(item => item.id === runtime.value.primaryModelProfileId));
 const selectedFallbackModels = computed(() => models.value.filter(item => runtime.value.fallbackModelProfileIds?.includes(item.id)));
 const selectedMcps = computed(() => mcps.value.filter(item => runtime.value.mcpServerIds?.includes(item.id)));
@@ -44,7 +75,7 @@ function agentModeName(item:QualityAgent){
  if(item.privacy){const p=item.agentPresentation;if(item.privacy.policyVersion!=='iqc-agent-read-v1'||p?.policyVersion!=='iqc-agent-presentation-v1'||p.state!=='AVAILABLE')return '配置摘要未提供';return p.schemaVersion==='3.0'?'LLM 能力':p.schemaVersion==='1.0'?'旧版内嵌配置':`旧版：${modeNames[p.mode||'']||'未声明模式'}`;}
  try{const p=JSON.parse(item.configJson||'{}');return p.schemaVersion==='3.0'?'LLM 能力':`旧版：${modeNames[p.mode]||'未配置'}`;}catch{return '配置摘要未提供';}
 }
-function clearEditor(){selected.value=undefined;form.value={name:'',code:'',description:''};runtime.value=defaults();legacyConfigJson.value=undefined;restricted.value=false;legacy.value=false;models.value=[];mcps.value=[];skills.value=[];ruleSets.value=[];++assetGeneration;assetsLoading.value=false;}
+function clearEditor(){++promptGeneration;promptMode.value=false;promptSourceId.value='';promptVersions.value=[];promptError.value='';promptLoading.value=false;selected.value=undefined;form.value={name:'',code:'',description:''};runtime.value=defaults();legacyConfigJson.value=undefined;restricted.value=false;legacy.value=false;models.value=[];mcps.value=[];skills.value=[];ruleSets.value=[];++assetGeneration;assetsLoading.value=false;}
 async function refresh(){
  const ticket=++listGeneration;agents.value=[];error.value='';if(selected.value){modalOpen.value=false;clearEditor();}
  try{const rows=await listAgents();if(!disposed&&ticket===listGeneration)agents.value=rows;}
@@ -59,6 +90,7 @@ async function loadAssets() {
     if (mcpResult.status === "fulfilled") mcps.value = mcpResult.value.filter(item => item.status === "ENABLED");
     if (skillResult.status === "fulfilled") skills.value = skillResult.value.filter(item => item.status === "ENABLED");
     if (ruleSetResult.status === "fulfilled") ruleSets.value = ruleSetResult.value;
+    if(promptMode.value&&promptSourceId.value)void loadPromptVersions(promptSourceId.value);
     if (modelResult.status === "rejected") message.error("模型配置加载失败，请检查模型查看权限");
     else if (ruleSetResult.status === "rejected") message.warning("规则集加载失败；智能体模式仍可配置，普通规则模式暂不可保存");
   } catch { if(!disposed&&ticket===assetGeneration)message.error("关联资产加载失败"); }
@@ -68,12 +100,14 @@ function createNew(){if(saving.value||disposed)return;clearEditor();currentStep.
 function edit(item:QualityAgent){
  if(saving.value||disposed)return;clearEditor();selected.value=item;currentStep.value=0;form.value={name:item.name,code:item.code,description:item.description??''};restricted.value=agentPayloadRestricted(item)||!item.configJson;
  if(!restricted.value)try{runtime.value=parseConfig(item.configJson!);}catch{restricted.value=true;}
+ promptMode.value=!!runtime.value.promptAsset;promptSourceId.value=runtime.value.promptAsset?.skillId??'';
  modalOpen.value=true;if(!restricted.value&&legacyConfigJson.value===undefined)void loadAssets();
 }
 function validateStep(step: StepKey) {
   if (step === "basic" && (!form.value.name.trim() || !form.value.code.trim())) { message.warning("请填写 Agent 名称和编码"); return false; }
   if (step === "basic" && runtime.value.mode === "RULE_ONLY" && !runtime.value.ruleSetId) { message.warning("普通规则 Agent 必须选择已发布规则集"); return false; }
   if (step === "model" && !runtime.value.primaryModelProfileId) { message.warning("请选择一个已启用的主模型"); return false; }
+  if(step==='prompt'&&promptMode.value&&!runtime.value.promptAsset){message.warning('请选择精确指令版本');return false;}
   if (step === "prompt" && !runtime.value.systemPrompt?.trim()) { message.warning("请填写默认提示词"); return false; }
   return true;
 }
@@ -104,6 +138,8 @@ async function action(id:string,type:string){
  try{if(type==='submit')await submitAgent(id);else if(type==='approve')await approveAgent(id);else if(type==='reject')await rejectAgent(id);else await disableAgent(id);if(disposed)return;await refresh();}
  catch{if(!disposed)message.error('操作未确认，请重新读取核对状态。');}finally{if(!disposed)saving.value=false;}
 }
+watch(()=>can('iqc:skill:view'),()=>{++promptGeneration;promptVersions.value=[];promptLoading.value=false;promptError.value='';if(promptMode.value){modalOpen.value=false;clearEditor();}},{flush:'sync'});
+watch(promptBodyAccess,()=>{++promptGeneration;promptVersions.value=[];promptLoading.value=false;agents.value=[];++listGeneration;modalOpen.value=false;clearEditor();},{flush:'sync'});
 watch(modalOpen,value=>{if(!value)clearEditor();});
 onBeforeUnmount(()=>{disposed=true;++listGeneration;agents.value=[];clearEditor();});
 onMounted(() => void refresh());
@@ -136,7 +172,7 @@ onMounted(() => void refresh());
 
       <a-form :disabled="!writable||saving" v-show="currentStepKey==='capabilities'" layout="vertical"><div class="wizard-heading"><div><h3>关联扩展能力</h3><p>MCP 提供外部工具，Skill 提供可复用的专业判断流程；均为可选。</p></div></div><a-form-item label="可用 MCP"><a-select v-model:value="runtime.mcpServerIds" mode="multiple" placeholder="不选择则不调用 MCP"><a-select-option v-for="item in mcps" :key="item.id" :value="item.id">{{item.name}} · {{item.transport}}</a-select-option></a-select><template #extra>只展示已启用的 MCP，智能体执行时按授权工具调用。</template><a-button type="link" class="asset-link" @click="openAsset('/agent-mcps')">管理 MCP ↗</a-button></a-form-item><a-form-item label="可用 Skill"><a-select v-model:value="runtime.skillIds" mode="multiple" placeholder="不选择则仅使用提示词"><a-select-option v-for="item in skills" :key="item.id" :value="item.id">{{item.name}} · V{{item.versionNo}}</a-select-option></a-select><template #extra>选择与当前质检场景匹配的专业判断能力。</template><a-button type="link" class="asset-link" @click="openAsset('/agent-skills')">管理 Skill ↗</a-button></a-form-item><a-alert v-if="!mcps.length&&!skills.length" type="info" show-icon message="当前没有已启用的 MCP 或 Skill，可以跳过此步骤，稍后创建新版本关联。"/></a-form>
 
-      <a-form :disabled="!writable||saving" v-show="currentStepKey==='prompt'" layout="vertical"><div class="wizard-heading"><div><h3>设置智能体行为</h3><p>定义智能体的身份、判断边界和输出要求。</p></div></div><a-form-item label="默认提示词" required><a-textarea v-model:value="runtime.systemPrompt" :rows="7" :maxlength="8000" show-count/></a-form-item></a-form>
+      <a-form :disabled="!writable||saving" v-show="currentStepKey==='prompt'" layout="vertical"><div class="wizard-heading"><div><h3>设置智能体行为</h3><p>定义智能体的身份、判断边界和输出要求。</p></div></div><a-form-item v-if="runtime.schemaVersion==='3.0'" label="绑定版本化指令"><a-switch :checked="promptMode" @change="togglePromptMode"/><p>选择精确历史版本，指令库更新不会自动更换本 Agent 的提示词。</p></a-form-item><template v-if="promptMode"><a-form-item label="指令来源"><a-select :value="promptSourceId" :disabled="!can('iqc:skill:view')||!promptBodyAccess" :options="skills.map(item=>({value:item.id,label:item.name}))" @change="choosePromptSource"/></a-form-item><a-form-item label="精确版本"><a-select :value="runtime.promptAsset?.versionNo" :loading="promptLoading" :disabled="promptLoading||!can('iqc:skill:view')||!promptBodyAccess" :options="promptVersions.map(item=>({value:item.versionNo,label:`v${item.versionNo} · ${item.name}`}))" @change="choosePromptVersion"/><p v-if="runtime.promptAsset">引用 {{runtime.promptAsset.skillId}} · v{{runtime.promptAsset.versionNo}} · {{runtime.promptAsset.contentHash??'保存时生成摘要'}}</p><a-alert v-if="promptError" type="warning" :message="promptError"/></a-form-item></template><a-form-item label="默认提示词" required><a-textarea v-model:value="runtime.systemPrompt" :disabled="promptMode" :rows="7" :maxlength="8000" show-count/></a-form-item></a-form>
 
       <a-form :disabled="!writable||saving" v-show="currentStepKey==='confirm'" layout="vertical">
         <div class="wizard-heading"><div><h3>确认配置</h3><p>检查智能体能力；新智能体的执行策略由任务指定。</p></div></div>
