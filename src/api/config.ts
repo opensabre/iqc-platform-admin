@@ -4,7 +4,7 @@ export interface QualityAgent { id: string; name: string; code: string; descript
 export interface AgentModelConfig { id: string; provider: string; model: string; endpoint: string; temperature: number; enabled: boolean; }
 export interface AgentMcpConfig { name: string; transport: string; endpoint: string; enabled: boolean; }
 export interface AgentSkillConfig { name: string; description: string; instructions: string; enabled: boolean; }
-export interface AgentRuntimeConfig { schemaVersion: "1.0"|"2.0"|"3.0"; mode?: "RULE_ONLY"|"RULE_THEN_LLM"|"LLM_THEN_RULE"|"AGENT_LLM"; systemPrompt: string; primaryModel?: string; models?: AgentModelConfig[]; mcpServers?: AgentMcpConfig[]; skills?: AgentSkillConfig[]; primaryModelProfileId?: string; fallbackModelProfileIds?: string[]; mcpServerIds?: string[]; skillIds?: string[]; ruleSetId?: string; }
+export interface AgentRuntimeConfig { promptAsset?:{skillId:string;versionNo:number;contentHash?:string}|null; schemaVersion: "1.0"|"2.0"|"3.0"; mode?: "RULE_ONLY"|"RULE_THEN_LLM"|"LLM_THEN_RULE"|"AGENT_LLM"; systemPrompt: string; primaryModel?: string; models?: AgentModelConfig[]; mcpServers?: AgentMcpConfig[]; skills?: AgentSkillConfig[]; primaryModelProfileId?: string; fallbackModelProfileIds?: string[]; mcpServerIds?: string[]; skillIds?: string[]; ruleSetId?: string; }
 export interface QualityAgentVersion { id: string; agentId: string; versionNo: number; name: string; code: string; description?: string|null; configJson?: string|null; privacy?:AssetReadPrivacy;agentPresentation?:AgentPresentation;status: string; createdTime?: string; }
 export interface AgentVersionComparison { fromVersion: number; toVersion: number; changedFields: string[]; changedConfigPaths: string[];privacy?:AssetReadPrivacy; }
 export interface AgentEffectReport { agentId: string; versionNo: number; taskCount: number; resultCount: number; averageScore: number | null; hitRate: number|null; highRiskRate: number|null; errorRate: number|null; }
@@ -77,3 +77,7 @@ export interface AgentPresentation {policyVersion:string;state:'AVAILABLE'|'UNAV
 export function agentPayloadRestricted(value:{privacy?:AssetReadPrivacy}){const p=value.privacy;return !!p&&(p.policyVersion!=='iqc-agent-read-v1'||p.canonicalPayloadVisible!==true||p.canReadFull!==true||p.canReadPii!==true||p.canReadPrompt!==true);}
 
 export function rulePayloadRestricted(value:{privacy?:AssetReadPrivacy;ruleType?:string}){const p=value.privacy;return !!p&&(p.policyVersion!=='iqc-rule-read-v1'||p.canonicalPayloadVisible!==true||p.canReadFull!==true||p.canReadPii!==true||typeof value.ruleType==='string'&&value.ruleType.trim().toUpperCase()==='LLM'&&p.canReadPrompt!==true);}
+
+/** Reuses the existing instruction version endpoint and its sensitive projection. */
+export interface IqcInstructionVersion extends IqcSkill {skillId:string}
+export const listInstructionVersions=(id:string)=>http.get<IqcInstructionVersion[]>(`/iqc/config/skills/${encodeURIComponent(id)}/versions`).then(response=>response.data);
