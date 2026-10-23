@@ -29,6 +29,7 @@ export interface BusinessScoreSummary {
   manualOverrides?:{appliedCount:number;staleCount:number;averageOverrideScore:number|null;effectiveNumericCount:number;averageEffectiveScore:number|null}|null;
 }
 export interface BusinessPolicyGroup {
+  rollout?:{schemaVersion:'iqc-business-rollout-attribution-v1';revisionId:string;revisionNo:number;revisionHash:string;policyHash:string;side:'BASELINE'|'CANDIDATE';state:'ACTIVE'|'ROLLED_BACK';candidateBasisPoints:number;baselineVersionNo:number;candidateVersionNo:number;selectedVersionNo:number;selectedReleaseHash:string}|null;
   groupKey: string; schemeId: string; pipelineId?:string|null; versionNo: string; draftRevision: string; kind: string;
   mode: string; baseScore?: number; passingScore: number; taskIds: string[]; conversationCount: number; executionIds: string[];
   missingResultCount: number; missingReviewCount: number; pendingReviewCount: number;

@@ -130,12 +130,19 @@ defineExpose({ refresh });
     <p v-else-if="loading" role="status">正在校验任务范围并生成统计…</p>
     <p v-else-if="!report">请选择业务方案或流水线任务后查询；不会自动统计全部任务。</p>
     <template v-if="report">
-      <p>本次范围：{{ report.taskCount }} 个任务，{{ report.conversationCount }} 次会话评估，{{ report.groups.length }} 组冻结标准。统计口径：{{ runPolicyText }}。</p>
+      <p>本次范围：{{ report.taskCount }} 个任务，{{ report.conversationCount }} 次会话评估，{{ report.groups.length }} 组冻结标准与分配来源。统计口径：{{ runPolicyText }}。</p>
       <a-alert v-if="report.groups.length > 1" type="warning" show-icon
-        :message="`当前按 ${report.groups.length} 个冻结标准分组，未混合计算。跨组分数不可直接比较；请逐组核对评分制、基础分、合格线、项目分值/否决及项目覆盖。`" />
+        :message="`当前按 ${report.groups.length} 个冻结标准与分配来源分组，未混合计算。跨组分数不可直接比较；请逐组核对评分制、基础分、合格线、项目分值/否决及项目覆盖。`" />
       <a-card v-for="group in report.groups" :key="group.groupKey" style="margin-top:16px" :title="`${group.pipelineId?'流水线':'方案'} ${group.pipelineId || group.schemeId || '未记录'} · ${group.versionNo ? '发布版本 ' + group.versionNo : '试跑修订 ' + (group.draftRevision || '未记录')}`">
         <p>{{ group.mode === 'DEDUCTION' ? '扣分制' : '得分制' }}<template v-if="group.mode === 'DEDUCTION'"> · 基础分 {{ group.baseScore ?? '—' }}</template>
           · 合格线 {{ group.passingScore }} · {{ group.conversationCount }} 次评估</p>
+        <a-card v-if="group.rollout?.schemaVersion==='iqc-business-rollout-attribution-v1'" title="生产灰度观测" size="small" style="margin:12px 0">
+          <p>原分配：{{group.rollout.side==='CANDIDATE'?'候选':'基线'}} · 策略修订 {{group.rollout.revisionNo}} · {{group.rollout.state==='ROLLED_BACK'?'已回退策略':'启用策略'}}</p>
+          <p>基线 v{{group.rollout.baselineVersionNo}} / 候选 v{{group.rollout.candidateVersionNo}} · 原候选分配比例 {{(group.rollout.candidateBasisPoints/100).toFixed(2)}}% · 实际所选 v{{group.rollout.selectedVersionNo}}</p>
+          <p>{{group.taskIds.length}} 个所选任务 · {{group.conversationCount}} 次会话评估；任务分配比例不等于会话比例。</p>
+          <details><summary>冻结来源摘要</summary><p>修订 {{group.rollout.revisionId}} · {{group.rollout.revisionHash}}</p><p>策略 {{group.rollout.policyHash}}</p><p>发布 {{group.rollout.selectedReleaseHash}}</p></details>
+          <a-alert type="info" show-icon message="仅统计所选任务与执行，按原灰度修订、侧别和冻结评分标准拆组。分桶以任务为单位，语料与执行时段可能不同；请结合下方缺失结果及复核覆盖解释观测，受控对照请使用同数据集 Benchmark。"/>
+        </a-card>
         <p class="task-scope">任务范围：{{ group.taskIds.join('、') }}</p>
         <p class="task-scope">执行实例：{{ group.executionIds.length ? group.executionIds.join('、') : '所选范围暂无结果' }}</p>
         <a-space wrap><a-tag>缺失机器结果：{{ group.missingResultCount }}</a-tag><a-tag>无完成复核：{{ group.missingReviewCount }}</a-tag><a-tag>最新轮次待处理：{{ group.pendingReviewCount }}</a-tag></a-space>
