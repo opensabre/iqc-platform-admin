@@ -58,3 +58,7 @@ B前端快进至固定A06d85be（含标签显示/Gold地址/引用报告/会话�
 固定A007b09d合入B为5a548b2；保留原费用组件验证和A完整率说明。新增evaluation-tasks/index.spec.ts验证实际页面：无产物仍显示冻结输入覆盖、混合缺失/超额计数、空分母显示未测量、历史无字段隐藏卡片、切任务丢弃旧响应。原82767的权限用例实证撤权再授权后旧在途报告重新显示，修复原页面为独立报告请求代次、撤权清空报告并作废在途响应、展示实时检查权限；恢复权限须刷新当前执行，未增加自动请求或新协议。
 
 原82925 terminal0，页面5项及原费用4项共9项通过，无组件注册警告，日志`/tmp/iqc-b-input-completeness-ui-final.log`。原10587 `pnpm build` terminal0，含vue-tsc与Vite构建（1m14s），日志`/tmp/iqc-b-input-completeness-ui-build.log`；现有Node/pnpm声明差异及chunk提示仍存在。实际Vue/API和权限桩，未运行本轮真实浏览器/PDP/SQL整链；此前受控浏览器证据仍只归原06d85be。未推送或部署。
+
+### B 2026-10-23 引用来源卡片独立验证
+
+新增CitationGroundingPanel.spec.ts两项实际组件测试：完整测量覆盖25%、部分/未测量、无效诊断与已观测引用错误率50%分别展示；空分母显示未测量，无LLM/无样本显示不适用，未知协议和缺字段隐藏卡片。提示明确引用匹配不证明事实判断正确。原23888 terminal0，`/tmp/iqc-b-citation-ui.log`，含原页面权限回归共7项通过；原94676 type-check terminal0，`/tmp/iqc-b-citation-ui-typecheck.log`。生产UI未改，生产构建沿9fd3684的10587证据；本轮不是浏览器/PDP/后端整链验证，无推送或部署。
