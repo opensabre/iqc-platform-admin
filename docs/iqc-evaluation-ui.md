@@ -43,6 +43,18 @@ B前端快进至固定A06d85be（含标签显示/Gold地址/引用报告/会话�
 
 本机忽略证据：`output/playwright/shared-report-unmeasured.yml`、`shared-report-cleared.yml`、`shared-report-network.txt`。合成身份/菜单/报告的真实浏览器网络夹具，不是SQL后端/PDP/供应商连接；初始未注入身份时proxy target缺失500不计成功认证。原专用browser已close终态0，preview25249主动Ctrl-C终态1（正常清理），无残留验证进程。本轮只同步与验证，无新增生产UI改动。
 
+### B 2026-10-23 单会话费用组件交互与迟到响应
+
+原ModelGatewayCalls.vue新增组件验证（生产代码不变）：会话输入去空格后精确传task/EID/status/page/size/conversation，清除恢复整个任务；长小数字符串保持原文、未知费用计数展示；旧会话响应迟到不覆盖新会话汇总；切任务清空会话并恢复全部重试范围且忽略旧task响应；非法ID不发新请求，撤销权限后迟到结果不可见。
+
+原7546四项通过但存在未注册UI组件桩警告；补桩后原25515 terminal0，`/tmp/iqc-b-conversation-cost-ui-test-final.log`，4项通过无组件警告；原86462 `pnpm type-check` terminal0，`/tmp/iqc-b-conversation-cost-ui-typecheck.log`，git diff --check通过。真实Vue响应式/组件逻辑，API与权限为桩，非浏览器/PDP/SQL后端整链。本轮仅新增测试，现有生产build证据仍归06d85be，不外推后续A完整率页面。
+
 ## 2026-10-23 上游声明消息完整率
 
 原报告页接可选iqc-input-completeness-report-v1，展示测量覆盖、数量完整率、消息覆盖、不足/超出/坏声明与缺测，空分母显示未测量。明确数量相等不证明内容无遗漏/清单真实，按冻结输入而非执行成功样本统计。API接入页说明三个原businessFields标量，无默认示例声明自动注入用户数据；无新请求/权限/来源编辑入口。当前仅构建，真实数据/角色/browser待独立验证，后端契约见iqc-input-completeness.md。
+
+### B 2026-10-23 完整率页面与撤权迟到响应修复
+
+固定A007b09d合入B为5a548b2；保留原费用组件验证和A完整率说明。新增evaluation-tasks/index.spec.ts验证实际页面：无产物仍显示冻结输入覆盖、混合缺失/超额计数、空分母显示未测量、历史无字段隐藏卡片、切任务丢弃旧响应。原82767的权限用例实证撤权再授权后旧在途报告重新显示，修复原页面为独立报告请求代次、撤权清空报告并作废在途响应、展示实时检查权限；恢复权限须刷新当前执行，未增加自动请求或新协议。
+
+原82925 terminal0，页面5项及原费用4项共9项通过，无组件注册警告，日志`/tmp/iqc-b-input-completeness-ui-final.log`。原10587 `pnpm build` terminal0，含vue-tsc与Vite构建（1m14s），日志`/tmp/iqc-b-input-completeness-ui-build.log`；现有Node/pnpm声明差异及chunk提示仍存在。实际Vue/API和权限桩，未运行本轮真实浏览器/PDP/SQL整链；此前受控浏览器证据仍只归原06d85be。未推送或部署。
