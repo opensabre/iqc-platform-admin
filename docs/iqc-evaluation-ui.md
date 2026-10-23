@@ -42,3 +42,9 @@ Gold编辑器高级标签期望提示已同步为绑定地址，给出`/labelId/
 B前端快进至固定A06d85be（含标签显示/Gold地址/引用报告/会话费用），原18257 `pnpm build`终态0，`/tmp/iqc-b-shared-report-ui-build.log`，包含vue-tsc与Vite构建（52.43秒/既有chunk提示）。专用preview127.0.0.1:43179 + Playwright iqc-b-shared-report：空参考身份按钮禁用，普通报告标签显示`100.00% · 可比 1 / Gold 2`；填双方参考身份点击比较，实际网络GET `/api/iqc/evaluation/tasks/selected-task/report?executionId=selected-execution&referenceTaskId=reference-task&referenceExecutionId=prior-execution`。受控零可比响应展示`0 / 2`覆盖与`未测量 · 0 / 0`一致率及排除原因；修改参考EID为changed-execution清旧比较且保留普通标签报告。
 
 本机忽略证据：`output/playwright/shared-report-unmeasured.yml`、`shared-report-cleared.yml`、`shared-report-network.txt`。合成身份/菜单/报告的真实浏览器网络夹具，不是SQL后端/PDP/供应商连接；初始未注入身份时proxy target缺失500不计成功认证。原专用browser已close终态0，preview25249主动Ctrl-C终态1（正常清理），无残留验证进程。本轮只同步与验证，无新增生产UI改动。
+
+### B 2026-10-23 单会话费用组件交互与迟到响应
+
+原ModelGatewayCalls.vue新增组件验证（生产代码不变）：会话输入去空格后精确传task/EID/status/page/size/conversation，清除恢复整个任务；长小数字符串保持原文、未知费用计数展示；旧会话响应迟到不覆盖新会话汇总；切任务清空会话并恢复全部重试范围且忽略旧task响应；非法ID不发新请求，撤销权限后迟到结果不可见。
+
+原7546四项通过但存在未注册UI组件桩警告；补桩后原25515 terminal0，`/tmp/iqc-b-conversation-cost-ui-test-final.log`，4项通过无组件警告；原86462 `pnpm type-check` terminal0，`/tmp/iqc-b-conversation-cost-ui-typecheck.log`，git diff --check通过。真实Vue响应式/组件逻辑，API与权限为桩，非浏览器/PDP/SQL后端整链。本轮仅新增测试，现有生产build证据仍归06d85be，不外推后续A完整率页面。
