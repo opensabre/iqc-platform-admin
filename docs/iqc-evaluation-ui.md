@@ -48,3 +48,7 @@ B前端快进至固定A06d85be（含标签显示/Gold地址/引用报告/会话�
 原ModelGatewayCalls.vue新增组件验证（生产代码不变）：会话输入去空格后精确传task/EID/status/page/size/conversation，清除恢复整个任务；长小数字符串保持原文、未知费用计数展示；旧会话响应迟到不覆盖新会话汇总；切任务清空会话并恢复全部重试范围且忽略旧task响应；非法ID不发新请求，撤销权限后迟到结果不可见。
 
 原7546四项通过但存在未注册UI组件桩警告；补桩后原25515 terminal0，`/tmp/iqc-b-conversation-cost-ui-test-final.log`，4项通过无组件警告；原86462 `pnpm type-check` terminal0，`/tmp/iqc-b-conversation-cost-ui-typecheck.log`，git diff --check通过。真实Vue响应式/组件逻辑，API与权限为桩，非浏览器/PDP/SQL后端整链。本轮仅新增测试，现有生产build证据仍归06d85be，不外推后续A完整率页面。
+
+## 2026-10-23 上游声明消息完整率
+
+原报告页接可选iqc-input-completeness-report-v1，展示测量覆盖、数量完整率、消息覆盖、不足/超出/坏声明与缺测，空分母显示未测量。明确数量相等不证明内容无遗漏/清单真实，按冻结输入而非执行成功样本统计。API接入页说明三个原businessFields标量，无默认示例声明自动注入用户数据；无新请求/权限/来源编辑入口。当前仅构建，真实数据/角色/browser待独立验证，后端契约见iqc-input-completeness.md。
