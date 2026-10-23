@@ -1,3 +1,4 @@
+import type {CostSummary} from "./model-gateway";
 import http from "@/api/http";
 import type { BusinessItemResult, BusinessScoringResult } from "./results";
 import type { PageResult } from "./tasks";
@@ -28,7 +29,9 @@ export interface BusinessScoreSummary {
   qualifiedCount: number; averageScore: number | null; qualifiedRate: number | null;
   manualOverrides?:{appliedCount:number;staleCount:number;averageOverrideScore:number|null;effectiveNumericCount:number;averageEffectiveScore:number|null}|null;
 }
+export interface BusinessModelUsage {schemaVersion:'iqc-business-model-usage-v1';selectedResults:number;boundResults:number;unboundResults:number;costs:CostSummary;latency:{callCount:string;measuredCount:string;unknownCount:string;averageMillis:string|null}}
 export interface BusinessPolicyGroup {
+  modelUsage?:BusinessModelUsage|null;
   rollout?:{schemaVersion:'iqc-business-rollout-attribution-v1';revisionId:string;revisionNo:number;revisionHash:string;policyHash:string;side:'BASELINE'|'CANDIDATE';state:'ACTIVE'|'ROLLED_BACK';candidateBasisPoints:number;baselineVersionNo:number;candidateVersionNo:number;selectedVersionNo:number;selectedReleaseHash:string}|null;
   groupKey: string; schemeId: string; pipelineId?:string|null; versionNo: string; draftRevision: string; kind: string;
   mode: string; baseScore?: number; passingScore: number; taskIds: string[]; conversationCount: number; executionIds: string[];
@@ -50,10 +53,10 @@ export interface BusinessQualityReport {
   taskCount: number; conversationCount: number; groups: BusinessPolicyGroup[];
 }
 /** Explicit bounded business view; the default message report contract stays unchanged. */
-export const getBusinessQualityReport = (taskIds: string[], executionSelections?: Record<string, string>, runPolicy?: BusinessQualityReport["runPolicy"]) =>
+export const getBusinessQualityReport = (taskIds: string[], executionSelections?: Record<string, string>, runPolicy?: BusinessQualityReport["runPolicy"], includeModelUsage=false) =>
   http.get<BusinessQualityReport>("/iqc/quality-operations/report", {
     params: { view: "BUSINESS", taskIds: taskIds.join(","),
-      ...(executionSelections ? { executionSelections: JSON.stringify(executionSelections) } : {}), ...(runPolicy ? { runPolicy } : {}) }
+      ...(executionSelections ? { executionSelections: JSON.stringify(executionSelections) } : {}), ...(runPolicy ? { runPolicy } : {}), ...(includeModelUsage?{includeModelUsage:true}:{}) }
   }).then(r => r.data);
 
 export type ReviewFeedbackCategory='AI_FALSE_POSITIVE'|'AI_FALSE_NEGATIVE'|'EVIDENCE_WRONG'|'SCORE_POLICY_WRONG'|'DATA/ASR_ERROR'|'RULE_ERROR'|'BUSINESS_STANDARD_CHANGED';
