@@ -40,6 +40,7 @@ const menuItems: MenuItem[] = [
   { key: "results", path: "/results", label: "质检结果", icon: CheckCircleOutlined, permission: "iqc:result:view" },
   { key: "risk-events", path: "/risk-events", label: "风险中心", icon: CheckCircleOutlined, permission: "iqc:risk:center:view" },
   { key: "quality-operations", path: "/quality-operations", label: "质量运营", icon: CheckCircleOutlined, permission: "iqc:review:view" },
+  { key: "knowledge-bases", path: "/knowledge-bases", label: "知识库", icon: FileTextOutlined, permission: "iqc:knowledge:view" },
   { key: "agents", label: "智能体管理", icon: ClusterOutlined, children: [
     { key: "agents-list", path: "/agents", label: "智能体列表", permission: "iqc:agent:view" },
     { key: "agent-models", path: "/agent-models", label: "模型配置", permission: "iqc:model:view" },
