@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { FindingConfidenceDiagnostics,ConfidenceCalibrationCandidate } from '@/api/evaluation';
-const props=withDefaults(defineProps<{metrics?:FindingConfidenceDiagnostics|null;title?:string;description?:string;calibrationCandidate?:ConfidenceCalibrationCandidate|null}>(),{
+import type { FindingConfidenceDiagnostics,ConfidenceCalibrationCandidate,CalibrationComparison } from '@/api/evaluation';
+const props=withDefaults(defineProps<{metrics?:FindingConfidenceDiagnostics|null;title?:string;description?:string;calibrationCandidate?:ConfidenceCalibrationCandidate|null;calibrationComparison?:CalibrationComparison|null}>(),{
  title:'置信度误差诊断',
  description:'衡量带最终置信度的已知事实是否与冻结金标完整值匹配；不是正类概率，也不证明校准工件有效。缺少置信度、未知、错误及类型不符不填零，计入未测量。'
 });
 const candidate=computed(()=>props.calibrationCandidate?.schemaVersion==='iqc-confidence-calibration-candidate-v1'?props.calibrationCandidate:null);
 const referenceJson=computed(()=>candidate.value?JSON.stringify([{taskId:candidate.value.source.taskId,executionId:candidate.value.source.executionId,nodeId:candidate.value.source.nodeId,contentHash:candidate.value.contentHash}]):'');
+const comparison=computed(()=>props.calibrationComparison?.schemaVersion==='iqc-calibration-paired-diagnostics-v1'?props.calibrationComparison:null);
+const comparisonRows=computed(()=>comparison.value?[
+ {metric:'Brier',before:comparison.value.pairedRaw.brierScore,after:comparison.value.pairedCalibrated.brierScore,delta:comparison.value.brierDelta},
+ {metric:'ECE',before:comparison.value.pairedRaw.expectedCalibrationError,after:comparison.value.pairedCalibrated.expectedCalibrationError,delta:comparison.value.expectedCalibrationErrorDelta}
+]:[]);
 const percent=(value:number|null|undefined)=>value==null?'无分母':`${(value*100).toFixed(2)}%`;
 </script>
 <template>
@@ -25,8 +30,23 @@ const percent=(value:number|null|undefined)=>value==null?'无分母':`${(value*1
    <a-descriptions-item label="每箱最少样本">{{candidate.minimumBinSamples}}</a-descriptions-item>
    <a-descriptions-item label="已测量 / 已知金标">{{candidate.scored}} / {{candidate.eligibleKnownGold}}</a-descriptions-item>
    <a-descriptions-item label="来源执行">{{candidate.source.executionId}}</a-descriptions-item>
-   <a-descriptions-item label="产物摘要">{{candidate.contentHash}}</a-descriptions-item>
+   <a-descriptions-item label="新拟合候选摘要">{{candidate.contentHash}}</a-descriptions-item>
   </a-descriptions>
+ </template>
+ <template v-if="comparison">
+  <h4>同一批样本的校准前后误差</h4>
+  <a-alert type="info" show-icon message="仅对原始与校准值同时可测的相同样本比较；差值为校准后减原始，负值表示该误差下降。缺失或未支持仍保留在覆盖分母，不表示拟合与验证数据独立，也不代表发布通过。" />
+  <a-descriptions :column="2" style="margin-top:12px">
+   <a-descriptions-item label="配对 / 已知金标">{{comparison.pairedRaw.scored}} / {{comparison.pairedRaw.eligibleKnownGold}} · {{percent(comparison.pairedRaw.coverage)}}</a-descriptions-item>
+   <a-descriptions-item label="可转换 / 原始已测">{{comparison.pairedRaw.scored}} / {{comparison.originalMeasured}} · {{percent(comparison.mappedCoverage)}}</a-descriptions-item>
+   <a-descriptions-item label="本次使用产物摘要" :span="2">{{comparison.artifactHash}}</a-descriptions-item>
+  </a-descriptions>
+  <a-table :data-source="comparisonRows" row-key="metric" :pagination="false" size="small">
+   <a-table-column title="误差（0–1）" data-index="metric" />
+   <a-table-column title="配对原始值"><template #default="{record}">{{record.before??'无可比较样本'}}</template></a-table-column>
+   <a-table-column title="配对校准值"><template #default="{record}">{{record.after??'无可比较样本'}}</template></a-table-column>
+   <a-table-column title="差值"><template #default="{record}">{{record.delta??'无可比较样本'}}</template></a-table-column>
+  </a-table>
  </template>
  <a-table :data-source="metrics.bins" row-key="index" :pagination="false" size="small">
   <a-table-column title="置信度区间"><template #default="{record}">[{{percent(record.lowerInclusive)}}, {{percent(record.upperBound)}}{{record.upperInclusive?']':')'}}</template></a-table-column>
