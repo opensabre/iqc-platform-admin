@@ -97,7 +97,7 @@ onMounted(()=>{void refresh();if(typeof route.query.taskId==='string')void selec
 <ModelConsistencyPanel :task-id="report.taskId" :execution-id="report.executionId" :allowed="can('iqc:evaluation:report:view')" />
 <ConfidenceDiagnosticsPanel :metrics="report.findingMetrics.confidenceDiagnostics" />
 <template v-if="report.nodeConfidenceMetrics?.schemaVersion==='iqc-node-confidence-diagnostics-v1'">
- <ConfidenceDiagnosticsPanel v-for="node in report.nodeConfidenceMetrics.nodes" :key="node.nodeId" :metrics="node.diagnostics"
+ <ConfidenceDiagnosticsPanel v-for="node in report.nodeConfidenceMetrics.nodes" :key="node.nodeId" :metrics="node.diagnostics" :calibration-candidate="node.calibrationCandidate"
   :title="`原始节点置信度 · ${node.nodeId} · ${node.engineType} / ${node.findingCode}`"
   description="衡量模型原始置信度与冻结金标完整值的匹配，不表示已经校准，也不是正类概率。缺失、跳过、未知、无置信度、类型不符及最后一次尝试的重复输出计入未测量，不填零。" />
 </template>
