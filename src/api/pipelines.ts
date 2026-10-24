@@ -3,9 +3,10 @@ export interface CalibrationReference {taskId:string;executionId:string;nodeId:s
 import type {SelectorDefinition,SelectorAssetReference} from './selectors';
 import type {InspectionTask} from './tasks';
 import type {AutomaticRetryPolicy} from './automatic-retry';
-export interface PublicationGatePolicy {schemaVersion:'iqc-publication-gate-v1';minimumRiskRecall:number;minimumOverallF1:number;minimumRegressionPass:number;minimumStructuredSuccess:number;maximumP95Ms:number;minimumSamples:number}
+export interface CalibrationGatePolicy {minimumPairedSamples:number;minimumGoldCoverage:number;maximumBrier:number;maximumEce:number;maximumBrierIncrease:number;maximumEceIncrease:number}
+export interface PublicationGatePolicy {calibration?:CalibrationGatePolicy|null;schemaVersion:'iqc-publication-gate-v1';minimumRiskRecall:number;minimumOverallF1:number;minimumRegressionPass:number;minimumStructuredSuccess:number;maximumP95Ms:number;minimumSamples:number}
 export interface GateExecutionEvidence {taskId:string;executionId:string}
-export interface GateDecision {schemaVersion:string;pipelineId:string;draftRevision:number;releaseHash:string;policy:PublicationGatePolicy;passed:boolean;criteria:Array<{code:string;purpose:string;status:'PASSED'|'FAILED'|'NOT_APPLICABLE';actual:number|null;threshold:number;reason:string|null}>;evidence:unknown[]}
+export interface GateDecision {schemaVersion:string;pipelineId:string;draftRevision:number;releaseHash:string;policy:PublicationGatePolicy;passed:boolean;criteria:Array<{code:string;purpose:string;status:'PASSED'|'FAILED'|'NOT_APPLICABLE';actual:number|null;threshold:number|null;reason:string|null}>;evidence:unknown[]}
 export interface PublicationEvidence {qualityEvidence:GateExecutionEvidence;regressionEvidence:GateExecutionEvidence;forceReason?:string}
 export {listPipelines,listPipelineVersions} from './pipeline-policies';
 export interface AssetReference {id:string;versionNo:number}
