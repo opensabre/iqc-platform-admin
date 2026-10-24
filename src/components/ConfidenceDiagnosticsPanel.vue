@@ -19,7 +19,7 @@ const percent=(value:number|null|undefined)=>value==null?'无分母':`${(value*1
   <a-descriptions-item label="ECE（越低越好）">{{percent(metrics.expectedCalibrationError)}}</a-descriptions-item>
  </a-descriptions>
  <template v-if="candidate">
-  <a-alert type="warning" show-icon message="经验校准候选尚未发布，也未用于融合。每箱样本不足时不输出候选值；仍需独立验证质量并绑定发布。" />
+  <a-alert type="warning" show-icon message="拟合候选不代表经过独立验证或发布。是否用于融合取决于流水线和任务的精确引用；每箱样本不足时不输出候选值。" />
   <a-typography-paragraph :copyable="{text:referenceJson}">精确引用：{{referenceJson}}</a-typography-paragraph>
   <a-descriptions :column="2" style="margin-top:12px">
    <a-descriptions-item label="每箱最少样本">{{candidate.minimumBinSamples}}</a-descriptions-item>
