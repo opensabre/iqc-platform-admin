@@ -4,6 +4,8 @@ import { message } from "ant-design-vue";
 import { useRouter } from "vue-router";
 import { approveAgent, createAgent, createAgentVersion, disableAgent, listAgents, listMcpServers, listModelProfiles, listRuleSets, listSkills, rejectAgent, submitAgent, agentPayloadRestricted, type AgentRuntimeConfig, type IqcMcpServer, type IqcModelProfile, type IqcSkill, type QualityAgent, type QualityRuleSet } from "@/api/config";
 import {listInstructionVersions,skillPayloadRestricted,type IqcInstructionVersion} from "@/api/config";
+import PublishedAssetReference from "@/components/PublishedAssetReference.vue";
+import type {AssetReference} from "@/api/pipelines";
 import DictTag from "@/components/DictTag.vue";
 import { usePermission } from "@/composables/permission";
 
@@ -52,6 +54,12 @@ function choosePromptVersion(versionNo:number){
 const primaryModel = computed(() => models.value.find(item => item.id === runtime.value.primaryModelProfileId));
 const selectedFallbackModels = computed(() => models.value.filter(item => runtime.value.fallbackModelProfileIds?.includes(item.id)));
 const selectedMcps = computed(() => mcps.value.filter(item => runtime.value.mcpServerIds?.includes(item.id)));
+const canKnowledgeReferences=computed(()=>can('iqc:knowledge:view')&&can('iqc:knowledge:versions:view')&&can('iqc:knowledge:version:view'));
+function addKnowledge(){if(disposed||saving.value||!writable.value||runtime.value.schemaVersion!=='3.0'||!canKnowledgeReferences.value)return;
+ const references=runtime.value.knowledgeAssets??[];if(references.length<4)runtime.value.knowledgeAssets=[...references,{knowledgeBaseId:'',versionNo:0}];}
+function chooseKnowledge(index:number,value:AssetReference|undefined){if(disposed||saving.value||!writable.value||!canKnowledgeReferences.value||!runtime.value.knowledgeAssets?.[index])return;
+ runtime.value.knowledgeAssets[index]={knowledgeBaseId:value?.id??'',versionNo:value?.versionNo??0};}
+function removeKnowledge(index:number){if(disposed||saving.value||!writable.value)return;runtime.value.knowledgeAssets?.splice(index,1);}
 const selectedSkills = computed(() => skills.value.filter(item => runtime.value.skillIds?.includes(item.id)));
 const publishedRuleSets = computed(() => ruleSets.value.filter(item => item.status === "PUBLISHED"));
 const activeSteps = computed<{ key: StepKey; title: string; description: string }[]>(() => {
@@ -106,6 +114,12 @@ function edit(item:QualityAgent){
 function validateStep(step: StepKey) {
   if (step === "basic" && (!form.value.name.trim() || !form.value.code.trim())) { message.warning("请填写 Agent 名称和编码"); return false; }
   if (step === "basic" && runtime.value.mode === "RULE_ONLY" && !runtime.value.ruleSetId) { message.warning("普通规则 Agent 必须选择已发布规则集"); return false; }
+  if(step==='capabilities'){
+   const references=runtime.value.knowledgeAssets??[];
+   if(references.length>4||new Set(references.map(reference=>reference.knowledgeBaseId)).size!==references.length||references.some(reference=>!reference.knowledgeBaseId||!Number.isInteger(reference.versionNo)||reference.versionNo<1)){
+    message.warning('知识库最多4个，每个须选择不同知识库的精确发布版本');return false;
+   }
+  }
   if (step === "model" && !runtime.value.primaryModelProfileId) { message.warning("请选择一个已启用的主模型"); return false; }
   if(step==='prompt'&&promptMode.value&&!runtime.value.promptAsset){message.warning('请选择精确指令版本');return false;}
   if (step === "prompt" && !runtime.value.systemPrompt?.trim()) { message.warning("请填写默认提示词"); return false; }
@@ -138,6 +152,7 @@ async function action(id:string,type:string){
  try{if(type==='submit')await submitAgent(id);else if(type==='approve')await approveAgent(id);else if(type==='reject')await rejectAgent(id);else await disableAgent(id);if(disposed)return;await refresh();}
  catch{if(!disposed)message.error('操作未确认，请重新读取核对状态。');}finally{if(!disposed)saving.value=false;}
 }
+watch(canKnowledgeReferences,()=>{agents.value=[];++listGeneration;modalOpen.value=false;clearEditor();},{flush:'sync'});
 watch(()=>can('iqc:skill:view'),()=>{++promptGeneration;promptVersions.value=[];promptLoading.value=false;promptError.value='';if(promptMode.value){modalOpen.value=false;clearEditor();}},{flush:'sync'});
 watch(promptBodyAccess,()=>{++promptGeneration;promptVersions.value=[];promptLoading.value=false;agents.value=[];++listGeneration;modalOpen.value=false;clearEditor();},{flush:'sync'});
 watch(modalOpen,value=>{if(!value)clearEditor();});
@@ -170,7 +185,7 @@ onMounted(() => void refresh());
 
       <a-form :disabled="!writable||saving" v-show="currentStepKey==='model'" layout="vertical"><div class="wizard-heading"><div><h3>配置智能模型</h3><p>主模型负责执行质检，备用模型按选择顺序降级。</p></div><a-button type="link" @click="openAsset('/agent-models')">管理模型配置 ↗</a-button></div><a-empty v-if="!assetsLoading&&!models.length" description="暂无已启用模型"><a-button type="primary" @click="openAsset('/agent-models')">去创建并启用模型</a-button></a-empty><template v-else><a-form-item label="主模型" required><a-select v-model:value="runtime.primaryModelProfileId" show-search option-filter-prop="label" placeholder="选择已启用模型"><a-select-option v-for="item in models" :key="item.id" :value="item.id" :label="`${item.name} ${item.modelName}`">{{item.name}} · {{item.provider}} / {{item.modelName}}</a-select-option></a-select></a-form-item><a-form-item label="备用模型（按顺序降级）"><a-select v-model:value="runtime.fallbackModelProfileIds" mode="multiple" placeholder="可选"><a-select-option v-for="item in models.filter(x=>x.id!==runtime.primaryModelProfileId)" :key="item.id" :value="item.id">{{item.name}} · {{item.modelName}}</a-select-option></a-select><template #extra>主模型不可用时依次尝试，避免单一模型故障中断任务。</template></a-form-item></template></a-form>
 
-      <a-form :disabled="!writable||saving" v-show="currentStepKey==='capabilities'" layout="vertical"><div class="wizard-heading"><div><h3>关联扩展能力</h3><p>MCP 提供外部工具，Skill 提供可复用的专业判断流程；均为可选。</p></div></div><a-form-item label="可用 MCP"><a-select v-model:value="runtime.mcpServerIds" mode="multiple" placeholder="不选择则不调用 MCP"><a-select-option v-for="item in mcps" :key="item.id" :value="item.id">{{item.name}} · {{item.transport}}</a-select-option></a-select><template #extra>只展示已启用的 MCP，智能体执行时按授权工具调用。</template><a-button type="link" class="asset-link" @click="openAsset('/agent-mcps')">管理 MCP ↗</a-button></a-form-item><a-form-item label="可用 Skill"><a-select v-model:value="runtime.skillIds" mode="multiple" placeholder="不选择则仅使用提示词"><a-select-option v-for="item in skills" :key="item.id" :value="item.id">{{item.name}} · V{{item.versionNo}}</a-select-option></a-select><template #extra>选择与当前质检场景匹配的专业判断能力。</template><a-button type="link" class="asset-link" @click="openAsset('/agent-skills')">管理 Skill ↗</a-button></a-form-item><a-alert v-if="!mcps.length&&!skills.length" type="info" show-icon message="当前没有已启用的 MCP 或 Skill，可以跳过此步骤，稍后创建新版本关联。"/></a-form>
+      <a-form :disabled="!writable||saving" v-show="currentStepKey==='capabilities'" layout="vertical"><div class="wizard-heading"><div><h3>关联扩展能力</h3><p>MCP 提供外部工具，Skill 提供可复用的专业判断流程；均为可选。</p></div></div><a-form-item label="可用 MCP"><a-select v-model:value="runtime.mcpServerIds" mode="multiple" placeholder="不选择则不调用 MCP"><a-select-option v-for="item in mcps" :key="item.id" :value="item.id">{{item.name}} · {{item.transport}}</a-select-option></a-select><template #extra>只展示已启用的 MCP，智能体执行时按授权工具调用。</template><a-button type="link" class="asset-link" @click="openAsset('/agent-mcps')">管理 MCP ↗</a-button></a-form-item><a-form-item label="可用 Skill"><a-select v-model:value="runtime.skillIds" mode="multiple" placeholder="不选择则仅使用提示词"><a-select-option v-for="item in skills" :key="item.id" :value="item.id">{{item.name}} · V{{item.versionNo}}</a-select-option></a-select><template #extra>选择与当前质检场景匹配的专业判断能力。</template><a-button type="link" class="asset-link" @click="openAsset('/agent-skills')">管理 Skill ↗</a-button></a-form-item><a-form-item v-if="runtime.schemaVersion==='3.0'" label="知识库精确版本"><p>只保存引用与摘要，不把私有参考正文复制进共享智能体配置。</p><div v-for="(reference,index) in runtime.knowledgeAssets??[]" :key="index" style="margin:12px 0"><PublishedAssetReference v-if="canKnowledgeReferences" kind="KNOWLEDGE" :model-value="reference.knowledgeBaseId?{id:reference.knowledgeBaseId,versionNo:reference.versionNo}:undefined" :disabled="saving||!writable" @update:model-value="value=>chooseKnowledge(index,value)"/><p>{{reference.knowledgeBaseId||'请选择知识库'}} · v{{reference.versionNo||'未选择'}} · {{reference.contentHash??'保存时核对摘要'}}</p><a-button :disabled="saving||!writable" @click="removeKnowledge(index)">移除引用</a-button></div><a-button v-if="canKnowledgeReferences" :disabled="saving||!writable||(runtime.knowledgeAssets?.length??0)>=4" @click="addKnowledge">添加知识库引用</a-button><a-button v-if="can('iqc:knowledge:view')" type="link" @click="openAsset('/knowledge-bases')">管理知识库 ↗</a-button></a-form-item><a-alert v-if="!mcps.length&&!skills.length" type="info" show-icon message="当前没有已启用的 MCP 或 Skill，可以跳过此步骤，稍后创建新版本关联。"/></a-form>
 
       <a-form :disabled="!writable||saving" v-show="currentStepKey==='prompt'" layout="vertical"><div class="wizard-heading"><div><h3>设置智能体行为</h3><p>定义智能体的身份、判断边界和输出要求。</p></div></div><a-form-item v-if="runtime.schemaVersion==='3.0'" label="绑定版本化指令"><a-switch :checked="promptMode" @change="togglePromptMode"/><p>选择精确历史版本，指令库更新不会自动更换本 Agent 的提示词。</p></a-form-item><template v-if="promptMode"><a-form-item label="指令来源"><a-select :value="promptSourceId" :disabled="!can('iqc:skill:view')||!promptBodyAccess" :options="skills.map(item=>({value:item.id,label:item.name}))" @change="choosePromptSource"/></a-form-item><a-form-item label="精确版本"><a-select :value="runtime.promptAsset?.versionNo" :loading="promptLoading" :disabled="promptLoading||!can('iqc:skill:view')||!promptBodyAccess" :options="promptVersions.map(item=>({value:item.versionNo,label:`v${item.versionNo} · ${item.name}`}))" @change="choosePromptVersion"/><p v-if="runtime.promptAsset">引用 {{runtime.promptAsset.skillId}} · v{{runtime.promptAsset.versionNo}} · {{runtime.promptAsset.contentHash??'保存时生成摘要'}}</p><a-alert v-if="promptError" type="warning" :message="promptError"/></a-form-item></template><a-form-item label="默认提示词" required><a-textarea v-model:value="runtime.systemPrompt" :disabled="promptMode" :rows="7" :maxlength="8000" show-count/></a-form-item></a-form>
 
@@ -187,6 +202,7 @@ onMounted(() => void refresh());
             </template>
             <template v-if="runtime.schemaVersion==='3.0'||runtime.mode==='AGENT_LLM'">
               <a-descriptions-item label="MCP">{{selectedMcps.map(x=>x.name).join('、')||'无'}}</a-descriptions-item>
+              <a-descriptions-item label="知识库引用">{{runtime.knowledgeAssets?.map(reference=>`${reference.knowledgeBaseId} · v${reference.versionNo}`).join('、')||'无'}}</a-descriptions-item>
               <a-descriptions-item label="Skill">{{selectedSkills.map(x=>x.name).join('、')||'无'}}</a-descriptions-item>
             </template>
           </a-descriptions>
