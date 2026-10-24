@@ -28,3 +28,5 @@ Agent行为设定可在原内嵌提示词与“绑定版本化指令”间选择
 原91662组合type-check终态0；日志为`/tmp/iqc-b-prompt-ui-validation.log`与
 `/tmp/iqc-b-prompt-ui-typecheck.log`，对应.exit均0。
 API与权限适配受控，组件库由测试替身呈现；不代替真实浏览器、PDP或发布执行验收。
+
+原评测报告新增原始模型节点置信度诊断，使用已校验原始Finding与冻结Gold统计；每节点展示测量覆盖、未测量、Brier/ECE及十箱。原融合结果卡片提取为ConfidenceDiagnosticsPanel供两种诊断共享，缺失可选字段的旧报告保持原展示。原始节点数据不表示已校准或正类概率；缺失/无置信度/跳过/类型不符/最后尝试重复输出计未测量，不填零。没有原始置信度的模型桥接仍显示未测量。无新接口或权限。

@@ -9,6 +9,7 @@ import {usePermission} from '@/composables/permission';
 import BenchmarkReportPanel from '@/components/BenchmarkReportPanel.vue';
 import ModelConsistencyPanel from '@/components/ModelConsistencyPanel.vue';
 import CitationGroundingPanel from '@/components/CitationGroundingPanel.vue';
+import ConfidenceDiagnosticsPanel from '@/components/ConfidenceDiagnosticsPanel.vue';
 import {createBenchmark,type BenchmarkDimension} from '@/api/benchmarks';
 import {listTasks,getTask,listTaskExecutions,type InspectionTask,type TaskExecutionSummary} from '@/api/tasks';
 import {createEvaluationTask,getEvaluationReport,listEvaluationResults,getEvaluationResult,type EvaluationReport,type EvaluationResult} from '@/api/evaluation';
@@ -94,21 +95,12 @@ onMounted(()=>{void refresh();if(typeof route.query.taskId==='string')void selec
 </a-card>
 <CitationGroundingPanel :metrics="report.citationGroundingMetrics" />
 <ModelConsistencyPanel :task-id="report.taskId" :execution-id="report.executionId" :allowed="can('iqc:evaluation:report:view')" />
-<a-card v-if="report.findingMetrics.confidenceDiagnostics?.schemaVersion==='iqc-finding-confidence-diagnostics-v1'" title="置信度误差诊断" size="small" style="margin-top:16px">
- <a-alert type="info" show-icon message="衡量带最终置信度的已知事实是否与冻结金标完整值匹配；不是正类概率，也不证明校准工件有效。缺少置信度、未知、错误及类型不符不填零，计入未测量。" />
- <a-descriptions :column="3" style="margin-top:12px">
-  <a-descriptions-item label="测量覆盖">{{report.findingMetrics.confidenceDiagnostics.scored}} / {{report.findingMetrics.confidenceDiagnostics.eligibleKnownGold}} · {{percent(report.findingMetrics.confidenceDiagnostics.coverage)}}</a-descriptions-item>
-  <a-descriptions-item label="未测量">{{report.findingMetrics.confidenceDiagnostics.unscored}}</a-descriptions-item>
-  <a-descriptions-item label="Brier（越低越好）">{{report.findingMetrics.confidenceDiagnostics.brierScore??'无可测量样本'}}</a-descriptions-item>
-  <a-descriptions-item label="ECE（越低越好）">{{percent(report.findingMetrics.confidenceDiagnostics.expectedCalibrationError)}}</a-descriptions-item>
- </a-descriptions>
- <a-table :data-source="report.findingMetrics.confidenceDiagnostics.bins" row-key="index" :pagination="false" size="small">
-  <a-table-column title="置信度区间"><template #default="{record}">[{{percent(record.lowerInclusive)}}, {{percent(record.upperBound)}}{{record.upperInclusive?']':')'}}</template></a-table-column>
-  <a-table-column title="事实数" data-index="count" />
-  <a-table-column title="平均置信度"><template #default="{record}">{{percent(record.meanConfidence)}}</template></a-table-column>
-  <a-table-column title="实际完整值准确率"><template #default="{record}">{{percent(record.observedAccuracy)}}</template></a-table-column>
- </a-table>
-</a-card>
+<ConfidenceDiagnosticsPanel :metrics="report.findingMetrics.confidenceDiagnostics" />
+<template v-if="report.nodeConfidenceMetrics?.schemaVersion==='iqc-node-confidence-diagnostics-v1'">
+ <ConfidenceDiagnosticsPanel v-for="node in report.nodeConfidenceMetrics.nodes" :key="node.nodeId" :metrics="node.diagnostics"
+  :title="`原始节点置信度 · ${node.nodeId} · ${node.engineType} / ${node.findingCode}`"
+  description="衡量模型原始置信度与冻结金标完整值的匹配，不表示已经校准，也不是正类概率。缺失、跳过、未知、无置信度、类型不符及最后一次尝试的重复输出计入未测量，不填零。" />
+</template>
 
 <p>耗时仅包含会话评测计算，排除排队、准备和落库；失败率不含缺失产物；结构化输出按逻辑 LLM 调用计数，旧轨迹或超时缺少记录时未测量，不是实际网络调用成功率。报告继承较早重试轮次的样本，下面列表仅显示选中执行轮次。</p><details><summary>按事实指标、计数、缺失样本及原执行来源</summary><pre>{{JSON.stringify(report,null,2)}}</pre></details></template>
 <h3>当前执行轮次样本产物</h3><a-table :data-source="results" row-key="id" :pagination="false"><a-table-column title="样本" data-index="sampleId"/><a-table-column title="金标版本" data-index="sampleVersion"/><a-table-column title="状态" data-index="status"/><a-table-column title="耗时 ms" data-index="durationMs"/><a-table-column title="操作"><template #default="{record}"><a-button v-if="can('iqc:evaluation:result:view')" @click="viewResult(record)">实际轨迹 / 来源</a-button></template></a-table-column></a-table><a-pagination :current="resultPage" :total="resultTotal" :page-size="20" :show-size-changer="false" @change="(p:number)=>loadResults(p).catch(()=>message.error('产物分页加载失败'))"/><pre v-if="detail">{{detail}}</pre>
