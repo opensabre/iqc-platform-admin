@@ -6,7 +6,8 @@ const props=withDefaults(defineProps<{metrics?:FindingConfidenceDiagnostics|null
  description:'衡量带最终置信度的已知事实是否与冻结金标完整值匹配；不是正类概率，也不证明校准工件有效。缺少置信度、未知、错误及类型不符不填零，计入未测量。'
 });
 const candidate=computed(()=>props.calibrationCandidate?.schemaVersion==='iqc-confidence-calibration-candidate-v1'?props.calibrationCandidate:null);
-const referenceJson=computed(()=>candidate.value?JSON.stringify([{taskId:candidate.value.source.taskId,executionId:candidate.value.source.executionId,nodeId:candidate.value.source.nodeId,contentHash:candidate.value.contentHash}]):'');
+const candidateBound=computed(()=>!!candidate.value&&typeof candidate.value.source.modelKey==='string'&&/^[a-f0-9]{64}$/.test(candidate.value.source.modelKey)&&typeof candidate.value.source.deploymentRef==='string'&&/^[A-Za-z0-9][A-Za-z0-9:_./@+-]{0,127}$/.test(candidate.value.source.deploymentRef));
+const referenceJson=computed(()=>candidateBound.value&&candidate.value?JSON.stringify([{taskId:candidate.value.source.taskId,executionId:candidate.value.source.executionId,nodeId:candidate.value.source.nodeId,contentHash:candidate.value.contentHash}]):'');
 const comparison=computed(()=>props.calibrationComparison?.schemaVersion==='iqc-calibration-paired-diagnostics-v1'?props.calibrationComparison:null);
 const comparisonRows=computed(()=>comparison.value?[
  {metric:'Brier',before:comparison.value.pairedRaw.brierScore,after:comparison.value.pairedCalibrated.brierScore,delta:comparison.value.brierDelta},
@@ -25,12 +26,15 @@ const percent=(value:number|null|undefined)=>value==null?'无分母':`${(value*1
  </a-descriptions>
  <template v-if="candidate">
   <a-alert type="warning" show-icon message="拟合候选不代表经过独立验证或发布。是否用于融合取决于流水线和任务的精确引用；每箱样本不足时不输出候选值。" />
-  <a-typography-paragraph :copyable="{text:referenceJson}">精确引用：{{referenceJson}}</a-typography-paragraph>
+  <a-alert v-if="!candidateBound" type="warning" show-icon message="该候选未绑定唯一的模型与部署调用身份，仅供诊断，不能用于执行。请使用具备部署证据且来源一致的评测重新拟合。" />
+  <a-typography-paragraph v-if="candidateBound" :copyable="{text:referenceJson}">精确引用：{{referenceJson}}</a-typography-paragraph>
   <a-descriptions :column="2" style="margin-top:12px">
    <a-descriptions-item label="每箱最少样本">{{candidate.minimumBinSamples}}</a-descriptions-item>
    <a-descriptions-item label="已测量 / 已知金标">{{candidate.scored}} / {{candidate.eligibleKnownGold}}</a-descriptions-item>
    <a-descriptions-item label="来源执行">{{candidate.source.executionId}}</a-descriptions-item>
    <a-descriptions-item label="新拟合候选摘要">{{candidate.contentHash}}</a-descriptions-item>
+   <a-descriptions-item v-if="candidateBound" label="模型身份摘要">{{candidate.source.modelKey}}</a-descriptions-item>
+   <a-descriptions-item v-if="candidateBound" label="部署引用">{{candidate.source.deploymentRef}}</a-descriptions-item>
   </a-descriptions>
  </template>
  <template v-if="comparison">

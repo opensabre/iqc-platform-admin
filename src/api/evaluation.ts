@@ -33,7 +33,7 @@ export interface EvaluationResult {id:string;taskId:string;executionId:string;da
 export interface FindingSummary {counts:Record<string,number>;precision:number|null;recall:number|null;f1:number|null;coverage:number|null;valueAccuracy:number|null;stateAccuracy:number|null;evidenceAccuracy:number|null}
 export interface ConfidenceCalibrationCandidate {
  schemaVersion:string;method:string;event:string;eligibleKnownGold:number;scored:number;minimumBinSamples:number;contentHash:string;
- source:{taskId:string;executionId:string;datasetHash:string;pipelineHash:string;evidenceHash:string;nodeId:string;nodeHash:string;findingCode:string};
+ source:{taskId:string;executionId:string;datasetHash:string;pipelineHash:string;evidenceHash:string;nodeId:string;nodeHash:string;findingCode:string;modelKey?:string|null;deploymentRef?:string|null};
  bins:Array<{index:number;samples:number;correct:number;calibratedProbability:number|null}>;
 }
 export interface CalibrationComparison {
