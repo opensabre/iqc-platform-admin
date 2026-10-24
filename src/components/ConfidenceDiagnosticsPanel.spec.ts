@@ -13,6 +13,7 @@ function mount(initial:ConfidenceCalibrationCandidate|null) {
  host=document.createElement('div');document.body.append(host);app=createApp({render:()=>h(Panel,props)});
  const pass=defineComponent({setup(_, {slots,attrs}){return()=>h('div',[String(attrs.message??''),String(attrs.title??''),String(attrs.label??''),slots.default?.()]);}});
  for(const name of ['ACard','AAlert','ADescriptions','ADescriptionsItem'])app.component(name,pass);
+ app.component('ATypographyParagraph',defineComponent({props:['copyable'],setup(p,{slots}){return()=>h('p',{'data-copy':p.copyable.text},slots.default?.());}}));
  app.component('ATable',defineComponent({props:['dataSource'],setup(p,{slots}){provide('rows',()=>p.dataSource);return()=>h('div',slots.default?.());}}));
  app.component('ATableColumn',defineComponent({props:['title','dataIndex'],setup(p,{slots}){const rows=inject<()=>Record<string,unknown>[]>('rows')!;return()=>h('section',[p.title,...rows().map(record=>h('span',slots.default?.({record})??String(record[p.dataIndex]??'')))]);}}));
  app.mount(host);return props;
@@ -27,4 +28,16 @@ it('removes candidate claims when switching to a historical report without a can
  const props=mount(candidate);props.calibrationCandidate=null;await nextTick();
  expect(host.textContent).not.toContain('original-execution');expect(host.textContent).not.toContain('候选经验率');expect(host.textContent).not.toContain('尚未发布');
  expect(host.textContent).toContain('Brier');
+});
+
+it('copies only an exact four-field reference array and updates it when the selected report changes',async()=>{
+ const props=mount(candidate);
+ const copied=()=>JSON.parse(host.querySelector('p[data-copy]')!.getAttribute('data-copy')!);
+ expect(copied()).toEqual([{taskId:'task',executionId:'original-execution',nodeId:'node',contentHash:'e'.repeat(64)}]);
+ props.calibrationCandidate={...candidate,source:{...candidate.source,taskId:'other-task',executionId:'other-execution'},contentHash:'f'.repeat(64)};
+ await nextTick();
+ expect(copied()).toEqual([{taskId:'other-task',executionId:'other-execution',nodeId:'node',contentHash:'f'.repeat(64)}]);
+ const copy=host.querySelector('p[data-copy]')!.getAttribute('data-copy')!;
+ expect(copy).not.toContain('calibratedProbability');expect(copy).not.toContain('datasetHash');expect(copy).not.toContain('original-execution');
+ props.calibrationCandidate=null;await nextTick();expect(host.querySelector('p[data-copy]')).toBeNull();
 });
