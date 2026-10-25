@@ -81,3 +81,9 @@ Original 47028 had four passes and one fixture DataCloneError from structuredClo
 权限变化沿原代次机制清报告、关闭选项并隔离旧响应；旧后端缺可选统计时明确无法确认。后端五字段来源、当前组织授权及 SQL 口径见后端 docs/iqc-action-failure-metrics.md。构建/专项实际终态以根协作记录为准，未据页面存在宣称真实 PDP/浏览器/外部动作成功。
 
 Root 原68367 build 终态0，/tmp/iqc-action-metrics-ui.exit=0，vue-tsc/Vite通过，保留chunk大小提示，diff通过。Root未新增/执行测试；独立组件、真实组织授权与SQL组合仍待 B，不能据构建称指标或PRD整体验收完成。
+
+## Action failure metrics component verification
+
+BusinessQualityReport.spec.ts adds seven action metrics scenarios: no history permission means no option or metrics request; explicit opt-in transmits the fifth flag and preserves large decimal count strings; revocation clears loaded data and invalidates pending responses, restoration requires fresh opt-in; absent or unknown metrics protocols warn instead of asserting success; no records retain an unmeasured denominator and explicit no-success-evidence text.
+
+Fixed 35f3892 was merged with both appended documentation sections preserved. Original 30360 passed the first twenty component tests; original 3279 then passed all 22 and vue-tsc, with `/tmp/iqc-b-action-metrics-ui-final.log.exit=0` and `/tmp/iqc-b-action-metrics-ui-types.log.exit=0`. API and permissions are controlled component fixtures. No production behavior changed in this validation; real PDP/browser/backend acceptance remains separate.

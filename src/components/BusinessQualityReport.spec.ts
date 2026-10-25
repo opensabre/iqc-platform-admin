@@ -236,4 +236,48 @@ describe("business quality report", () => {
     expect(button("查询业务统计").disabled).toBe(false);
   });
 
+  const actionGrant="iqc:action:history:view";
+  function withActions():Report{return {...report,actionMetrics:{schemaVersion:"iqc-business-action-metrics-v1",selectedResults:2,boundResults:1,unboundResults:1,
+    actionCount:"9007199254740993",confirmedSuccessCount:"1",confirmedFailureCount:"2",unresolvedCount:"9007199254740990",confirmedFailureRate:66.67,states:[]}};}
+  async function enableActions(){
+    const label=[...host.querySelectorAll("label")].find(item=>item.textContent?.includes("包含所选结果轮次的动作状态"))!;
+    const checkbox=label.querySelector<HTMLInputElement>('input[type="checkbox"]')!;checkbox.checked=true;checkbox.dispatchEvent(new Event("change"));await settle();
+  }
+  it("hides action option without permission and preserves default request",async()=>{
+    mount();await select(["task"]);expect(host.textContent).not.toContain("包含所选结果轮次的动作状态");button("查询业务统计").click();await settle();
+    expect(getBusinessQualityReport).toHaveBeenCalledWith(["task"],{task:"LATEST"},"SELECTED_RUNS");
+  });
+  it("requests explicit action metrics and preserves exact count strings",async()=>{
+    state.permissions.push(actionGrant);vi.mocked(getBusinessQualityReport).mockResolvedValue(withActions());
+    mount();await select(["task"]);await enableActions();button("查询业务统计").click();await settle();
+    expect(getBusinessQualityReport).toHaveBeenCalledWith(["task"],{task:"LATEST"},"SELECTED_RUNS",false,true);
+    expect(host.textContent).toContain("9007199254740993");expect(host.textContent).toContain("66.67%");
+  });
+  it("clears loaded action data on revoke and requires fresh opt-in after restore",async()=>{
+    state.permissions.push(actionGrant);vi.mocked(getBusinessQualityReport).mockResolvedValue(withActions());mount();await select(["task"]);await enableActions();button("查询业务统计").click();await settle();
+    state.permissions.splice(state.permissions.indexOf(actionGrant),1);await settle();expect(host.textContent).not.toContain("9007199254740993");
+    state.permissions.push(actionGrant);await settle();button("查询业务统计").click();await settle();
+    expect(vi.mocked(getBusinessQualityReport).mock.calls.at(-1)).toEqual([["task"],{task:"LATEST"},"SELECTED_RUNS"]);
+  });
+  it("discards late action metrics after history permission revoke",async()=>{
+    state.permissions.push(actionGrant);let resolve!:(value:Report)=>void;vi.mocked(getBusinessQualityReport).mockReturnValueOnce(new Promise(done=>{resolve=done;}));
+    mount();await select(["task"]);await enableActions();button("查询业务统计").click();await settle();state.permissions.splice(state.permissions.indexOf(actionGrant),1);await settle();
+    resolve(withActions());await settle();state.permissions.push(actionGrant);await settle();expect(host.textContent).not.toContain("9007199254740993");
+  });
+  it("warns when requested action metrics are absent instead of implying success",async()=>{
+    state.permissions.push(actionGrant);mount();await select(["task"]);await enableActions();button("查询业务统计").click();await settle();
+    expect(host.textContent).toContain("无法确认动作失败率");expect(host.textContent).not.toContain("已确认动作失败率：0%");
+  });
+
+  it("rejects unknown action metrics protocol",async()=>{
+    state.permissions.push(actionGrant);const response=withActions();response.actionMetrics!.schemaVersion="future-protocol" as never;
+    vi.mocked(getBusinessQualityReport).mockResolvedValue(response);mount();await select(["task"]);await enableActions();button("查询业务统计").click();await settle();
+    expect(host.textContent).toContain("无法确认动作失败率");expect(host.textContent).not.toContain("9007199254740993");
+  });
+  it("keeps zero records distinct from a measured zero failure rate",async()=>{
+    state.permissions.push(actionGrant);const response=withActions();Object.assign(response.actionMetrics!,{actionCount:"0",confirmedSuccessCount:"0",confirmedFailureCount:"0",unresolvedCount:"0",confirmedFailureRate:null});
+    vi.mocked(getBusinessQualityReport).mockResolvedValue(response);mount();await select(["task"]);await enableActions();button("查询业务统计").click();await settle();
+    expect(host.textContent).toContain("已确认动作失败率：未测量");expect(host.textContent).toContain("不代表动作已经执行成功");
+  });
+
 });
