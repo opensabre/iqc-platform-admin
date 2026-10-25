@@ -19,3 +19,9 @@ sample:view、完整会话或 PII 读取权限变化同步清除已加载样本�
 本批构建与 B 独立专项的终态以根协作记录为准；构建不证明真实 PDP/组织撤权或浏览器整链。
 
 Root 本轮原77145构建终态0，/tmp/iqc-mined-pool-permission-ui.exit=0；vue-tsc + Vite通过，Vite耗时2m5s，现有chunk提示保留。Root未新增或运行测试；权限变更/迟到响应及来源说明交互的独立专项仍交 B。
+
+## Fixed candidate-pool component verification
+
+On fixed UI baseline 6607966, `candidate-pool.spec.ts` adds eleven component scenarios. Together with the existing two business-report integration tests, original process 54614 passed all thirteen (`/tmp/iqc-b-candidate-pool-ui.log.exit=0`). Covers no sample IO without sample:view, loaded and pending-response revocation, fresh authorized read on restore, FULL/PII revocation, bounded supported mining reasons, unknown protocol/version/reason/duplicates/oversized JSON rejection, and independent source type versus actual APPROVED Gold state.
+
+Original build process 61409 exited 0 (`/tmp/iqc-b-candidate-pool-build.log.exit=0`): vue-tsc and Vite passed; Vite retained its >500kB chunk warning. Permissions, API promises and table rendering are controlled component fixtures. This is not real PDP or browser/backend acceptance. No production source changed for this validation.
