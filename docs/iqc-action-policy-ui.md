@@ -62,3 +62,9 @@ v2 必须选择当前流水线已声明的 1–50 个不同事实编码，阈值
 候选池将 UNCLASSIFIED 显示为“未分类（挖掘候选）”，与金标状态分别展示；不预判误报/漏报，也不自动生成金标。人工标注及独立审核沿用已有入口，数据范围沿用单租户组织权限。来源元数据的可见性仍由原服务端读取投影控制。
 
 本轮 Root 仅执行 pnpm run build（vue-tsc + Vite），原 4951 已终态且 /tmp/iqc-mining-action-v2-ui.exit=0；保留现有 chunk 大小提示。组件交互、真实授权、发现/claim/生产持久化及 Gold 整链验证交由 B 后续专项，不以构建通过代替验收。
+
+## Mined candidate publication validation
+
+`mined-action-policy.spec.ts` adds 24 cases: preserves exact threshold strings (including 18 decimal places and 0/1 boundaries) without Number coercion; rejects numeric/exponent/out-of-range/over-scale values, invalid/duplicate/empty/over-limit/undeclared finding references and stale v1 or expected-label fields. Omitted-version v1 round-trips without upgrade, unknown adapter versions remain read-only with original configuration. Returned configuration is independent of input mutation.
+
+Original 51409 failed seven new equality assertions because the fixture omitted the existing retry:null normalization; after explicitly including retry:null, original 78457 passed 38 tests (new 24 + external policy 3 + candidate pool 11), `/tmp/iqc-b-mined-action-policy-final.log.exit=0`. Original 73195 type-check exited 0, `/tmp/iqc-b-mined-action-policy-types.log.exit=0`. No production changes. Pure validator evidence does not prove component mode-switch interaction or browser/backend publication.
