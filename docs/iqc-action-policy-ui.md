@@ -70,3 +70,15 @@ v2 必须选择当前流水线已声明的 1–50 个不同事实编码，阈值
 权限变化沿原代次机制清报告、关闭选项并隔离旧响应；旧后端缺可选统计时明确无法确认。后端五字段来源、当前组织授权及 SQL 口径见后端 docs/iqc-action-failure-metrics.md。构建/专项实际终态以根协作记录为准，未据页面存在宣称真实 PDP/浏览器/外部动作成功。
 
 Root 原68367 build 终态0，/tmp/iqc-action-metrics-ui.exit=0，vue-tsc/Vite通过，保留chunk大小提示，diff通过。Root未新增/执行测试；独立组件、真实组织授权与SQL组合仍待 B，不能据构建称指标或PRD整体验收完成。
+
+## Mined candidate publication validation
+
+`mined-action-policy.spec.ts` adds 24 cases: preserves exact threshold strings (including 18 decimal places and 0/1 boundaries) without Number coercion; rejects numeric/exponent/out-of-range/over-scale values, invalid/duplicate/empty/over-limit/undeclared finding references and stale v1 or expected-label fields. Omitted-version v1 round-trips without upgrade, unknown adapter versions remain read-only with original configuration. Returned configuration is independent of input mutation.
+
+Original 51409 failed seven new equality assertions because the fixture omitted the existing retry:null normalization; after explicitly including retry:null, original 78457 passed 38 tests (new 24 + external policy 3 + candidate pool 11), `/tmp/iqc-b-mined-action-policy-final.log.exit=0`. Original 73195 type-check exited 0, `/tmp/iqc-b-mined-action-policy-types.log.exit=0`. No production changes. Pure validator evidence does not prove component mode-switch interaction or browser/backend publication.
+
+## Candidate mode component interactions
+
+`ActionPolicyEditor.mining.spec.ts` exercises five component scenarios: v1/v2 switching clears incompatible fields and preserves name/tags/condition; selecting the current omitted-version v1 does not upgrade or reset revision; the threshold input preserves 18-place decimal text; disabled actions cannot switch; unknown versions render read-only. Select/input UI primitives are controlled, while the actual editor handlers and parent model updates run.
+
+Original 47028 had four passes and one fixture DataCloneError from structuredClone on a Vue proxy; the terminal run was corrected to snapshot plain JSON. Original 87648 then passed 29 tests (five interactions plus 24 publication validator cases), `/tmp/iqc-b-mining-mode-final.log.exit=0`. Original 28824 type-check exited 0. No production source changes; this does not prove browser/backend publication.
