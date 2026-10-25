@@ -66,3 +66,5 @@ B前端快进至固定A06d85be（含标签显示/Gold地址/引用报告/会话�
 Benchmark原面板可选附带来源执行已记录调用与费用（task:model-calls:view），沿原getBenchmarkReport开关；默认省略，报告缺modelUsage不影响原质量表。两侧显示bound/expected/unbound、调用/已知未知数量、已测调用耗时和分币种小计，金额/账本计数按精确字符串展示，不转Number求和或自动推断胜者。切换开关/执行清报告，调用权限撤销也清报告与开关。文案明确非当前轮次/生命周期总账、无记录不等于零成本，重试继承按原样本来源EID。
 
 来源执行RunUsage可选tokens在同一Benchmark面板显示输入/输出/总量各自已知小计及已知/未知调用；小计字符串不转Number，无贡献显示未测量而非0，不相互推算总数。旧报告无tokens则不显示此表，仍沿原调用统计权限/来源范围/迟到响应清理机制。
+
+业务质量报告原可选调用卡补供应商已报告输入/输出/总Token，各自已知/未知调用和nullable小计，复用共享CallTokenSummary/CallLatencySummary类型，不使用Number转换大数。旧无tokens保留原成本/耗时展示，原includeModelUsage与权限及切换清理机制不变；不增加模型调用或重新查询账本。
