@@ -14,7 +14,21 @@ function closeGold(){
     Modal.confirm({title:"放弃尚未保存的金标编辑？",onOk:()=>{goldOpen.value=false;goldSampleId.value=undefined;}});
   }else{goldOpen.value=false;goldSampleId.value=undefined;}
 }
-const sampleTypeNames:Record<string,string>={POSITIVE:'正样本',NEGATIVE:'负样本',FALSE_POSITIVE:'误报',FALSE_NEGATIVE:'漏报',UNCLASSIFIED:'未分类（挖掘候选）'};
+const sampleTypeNames:Record<string,string>={POSITIVE:'正样本',NEGATIVE:'负样本',FALSE_POSITIVE:'误报',FALSE_NEGATIVE:'漏报',UNCLASSIFIED:'未分类（挖掘来源）'};
+const miningReasonNames:Record<string,string>={MISSING_FINDING:'缺少事实',FINDING_UNKNOWN:'事实未知',FINDING_CONFLICT:'事实冲突',FINDING_ERROR:'事实错误',FINDING_NOT_EVALUATED:'事实未评测',UNMEASURED_CONFIDENCE:'置信度未测量',LOW_CONFIDENCE:'置信度低于阈值',OBSERVATION_DISAGREEMENT:'原始观测分歧'};
+function miningSummary(sample:QualitySample):string {
+ if(sample.sampleType!=='UNCLASSIFIED')return '—';
+ const privacy=sample.privacy;
+ if(!can('iqc:sample:view')||!can('iqc:sensitive:conversation:read')||!can('iqc:sensitive:pii:read')||privacy?.policyVersion!=='iqc-gold-read-v1'||privacy.candidateContentVisible!==true||!privacy.canReadFull||!privacy.canReadPii)return '筛选依据受权限限制';
+ if(typeof sample.expectedJson!=='string'||sample.expectedJson.length>16384)return '筛选依据不可用';
+ try{
+  const source:unknown=JSON.parse(sample.expectedJson);
+  if(!source||typeof source!=='object'||Array.isArray(source))return '筛选依据不可用';
+  const value=source as Record<string,unknown>;
+  if(value.schemaVersion!=='iqc-ai-mined-candidate-v1'||value.miningStrategy!=='FUSED_UNCERTAINTY'||value.miningVersion!==1||!Array.isArray(value.reasonCodes)||!value.reasonCodes.length||value.reasonCodes.length>20||new Set(value.reasonCodes).size!==value.reasonCodes.length||value.reasonCodes.some(code=>typeof code!=='string'||!Object.hasOwn(miningReasonNames,code)))return '筛选依据不可用';
+  return '待核实：'+value.reasonCodes.map(code=>miningReasonNames[code as string]).join('、');
+ }catch{return '筛选依据不可用';}
+}
 function openGold(sample:QualitySample){goldSampleId.value=sample.id;goldOpen.value=true;}
 const businessReport = ref<InstanceType<typeof BusinessQualityReport>>();
 const queue = ref<InstanceType<typeof BusinessReviewQueue>>();
@@ -50,6 +64,10 @@ async function saveDecision(){
  try{await decideReview(id,payload);if(disposed)return;message.success('复核结论已保存');decisionOpen.value=false;await refresh();}
  catch{if(!disposed)message.error('复核处理未确认，请核对历史后再重试');}finally{if(!disposed)deciding.value=false;}
 }
+watch(()=>[can('iqc:sample:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')].join('|'),()=>{
+ samples.value=[];
+ if(active.value==='samples'){generation++;loading.value=false;void refresh();}
+},{flush:'sync'});
 watch(decisionOpen,visible=>{if(!visible){selected.value=undefined;form.value={decision:'APPROVED',finalStatus:'HIT',finalScore:100,finalRiskLevel:'LOW',comment:''};}});
 onBeforeUnmount(()=>{disposed=true;generation++;reviews.value=[];feedbacks.value=[];samples.value=[];report.value=undefined;selected.value=undefined;form.value.comment='';});
 
@@ -66,7 +84,7 @@ onBeforeUnmount(()=>{disposed=true;generation++;reviews.value=[];feedbacks.value
     <a-tab-pane v-if="can('iqc:report:view')" key="business-report" tab="业务评分统计"><BusinessQualityReport ref="businessReport" /></a-tab-pane>
     <a-tab-pane key="reviews" tab="人工复核"><a-table :data-source="reviews" :loading="loading" row-key="id"><a-table-column title="结果" data-index="resultId"/><a-table-column title="原状态" data-index="originalStatus"/><a-table-column title="原分数" data-index="originalScore"/><a-table-column title="复核状态" data-index="status"><template #default="{text}"><a-tag :color="text==='PENDING'?'orange':text==='CORRECTED'?'blue':'green'">{{text}}</a-tag></template></a-table-column><a-table-column title="复核人" data-index="reviewerId"/><a-table-column title="操作"><template #default="{record}"><a-button v-if="record.status==='PENDING'&&can('iqc:review:decide')" type="link" @click="openDecision(record)">处理</a-button></template></a-table-column></a-table></a-tab-pane>
     <a-tab-pane key="feedback" tab="误判/漏判"><a-table :data-source="feedbacks" :loading="loading" row-key="id"><a-table-column title="结果" data-index="resultId"/><a-table-column title="标注" data-index="feedbackType"/><a-table-column title="说明" data-index="comment"/><a-table-column title="状态" data-index="status"/><a-table-column title="时间" data-index="createdTime"/></a-table></a-tab-pane>
-    <a-tab-pane key="samples" tab="样本库"><a-alert type="info" show-icon message="已复核候选保存完整输入与裁决；自动挖掘候选保留原输入和筛选依据，不预判误报/漏报。CANDIDATE 仍需人工标注与独立金标审核后才能进入数据集。" /><a-table :data-source="samples" :loading="loading" row-key="id"><a-table-column title="名称" data-index="name"/><a-table-column title="类型"><template #default="{record}">{{sampleTypeNames[record.sampleType]||record.sampleType}}</template></a-table-column><a-table-column title="内容快照" ellipsis><template #default="{record}">{{record.privacy?.candidateContentVisible===false?"内容受权限限制":record.contentSnapshot||"—"}}</template></a-table-column><a-table-column title="状态" data-index="status"/><a-table-column title="金标状态"><template #default="{record}">{{record.goldStatus||'UNLABELLED'}}</template></a-table-column><a-table-column title="时间" data-index="createdTime"/><a-table-column title="操作"><template #default="{record}"><a-button v-if="can('iqc:gold:view')" type="link" @click="openGold(record)">金标标注与审核</a-button></template></a-table-column></a-table></a-tab-pane>
+    <a-tab-pane key="samples" tab="样本库"><a-alert type="info" show-icon message="已复核候选保存完整输入与裁决；自动挖掘候选保留原输入和筛选依据，不预判误报/漏报。CANDIDATE 仍需人工标注与独立金标审核后才能进入数据集。" /><a-table :data-source="samples" :loading="loading" row-key="id"><a-table-column title="名称" data-index="name"/><a-table-column title="类型"><template #default="{record}">{{sampleTypeNames[record.sampleType]||record.sampleType}}</template></a-table-column><a-table-column title="内容快照" ellipsis><template #default="{record}">{{record.privacy?.candidateContentVisible===false?"内容受权限限制":record.contentSnapshot||"—"}}</template></a-table-column><a-table-column title="挖掘依据（非裁决）"><template #default="{record}">{{miningSummary(record)}}</template></a-table-column><a-table-column title="状态" data-index="status"/><a-table-column title="金标状态"><template #default="{record}">{{record.goldStatus||'UNLABELLED'}}</template></a-table-column><a-table-column title="时间" data-index="createdTime"/><a-table-column title="操作"><template #default="{record}"><a-button v-if="can('iqc:gold:view')" type="link" @click="openGold(record)">金标标注与审核</a-button></template></a-table-column></a-table></a-tab-pane>
   </a-tabs></a-card>
   <a-drawer :open="goldOpen" title="金标样本" :width="960" :destroy-on-close="true" :mask-closable="false" :keyboard="false" @close="closeGold"><GoldSampleEditor v-if="goldSampleId" ref="goldEditor" :sample-id="goldSampleId" @changed="refresh" /></a-drawer>
   <a-modal v-model:open="decisionOpen" title="处理人工复核" :confirm-loading="deciding" :closable="!deciding" :mask-closable="!deciding" :keyboard="!deciding" :cancel-button-props="{disabled:deciding}" @ok="saveDecision"><a-form layout="vertical" :disabled="deciding"><a-form-item label="决定"><a-select v-model:value="form.decision"><a-select-option value="APPROVED">确认原结论</a-select-option><a-select-option value="CORRECTED">修正结论</a-select-option><a-select-option value="REJECTED">退回</a-select-option></a-select></a-form-item><template v-if="form.decision==='CORRECTED'"><a-form-item label="结果状态"><a-select v-model:value="form.finalStatus"><a-select-option value="HIT">命中</a-select-option><a-select-option value="NOT_HIT">未命中</a-select-option><a-select-option value="ERROR">错误</a-select-option></a-select></a-form-item><a-form-item label="最终分数"><a-input-number v-model:value="form.finalScore" :min="0" :max="100"/></a-form-item><a-form-item label="风险"><a-select v-model:value="form.finalRiskLevel"><a-select-option value="LOW">低</a-select-option><a-select-option value="MEDIUM">中</a-select-option><a-select-option value="HIGH">高</a-select-option></a-select></a-form-item></template><a-form-item label="复核说明"><a-textarea v-model:value="form.comment" :rows="3"/></a-form-item></a-form></a-modal>
