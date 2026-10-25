@@ -37,8 +37,8 @@ function populate(row:GoldSample){
  decision.value={score:d?.decision?.score,scoreStatus:d?.decision?.scoreStatus,risk:d?.decision?.risk};scoreText.value=d?.decision?.score==null?'':String(d.decision.score);
  labels.value=JSON.stringify(d?.decision?.labels??{},null,2);baseline.value=stateKey();
 }
-async function load(){const ticket=++generation;++historyGeneration;++snapshotGeneration;sample.value=undefined;draft.value=undefined;precisionRestricted.value=false;scoreText.value='';findings.value=[];versions.value=[];historyPage.value=1;historyTotal.value=0;snapshot.value='';snapshotProjected.value=false;reason.value='';tags.value=[];difficulty.value='BASIC';context.value='{}';decisionEnabled.value=false;decision.value={};labels.value='{}';baseline.value='';error.value='';loading.value=true;busy.value=false;try{const row=await getGoldSample(props.sampleId);if(ticket===generation)populate(row);}catch{if(ticket===generation)error.value='金标草稿加载失败或协议无效，请重试。';}finally{if(ticket===generation)loading.value=false;}}
-watch(()=>props.sampleId,()=>void load(),{immediate:true});
+async function load(){const ticket=++generation;++historyGeneration;++snapshotGeneration;sample.value=undefined;draft.value=undefined;precisionRestricted.value=false;scoreText.value='';findings.value=[];versions.value=[];historyPage.value=1;historyTotal.value=0;snapshot.value='';snapshotProjected.value=false;reason.value='';tags.value=[];difficulty.value='BASIC';context.value='{}';decisionEnabled.value=false;decision.value={};labels.value='{}';baseline.value='';error.value='';loading.value=true;busy.value=false;if(!can('iqc:gold:view')){loading.value=false;return;}try{const row=await getGoldSample(props.sampleId);if(ticket===generation)populate(row);}catch{if(ticket===generation)error.value='金标草稿加载失败或协议无效，请重试。';}finally{if(ticket===generation)loading.value=false;}}
+watch(()=>[props.sampleId,can('iqc:gold:view')],()=>void load(),{immediate:true,flush:'sync'});
 // Invalidate pending loads and commands when the editor leaves its owning page.
 onBeforeUnmount(()=>{++generation;clearAuxiliary();});
 class GoldPrecisionError extends Error {}

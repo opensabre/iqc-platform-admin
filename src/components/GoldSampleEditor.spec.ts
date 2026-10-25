@@ -1,9 +1,10 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
-import {createApp,defineComponent,h,nextTick,type App} from 'vue';
+import {createApp,defineComponent,h,nextTick,reactive,type App} from 'vue';
 import GoldSampleEditor from './GoldSampleEditor.vue';
 import {message} from 'ant-design-vue';
 import {getGoldSample,annotateGold,reviewGold,type GoldSample,type GoldVersion} from '@/api/evaluation';
-vi.mock('@/composables/permission',()=>({usePermission:()=>({can:()=>true})}));
+const access=vi.hoisted(()=>({denied:[] as string[]}));
+vi.mock('@/composables/permission',()=>({usePermission:()=>({can:(code:string)=>!access.denied.includes(code)})}));
 vi.mock('@/api/evaluation',()=>({getGoldSample:vi.fn(),annotateGold:vi.fn(),reviewGold:vi.fn(),listGoldVersions:vi.fn(),getGoldVersion:vi.fn()}));
 vi.mock('ant-design-vue',()=>({message:{success:vi.fn(),warning:vi.fn(),error:vi.fn()}}));
 const pass=defineComponent({setup(_,{slots,attrs}){return()=>h('div',[attrs.message as string,slots.default?.()]);}});
@@ -22,7 +23,7 @@ function mount(changed=vi.fn()){
  app.mount(host);
 }
 function saveButton(){return [...host.querySelectorAll('button')].find(b=>b.textContent==='保存标注');}
-beforeEach(()=>vi.clearAllMocks());afterEach(()=>{app?.unmount();host?.remove();});
+beforeEach(()=>{vi.resetAllMocks();access.denied=reactive<string[]>([]);});afterEach(()=>{app?.unmount();host?.remove();});
 describe('Gold draft protocol compatibility',()=>{
  it.each(['iqc-gold-draft-v1','iqc-gold-draft-v2'])('loads %s frozen draft for annotation',async schema=>{
   vi.mocked(getGoldSample).mockResolvedValue(sample(schema));mount();await settle();
@@ -62,5 +63,28 @@ describe('Gold editor pending commands after unmount',()=>{
   [...host.querySelectorAll('button')].find(b=>b.textContent==='批准')!.click();await settle();expect(reviewGold).toHaveBeenCalledTimes(1);
   dispose();pending.resolve({id:'version',sampleId:'sample',versionNo:1,sourceDraftRevision:1,decision:'APPROVED',reviewerId:'reviewer',reason:'checked',contentHash:'hash'});await settle();
   expect(changed).not.toHaveBeenCalled();expect(getGoldSample).toHaveBeenCalledTimes(1);expect(message.success).not.toHaveBeenCalled();
+ });
+});
+
+describe('Gold view permission revocation',()=>{
+ it('does not read a gold sample when view access is absent',async()=>{
+  access.denied.push('iqc:gold:view');mount();await settle();expect(getGoldSample).not.toHaveBeenCalled();
+ });
+ it('clears loaded text and requires a fresh response after access returns',async()=>{
+  const row=sample('iqc-gold-draft-v2'),fresh=deferred<GoldSample>();vi.mocked(getGoldSample).mockResolvedValueOnce(row).mockReturnValueOnce(fresh.promise);
+  mount();await settle();expect(host.textContent).toContain('frozen text');
+  access.denied.push('iqc:gold:view');await settle();expect(host.textContent).not.toContain('frozen text');
+  access.denied.splice(0);await settle();expect(getGoldSample).toHaveBeenCalledTimes(2);expect(host.textContent).not.toContain('frozen text');
+  fresh.resolve({...row,goldDraftJson:row.goldDraftJson!.replace('frozen text','fresh text')});await settle();expect(host.textContent).toContain('fresh text');
+ });
+ it('does not revive an in-flight sample after access is revoked',async()=>{
+  const pending=deferred<GoldSample>();vi.mocked(getGoldSample).mockReturnValue(pending.promise);mount();await settle();
+  access.denied.push('iqc:gold:view');await settle();pending.resolve(sample('iqc-gold-draft-v2'));await settle();expect(host.textContent).not.toContain('frozen text');
+ });
+ it('ignores a saved annotation response after view access is revoked',async()=>{
+  const row=sample('iqc-gold-draft-v2'),pending=deferred<GoldSample>(),changed=vi.fn();vi.mocked(getGoldSample).mockResolvedValue(row);vi.mocked(annotateGold).mockReturnValue(pending.promise);
+  mount(changed);await settle();saveButton()!.click();await settle();expect(annotateGold).toHaveBeenCalledTimes(1);
+  access.denied.push('iqc:gold:view');await settle();pending.resolve(row);await settle();
+  expect(host.textContent).not.toContain('frozen text');expect(changed).not.toHaveBeenCalled();expect(getGoldSample).toHaveBeenCalledTimes(1);expect(message.success).not.toHaveBeenCalled();
  });
 });

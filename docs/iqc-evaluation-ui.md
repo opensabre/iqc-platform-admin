@@ -86,3 +86,9 @@ GoldSampleEditor同时接受后端已有iqc-gold-draft-v1/v2。此前精确输�
 编辑器卸载时废弃原generation和历史/快照代次。已发送保存或审核仍由服务器处理；迟到结果不再触发旧编辑器重新加载、错误/成功提示或后续UI写入。样本切换仍使用原load代次机制。
 
 原8088修复前终态1：新增保存成功/保存失败/审核成功的卸载回归3项失败，协议4项通过。Vue自身抑制卸载后的emit，但旧代码仍继续GET草稿或显示全局错误。补onBeforeUnmount后原72988终态0，/tmp/iqc-b-gold-editor-unmount-final.log.exit=0（Gold7+业务报告15+Benchmark4，共26项）与/tmp/iqc-b-gold-editor-unmount-types.log.exit=0（vue-tsc）。本轮API为受控Promise，非真实浏览器/后端事务或权限服务验收。
+
+## 2026-10-25 Gold 读取权限撤销
+
+Gold编辑器同步监听样本ID与gold:view；撤权走原load清除草稿、历史、快照、表单及所有请求代次，缺读取权限不请求。恢复权限重新读取当前授权响应，挂起读取/保存回执不能恢复旧内容。尚未取消服务器命令，不据UI清理推断命令失败。
+
+原88679修复前11项3失败，缺权限读/加载后撤权/保存后撤权均复现；挂起读初轮曾受跨测试残留一次性mock影响，不计独立通过。终态后测试改每例resetAllMocks。原39788终态0，/tmp/iqc-b-gold-editor-permission-final.log.exit=0（Gold11+业务报告15+Benchmark4，共30项），/tmp/iqc-b-gold-editor-permission-types.log.exit=0（vue-tsc）。Gold四项独立覆盖初始无授权、加载后撤权恢复新读、挂起读取与保存迟到响应。权限为reactive受控输入、API为Promise夹具，不代表真实PDP或完整浏览器/服务端授权验证。
