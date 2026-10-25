@@ -40,6 +40,10 @@ function mount() {
       h("td", ["averageScore", "qualifiedRate", "failureRate", "scored", "points", "veto"].includes(column.dataIndex)
         ? slots.bodyCell?.({ column, text: row[column.dataIndex] }) : String(row[column.dataIndex]))))));
   } }));
+  app.component("ACheckbox", defineComponent({ props: ["checked"], emits: ["update:checked"], setup(props, { emit, slots }) {
+    return () => h("label", [h("input", { type: "checkbox", checked: props.checked,
+      onChange: (event: Event) => emit("update:checked", (event.target as HTMLInputElement).checked) }), slots.default?.()]);
+  } }));
   app.mount(host);
 }
 describe("business quality report", () => {
@@ -159,4 +163,52 @@ describe("business quality report", () => {
     expect(getBusinessQualityReport).toHaveBeenCalledWith(["task"], undefined, "LATEST_PER_CONVERSATION");
     expect(host.textContent).toContain("从所选任务全部执行实例中取每个会话最新结果");
   });
+  function withTokens(): Report {
+    return { ...report, groups: [{ ...report.groups[0], modelUsage: {
+      schemaVersion: "iqc-business-model-usage-v1", selectedResults: 2, boundResults: 1, unboundResults: 1,
+      costs: { callCount: "8", knownCount: "0", unknownCount: "8", currencies: [] },
+      latency: { callCount: "8", measuredCount: "0", unknownCount: "8", averageMillis: null },
+      tokens: { callCount: "8", input: { knownCount: "3", unknownCount: "5", knownSubtotal: "18446744073709551615" },
+        output: { knownCount: "1", unknownCount: "7", knownSubtotal: "0" },
+        total: { knownCount: "0", unknownCount: "8", knownSubtotal: null } }
+    } }] };
+  }
+  async function enableUsage() {
+    const checkbox=host.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    checkbox.checked=true; checkbox.dispatchEvent(new Event("change", { bubbles: true })); await settle();
+  }
+  it("preserves exact token strings and distinguishes reported zero from missing totals", async () => {
+    state.permissions.push("iqc:task:model-calls:view");
+    vi.mocked(getBusinessQualityReport).mockResolvedValue(withTokens());
+    mount(); await select(["task"]); await enableUsage(); button("查询业务统计").click(); await settle();
+    expect(getBusinessQualityReport).toHaveBeenLastCalledWith(["task"], { task: "LATEST" }, "SELECTED_RUNS", true);
+    expect(host.textContent).toContain("输入 Token：已知小计 18446744073709551615 · 已知 3 / 未知 5");
+    expect(host.textContent).toContain("输出 Token：已知小计 0 · 已知 1 / 未知 7");
+    expect(host.textContent).toContain("总量 Token：已知小计 未测量 · 已知 0 / 未知 8");
+    expect(host.textContent).not.toContain("18446744073709552000");
+    expect(host.textContent).toContain("费用未知 8");
+  });
+  it("clears token data on source changes and ignores late usage responses", async () => {
+    state.permissions.push("iqc:task:model-calls:view");
+    let resolve!: (value: Report) => void;
+    vi.mocked(getBusinessQualityReport).mockReturnValueOnce(new Promise(done => { resolve=done; }));
+    mount(); await select(["task"]); await enableUsage(); button("查询业务统计").click(); await settle();
+    await select(["other"]); resolve(withTokens()); await settle();
+    expect(host.textContent).not.toContain("18446744073709551615");
+    expect(host.querySelector("table")).toBeNull();
+    vi.mocked(getBusinessQualityReport).mockResolvedValue(withTokens());
+    button("查询业务统计").click(); await settle();
+    expect(host.textContent).toContain("18446744073709551615");
+    await select(["third"]);
+    expect(host.textContent).not.toContain("18446744073709551615");
+  });
+  it("keeps old responses without token summaries compatible", async () => {
+    state.permissions.push("iqc:task:model-calls:view");
+    const legacy=withTokens(); delete legacy.groups[0].modelUsage!.tokens;
+    vi.mocked(getBusinessQualityReport).mockResolvedValue(legacy);
+    mount(); await select(["task"]); await enableUsage(); button("查询业务统计").click(); await settle();
+    expect(host.textContent).toContain("费用未知 8");
+    expect(host.textContent).not.toContain("供应商已报告输入 Token");
+  });
+
 });
