@@ -15,6 +15,7 @@ const loading = ref(false), searching = ref(false), error = ref(""), searchError
 const executionLoading = ref(false), executionError = ref("");
 const report = ref<BusinessQualityReport>();
 const includeModelUsage=ref(false);
+const tokenKinds=[{key:'input',label:'输入'},{key:'output',label:'输出'},{key:'total',label:'总量'}] as const;
 let reportRequest = 0, searchRequest = 0, executionRequest = 0;
 const valid = computed(() => {
   if (selected.value.length === 0 || selected.value.length > 20 || !runPolicy.value
@@ -149,12 +150,16 @@ defineExpose({ refresh });
           <details><summary>冻结来源摘要</summary><p>修订 {{group.rollout.revisionId}} · {{group.rollout.revisionHash}}</p><p>策略 {{group.rollout.policyHash}}</p><p>发布 {{group.rollout.selectedReleaseHash}}</p></details>
           <a-alert type="info" show-icon message="仅统计所选任务与执行，按原灰度修订、侧别和冻结评分标准拆组。分桶以任务为单位，语料与执行时段可能不同；请结合下方缺失结果及复核覆盖解释观测，受控对照请使用同数据集 Benchmark。"/>
         </a-card>
-        <a-card v-if="can('iqc:task:model-calls:view')&&group.modelUsage?.schemaVersion==='iqc-business-model-usage-v1'" title="模型调用费用与耗时" size="small" style="margin:12px 0">
+        <a-card v-if="can('iqc:task:model-calls:view')&&group.modelUsage?.schemaVersion==='iqc-business-model-usage-v1'" title="模型调用用量、费用与耗时" size="small" style="margin:12px 0">
           <p>可绑定结果轮次 {{group.modelUsage.boundResults}} / {{group.modelUsage.selectedResults}} · 缺结果或轮次 {{group.modelUsage.unboundResults}}</p>
           <p>调用记录 {{group.modelUsage.costs.callCount}} · 可按声明价格计算 {{group.modelUsage.costs.knownCount}} · 费用未知 {{group.modelUsage.costs.unknownCount}}</p>
           <p v-if="group.modelUsage.costs.callCount==='0'">所选轮次没有匹配调用记录，费用尚无法确认。</p>
           <p v-for="cost in group.modelUsage.costs.currencies" :key="cost.currency??'unknown'">{{cost.currency??'未记录币种'}}：已知费用小计 {{cost.knownSubtotal??'未知'}} · {{cost.knownCount}} 条可计算 / {{cost.unknownCount}} 条费用未知</p>
           <p>已确认调用接收至结算平均耗时 {{group.modelUsage.latency.averageMillis==null?'未测量':`${group.modelUsage.latency.averageMillis} ms`}} · 已测量 {{group.modelUsage.latency.measuredCount}} / {{group.modelUsage.latency.callCount}} · 未测量 {{group.modelUsage.latency.unknownCount}}</p>
+          <template v-if="group.modelUsage.tokens">
+            <p v-for="kind in tokenKinds" :key="kind.key">供应商已报告{{kind.label}} Token：已知小计 {{group.modelUsage.tokens[kind.key].knownSubtotal??'未测量'}} · 已知 {{group.modelUsage.tokens[kind.key].knownCount}} / 未知 {{group.modelUsage.tokens[kind.key].unknownCount}} 条调用</p>
+            <p>三项独立统计，不由输入/输出推算缺失总量；未测量与合法零值区分。</p>
+          </template>
           <a-alert type="info" message="按最终所选结果的任务、执行轮次和会话匹配账本，包含该范围实际记录的重试及工具调用。继承旧结果可能没有本轮调用；缺轮次不会扩大到全部历史。费用为声明价格计算，币种分别列示；调用耗时不含任务排队与完整流程时间。"/>
         </a-card>
         <p class="task-scope">任务范围：{{ group.taskIds.join('、') }}</p>

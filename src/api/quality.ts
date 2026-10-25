@@ -1,4 +1,4 @@
-import type {CostSummary} from "./model-gateway";
+import type {CostSummary,CallLatencySummary,CallTokenSummary} from "./model-gateway";
 import http from "@/api/http";
 import type { BusinessItemResult, BusinessScoringResult } from "./results";
 import type { PageResult } from "./tasks";
@@ -29,7 +29,7 @@ export interface BusinessScoreSummary {
   qualifiedCount: number; averageScore: number | null; qualifiedRate: number | null;
   manualOverrides?:{appliedCount:number;staleCount:number;averageOverrideScore:number|null;effectiveNumericCount:number;averageEffectiveScore:number|null}|null;
 }
-export interface BusinessModelUsage {schemaVersion:'iqc-business-model-usage-v1';selectedResults:number;boundResults:number;unboundResults:number;costs:CostSummary;latency:{callCount:string;measuredCount:string;unknownCount:string;averageMillis:string|null}}
+export interface BusinessModelUsage {schemaVersion:'iqc-business-model-usage-v1';selectedResults:number;boundResults:number;unboundResults:number;costs:CostSummary;latency:CallLatencySummary;tokens?:CallTokenSummary|null}
 export interface BusinessPolicyGroup {
   modelUsage?:BusinessModelUsage|null;
   rollout?:{schemaVersion:'iqc-business-rollout-attribution-v1';revisionId:string;revisionNo:number;revisionHash:string;policyHash:string;side:'BASELINE'|'CANDIDATE';state:'ACTIVE'|'ROLLED_BACK';candidateBasisPoints:number;baselineVersionNo:number;candidateVersionNo:number;selectedVersionNo:number;selectedReleaseHash:string}|null;
