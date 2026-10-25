@@ -7,7 +7,7 @@ const metrics:FindingConfidenceDiagnostics={schemaVersion:'iqc-finding-confidenc
  {index:0,lowerInclusive:0,upperBound:0.1,upperInclusive:false,count:19,meanConfidence:0.05,observedAccuracy:1},
  {index:1,lowerInclusive:0.1,upperBound:0.2,upperInclusive:false,count:21,meanConfidence:0.15,observedAccuracy:0}
 ]};
-const candidate:ConfidenceCalibrationCandidate={schemaVersion:'iqc-confidence-calibration-candidate-v1',method:'EQUAL_WIDTH_10_MIN20',event:'TYPED_VALUE_CORRECTNESS_ON_KNOWN_GOLD',minimumBinSamples:20,eligibleKnownGold:40,scored:40,source:{taskId:'task',executionId:'original-execution',datasetHash:'a'.repeat(64),pipelineHash:'b'.repeat(64),evidenceHash:'c'.repeat(64),nodeId:'node',nodeHash:'d'.repeat(64),findingCode:'QUALITY_HIT'},contentHash:'e'.repeat(64),bins:[{index:0,samples:19,correct:19,calibratedProbability:null},{index:1,samples:21,correct:0,calibratedProbability:0}]};
+const candidate:ConfidenceCalibrationCandidate={schemaVersion:'iqc-confidence-calibration-candidate-v1',method:'EQUAL_WIDTH_10_MIN20',event:'TYPED_VALUE_CORRECTNESS_ON_KNOWN_GOLD',minimumBinSamples:20,eligibleKnownGold:40,scored:40,source:{taskId:'task',executionId:'original-execution',datasetHash:'a'.repeat(64),pipelineHash:'b'.repeat(64),evidenceHash:'c'.repeat(64),nodeId:'node',nodeHash:'d'.repeat(64),findingCode:'QUALITY_HIT',modelKey:'9'.repeat(64),deploymentRef:'provider/model@v1'},contentHash:'e'.repeat(64),bins:[{index:0,samples:19,correct:19,calibratedProbability:null},{index:1,samples:21,correct:0,calibratedProbability:0}]};
 function mount(initial:ConfidenceCalibrationCandidate|null) {
  const props=reactive({metrics,calibrationCandidate:initial});
  host=document.createElement('div');document.body.append(host);app=createApp({render:()=>h(Panel,props)});
@@ -20,13 +20,13 @@ function mount(initial:ConfidenceCalibrationCandidate|null) {
 }
 afterEach(()=>{app?.unmount();host?.remove();});
 it('shows unpublished provenance and distinguishes insufficient samples from a supported zero probability',()=>{
- mount(candidate);expect(host.textContent).toContain('尚未发布，也未用于融合');expect(host.textContent).toContain('original-execution');expect(host.textContent).toContain('e'.repeat(64));
+ mount(candidate);expect(host.textContent).toContain('拟合候选不代表经过独立验证或发布');expect(host.textContent).toContain('original-execution');expect(host.textContent).toContain('e'.repeat(64));
  const column=[...host.querySelectorAll('section')].find(el=>el.textContent?.startsWith('候选经验率'))!;
  expect([...column.querySelectorAll('span')].map(el=>el.textContent)).toEqual(['样本不足','0.00%']);
 });
 it('removes candidate claims when switching to a historical report without a candidate',async()=>{
  const props=mount(candidate);props.calibrationCandidate=null;await nextTick();
- expect(host.textContent).not.toContain('original-execution');expect(host.textContent).not.toContain('候选经验率');expect(host.textContent).not.toContain('尚未发布');
+ expect(host.textContent).not.toContain('original-execution');expect(host.textContent).not.toContain('候选经验率');expect(host.textContent).not.toContain('拟合候选不代表');
  expect(host.textContent).toContain('Brier');
 });
 
@@ -40,4 +40,19 @@ it('copies only an exact four-field reference array and updates it when the sele
  const copy=host.querySelector('p[data-copy]')!.getAttribute('data-copy')!;
  expect(copy).not.toContain('calibratedProbability');expect(copy).not.toContain('datasetHash');expect(copy).not.toContain('original-execution');
  props.calibrationCandidate=null;await nextTick();expect(host.querySelector('p[data-copy]')).toBeNull();
+});
+
+it('keeps diagnostic bins but removes executable references when model binding is lost',async()=>{
+ const props=mount(candidate);expect(host.querySelector('p[data-copy]')).not.toBeNull();
+ props.calibrationCandidate={...candidate,source:{...candidate.source,modelKey:undefined}};await nextTick();
+ expect(host.querySelector('p[data-copy]')).toBeNull();expect(host.textContent).toContain('仅供诊断，不能用于执行');expect(host.textContent).toContain('候选经验率');
+ props.calibrationCandidate=candidate;await nextTick();expect(host.querySelector('p[data-copy]')).not.toBeNull();
+ props.calibrationCandidate={...candidate,source:{...candidate.source,deploymentRef:undefined}};await nextTick();
+ expect(host.querySelector('p[data-copy]')).toBeNull();expect(host.textContent).toContain('仅供诊断，不能用于执行');
+});
+it('rejects malformed model and deployment identities for executable copying',async()=>{
+ const props=mount({...candidate,source:{...candidate.source,modelKey:'not-a-digest'}});
+ expect(host.querySelector('p[data-copy]')).toBeNull();
+ props.calibrationCandidate={...candidate,source:{...candidate.source,deploymentRef:'bad deployment'}};await nextTick();
+ expect(host.querySelector('p[data-copy]')).toBeNull();expect(host.textContent).toContain('仅供诊断，不能用于执行');
 });
