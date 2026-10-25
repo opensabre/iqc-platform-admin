@@ -48,15 +48,20 @@ export interface BusinessReportItem {
   itemCode: string; name: string; scored: boolean; points?: number | null; veto?: boolean;
   machine: BusinessItemSummary; reviewed: BusinessItemSummary;
 }
+export interface BusinessActionMetrics {
+  schemaVersion:'iqc-business-action-metrics-v1';selectedResults:number;boundResults:number;unboundResults:number;
+  actionCount:string;confirmedSuccessCount:string;confirmedFailureCount:string;unresolvedCount:string;confirmedFailureRate:number|null;
+  states:Array<{status:string;outcome:string|null;actionCount:string}>;
+}
 export interface BusinessQualityReport {
   scope: "SELECTED_TASK_RUNS"; runPolicy: "SELECTED_RUNS" | "FIRST_PER_CONVERSATION" | "LATEST_PER_CONVERSATION";
-  taskCount: number; conversationCount: number; groups: BusinessPolicyGroup[];
+  taskCount: number; conversationCount: number; groups: BusinessPolicyGroup[]; actionMetrics?:BusinessActionMetrics|null;
 }
 /** Explicit bounded business view; the default message report contract stays unchanged. */
-export const getBusinessQualityReport = (taskIds: string[], executionSelections?: Record<string, string>, runPolicy?: BusinessQualityReport["runPolicy"], includeModelUsage=false) =>
+export const getBusinessQualityReport = (taskIds: string[], executionSelections?: Record<string, string>, runPolicy?: BusinessQualityReport["runPolicy"], includeModelUsage=false, includeActionMetrics=false) =>
   http.get<BusinessQualityReport>("/iqc/quality-operations/report", {
     params: { view: "BUSINESS", taskIds: taskIds.join(","),
-      ...(executionSelections ? { executionSelections: JSON.stringify(executionSelections) } : {}), ...(runPolicy ? { runPolicy } : {}), ...(includeModelUsage?{includeModelUsage:true}:{}) }
+      ...(executionSelections ? { executionSelections: JSON.stringify(executionSelections) } : {}), ...(runPolicy ? { runPolicy } : {}), ...(includeModelUsage?{includeModelUsage:true}:{}), ...(includeActionMetrics?{includeActionMetrics:true}:{}) }
   }).then(r => r.data);
 
 export type ReviewFeedbackCategory='AI_FALSE_POSITIVE'|'AI_FALSE_NEGATIVE'|'EVIDENCE_WRONG'|'SCORE_POLICY_WRONG'|'DATA/ASR_ERROR'|'RULE_ERROR'|'BUSINESS_STANDARD_CHANGED';

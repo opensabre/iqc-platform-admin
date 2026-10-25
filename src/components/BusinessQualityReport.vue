@@ -14,7 +14,9 @@ const runPolicy = ref<BusinessQualityReport["runPolicy"] | "">("");
 const loading = ref(false), searching = ref(false), error = ref(""), searchError = ref("");
 const executionLoading = ref(false), executionError = ref("");
 const report = ref<BusinessQualityReport>();
-const includeModelUsage=ref(false);
+const includeModelUsage=ref(false),includeActionMetrics=ref(false);
+const actionStateNames:Record<string,string>={PENDING:'待执行',RUNNING:'执行中',WAITING_RETRY:'等待重试',COMPLETE:'完成',FAILED:'失败',REQUIRES_RECONCILIATION:'待核对',BLOCKED_AUTHORIZATION:'授权阻塞',BLOCKED_ADAPTER:'适配器阻塞',BLOCKED_SOURCE:'来源阻塞',EXPIRED:'已过期'};
+const actionOutcomeNames:Record<string,string>={CONFIRMED_SUCCESS:'已确认成功',CONFIRMED_FINAL_FAILURE:'已确认最终失败',CONFIRMED_RETRYABLE_FAILURE:'已确认可重试失败',UNKNOWN:'结果未知'};
 const tokenKinds=[{key:'input',label:'输入'},{key:'output',label:'输出'},{key:'total',label:'总量'}] as const;
 let reportRequest = 0, searchRequest = 0, executionRequest = 0;
 const valid = computed(() => {
@@ -48,8 +50,9 @@ watch(selected, () => {
 }, { deep: true, flush: "sync" });
 // Hiding the section is insufficient: restoration must not revive stale or late evidence.
 watch(()=>can("iqc:report:view"),allowed=>{if(!allowed)clearReport();},{flush:"sync"});
-watch(includeModelUsage,clearReport,{flush:"sync"});
+watch([includeModelUsage,includeActionMetrics],clearReport,{flush:"sync"});
 watch(()=>can("iqc:task:model-calls:view"),()=>{includeModelUsage.value=false;clearReport();},{flush:"sync"});
+watch(()=>can("iqc:action:history:view"),()=>{includeActionMetrics.value=false;clearReport();},{flush:"sync"});
 watch([runPolicy, executionSelections], clearReport, { deep: true, flush: "sync" });
 onBeforeUnmount(() => { reportRequest++; searchRequest++; executionRequest++; });
 
@@ -70,7 +73,9 @@ async function refresh() {
   try {
     const selections = runPolicy.value === "SELECTED_RUNS" ? { ...executionSelections.value } : undefined;
     const usage=includeModelUsage.value&&can("iqc:task:model-calls:view");
-    const value = usage?await getBusinessQualityReport([...selected.value],selections,runPolicy.value as BusinessQualityReport["runPolicy"],true)
+    const actions=includeActionMetrics.value&&can("iqc:action:history:view");
+    const value = actions?await getBusinessQualityReport([...selected.value],selections,runPolicy.value as BusinessQualityReport["runPolicy"],usage,true)
+      :usage?await getBusinessQualityReport([...selected.value],selections,runPolicy.value as BusinessQualityReport["runPolicy"],true)
       :await getBusinessQualityReport([...selected.value],selections,runPolicy.value as BusinessQualityReport["runPolicy"]);
     if (request === reportRequest) report.value = value;
   } catch { if (request === reportRequest) error.value = "统计查询失败。请确认任务为业务模板任务、拥有查看权限，且合计不超过 500 个任务会话 / 50000 项，再重试。"; }
@@ -133,6 +138,7 @@ defineExpose({ refresh });
         <p v-if="executionError" role="status">{{ executionError }}</p>
       </a-form-item>
       <a-form-item v-if="can('iqc:task:model-calls:view')" label="模型调用统计"><a-checkbox v-model:checked="includeModelUsage">包含所选结果轮次的调用费用与耗时</a-checkbox></a-form-item>
+      <a-form-item v-if="can('iqc:action:history:view')" label="动作统计"><a-checkbox v-model:checked="includeActionMetrics">包含所选结果轮次的动作状态与已确认失败率</a-checkbox></a-form-item>
       <a-button type="primary" :disabled="!valid || loading" :loading="loading" @click="refresh">查询业务统计</a-button>
     </a-form>
     <a-alert v-if="error" type="error" show-icon :message="error" />
@@ -140,6 +146,15 @@ defineExpose({ refresh });
     <p v-else-if="!report">请选择业务方案或流水线任务后查询；不会自动统计全部任务。</p>
     <template v-if="report">
       <p>本次范围：{{ report.taskCount }} 个任务，{{ report.conversationCount }} 次会话评估，{{ report.groups.length }} 组冻结标准与分配来源。统计口径：{{ runPolicyText }}。</p>
+      <a-card v-if="can('iqc:action:history:view')&&report.actionMetrics?.schemaVersion==='iqc-business-action-metrics-v1'" title="所选结果动作状态" size="small" style="margin:12px 0">
+        <p>可绑定结果轮次 {{report.actionMetrics.boundResults}} / {{report.actionMetrics.selectedResults}} · 缺结果或轮次 {{report.actionMetrics.unboundResults}}</p>
+        <p>动作记录 {{report.actionMetrics.actionCount}} · 已确认成功 {{report.actionMetrics.confirmedSuccessCount}} · 已确认失败 {{report.actionMetrics.confirmedFailureCount}} · 尚未最终确认 {{report.actionMetrics.unresolvedCount}}</p>
+        <p>已确认动作失败率：{{report.actionMetrics.confirmedFailureRate==null?'未测量':`${report.actionMetrics.confirmedFailureRate}%`}}</p>
+        <p v-if="report.actionMetrics.actionCount==='0'">所选结果没有匹配动作记录，不代表动作已经执行成功。</p>
+        <p>失败率以已确认成功和已确认失败的最终动作记录为分母；等待重试、阻塞及结果未知不计入。当前快照按原查询范围合计，不表示每次尝试失败率或外部业务履约结果。</p>
+        <p v-for="(state,index) in report.actionMetrics.states" :key="index">{{actionStateNames[state.status]||state.status}} · {{state.outcome?(actionOutcomeNames[state.outcome]||state.outcome):'未记录结果'}}：{{state.actionCount}}</p>
+      </a-card>
+      <a-alert v-else-if="includeActionMetrics&&can('iqc:action:history:view')" type="warning" show-icon message="本次响应未提供受支持的动作统计，无法确认动作失败率。" />
       <a-alert v-if="report.groups.length > 1" type="warning" show-icon
         :message="`当前按 ${report.groups.length} 个冻结标准与分配来源分组，未混合计算。跨组分数不可直接比较；请逐组核对评分制、基础分、合格线、项目分值/否决及项目覆盖。`" />
       <a-card v-for="group in report.groups" :key="group.groupKey" style="margin-top:16px" :title="`${group.pipelineId?'流水线':'方案'} ${group.pipelineId || group.schemeId || '未记录'} · ${group.versionNo ? '发布版本 ' + group.versionNo : '试跑修订 ' + (group.draftRevision || '未记录')}`">
