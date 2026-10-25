@@ -12,7 +12,7 @@ export function validateParallelCompletionPolicy(policy:ParallelCompletionPolicy
   if(policy.requiredNodes.some(id=>!enabled.has(id)))throw Error('必需节点已删除、重命名或停用，请明确调整策略');
   const condition=policy.condition;
   if(!condition)return {requiredNodes:[...policy.requiredNodes],condition:null};
-  if(!completionOperators.includes(condition.operator))throw Error('提前满足比较方式无效');
+  if(!completionOperators.some(operator=>operator===condition.operator))throw Error('提前满足比较方式无效');
   if(typeof condition.pointer!=='string'||!condition.pointer.startsWith('/')||/~(?:[^01]|$)/.test(condition.pointer))throw Error('条件路径须为有效JSON Pointer');
   if(condition.operator!=='EXISTS'&&condition.value==null)throw Error('请填写比较值');
   if(['GREATER_OR_EQUAL','LESS_OR_EQUAL','GREATER_THAN','LESS_THAN'].includes(condition.operator)&&(typeof condition.value!=='number'||!Number.isFinite(condition.value)))throw Error('大小比较须使用JSON数值');

@@ -250,6 +250,13 @@ function release():PipelineRelease {
    if(!config.ruleReference?.id || !config.ruleReference.versionNo || n.type==='LLM'&&(!n.config.agentReference?.id || !n.config.agentReference.versionNo))throw Error('检测节点须选择已发布规则，LLM另需已发布智能体');
   }
   if(!config.findingReference?.id || !Number.isInteger(config.findingReference.versionNo) || config.findingReference.versionNo<1 || config.findingReference.versionNo>2147483647)throw Error('每个节点须选择明确的已发布事实版本');
+  if(n.condition?.operator==='CALIBRATED_CONFIDENCE_BELOW'){
+   const threshold=JSON.parse(n.conditionJson) as unknown,tokens=n.condition.pointer.split('/');
+   if(typeof threshold!=='number'||!Number.isFinite(threshold)||threshold<0||threshold>1)throw Error('校准级联阈值须为0–1的JSON数值');
+   if(tokens.length!==3||tokens[0]!==''||tokens[1]!=='upstream'||!tokens[2]||/~(?:[^01]|$)/.test(tokens[2]))throw Error('校准级联路径须指向一个完整上游节点，例如/upstream/cheap');
+   const source=tokens[2].replace(/~1/g,'/').replace(/~0/g,'~');
+   if(!n.dependsOn.includes(source))throw Error('校准级联须显式依赖所选上游节点');
+  }
   return {nodeId:n.nodeId,type:n.type,name:n.name,version:n.version,dependsOn:[...n.dependsOn],inputMapping:input as Record<string,string>,config,condition:n.condition?{...n.condition,value:n.condition.operator==='EXISTS'?null:JSON.parse(n.conditionJson)}:null,timeoutMs:n.timeoutMs,retries:n.retries,onError:n.onError,fallbackNodeId:n.onError==='FALLBACK'?n.fallbackNodeId:null,outputSchema:output,enabled:n.enabled};
  });
  if(parallel.value)for(const node of converted){
@@ -345,7 +352,7 @@ defineExpose({release});
 <a-form-item v-if="node.type!=='METRIC' && node.type!=='SESSION' && node.type!=='SKILL_API' && node.type!=='SMALL_MODEL'" label="阶段 / 输入范围"><a-space><a-select v-model:value="node.config.phase" :options="options(['DIRECT','REVIEW','VERIFY'])" :disabled="disabled" style="width:150px"/><a-select v-model:value="node.config.inputScope" :options="options(['MESSAGE','CONVERSATION'])" :disabled="disabled" style="width:180px"/></a-space></a-form-item>
 <a-form-item label="依赖节点"><a-select v-model:value="node.dependsOn" mode="multiple" :options="options(nodes.slice(0,index).map(n=>n.nodeId))" :disabled="disabled"/></a-form-item>
 <a-form-item label="条件执行"><a-switch :checked="!!node.condition" :disabled="disabled" @change="condition(node,Boolean($event))"/></a-form-item>
-<template v-if="node.condition"><a-form-item label="条件路径"><a-input v-model:value="node.condition.pointer" :disabled="disabled" placeholder="/variables/node_1_value"/></a-form-item><a-form-item label="比较"><a-select v-model:value="node.condition.operator" :options="options(['EXISTS',...numericOperators])" :disabled="disabled"/></a-form-item><a-form-item v-if="node.condition.operator!=='EXISTS'" label="比较值（JSON）"><a-input v-model:value="node.conditionJson" :disabled="disabled" placeholder="true"/></a-form-item></template>
+<template v-if="node.condition"><a-form-item label="条件路径"><a-input v-model:value="node.condition.pointer" :disabled="disabled" placeholder="/variables/node_1_value"/></a-form-item><a-form-item label="比较"><a-select v-model:value="node.condition.operator" :options="options(['EXISTS',...numericOperators,'CALIBRATED_CONFIDENCE_BELOW'])" :disabled="disabled"/></a-form-item><a-alert v-if="node.condition.operator==='CALIBRATED_CONFIDENCE_BELOW'" type="info" show-icon message="校准置信度不足时升级：路径指向完整上游节点，如/upstream/cheap，并在依赖中选择该节点。比较值为0–1阈值；仅已知、受支持且达到阈值时跳过本节点，未知/无证明/低值继续执行。上游失败另配原Fallback。" /><a-form-item v-if="node.condition.operator!=='EXISTS'" label="比较值（JSON）"><a-input v-model:value="node.conditionJson" :disabled="disabled" placeholder="true"/></a-form-item></template>
 <a-form-item label="超时毫秒 / 重试次数"><a-space><a-input-number v-model:value="node.timeoutMs" :min="1" :max="300000" :precision="0" :disabled="disabled"/><a-input-number v-model:value="node.retries" :min="0" :max="3" :precision="0" :disabled="disabled"/></a-space></a-form-item>
 <a-form-item label="错误政策"><a-select v-model:value="node.onError" :options="options(['FAIL_PIPELINE','CONTINUE','MARK_REVIEW','FALLBACK'])" :disabled="disabled"/></a-form-item>
 <a-form-item v-if="node.onError==='FALLBACK'" label="备用节点"><a-select v-model:value="node.fallbackNodeId" :options="options(nodes.filter(n=>!n.enabled&&n!==node).map(n=>n.nodeId))" :disabled="disabled"/></a-form-item>
