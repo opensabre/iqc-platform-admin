@@ -92,3 +92,9 @@ GoldSampleEditor同时接受后端已有iqc-gold-draft-v1/v2。此前精确输�
 Gold编辑器同步监听样本ID与gold:view；撤权走原load清除草稿、历史、快照、表单及所有请求代次，缺读取权限不请求。恢复权限重新读取当前授权响应，挂起读取/保存回执不能恢复旧内容。尚未取消服务器命令，不据UI清理推断命令失败。
 
 原88679修复前11项3失败，缺权限读/加载后撤权/保存后撤权均复现；挂起读初轮曾受跨测试残留一次性mock影响，不计独立通过。终态后测试改每例resetAllMocks。原39788终态0，/tmp/iqc-b-gold-editor-permission-final.log.exit=0（Gold11+业务报告15+Benchmark4，共30项），/tmp/iqc-b-gold-editor-permission-types.log.exit=0（vue-tsc）。Gold四项独立覆盖初始无授权、加载后撤权恢复新读、挂起读取与保存迟到响应。权限为reactive受控输入、API为Promise夹具，不代表真实PDP或完整浏览器/服务端授权验证。
+
+## 2026-10-25 固定集成全量检查
+
+在c1d2c8f包含全部Gold/报表修复的基线上，全套测试首轮原90782终态1：50文件326项中324通过，ConfidenceDiagnosticsPanel两项旧文案/未绑定身份夹具失败；该轮没有执行build，同名旧build日志不计。仅更新测试契约：有效候选显式modelKey/deploymentRef，未绑定或坏身份不提供执行引用但保留诊断，切回绑定重新出现引用。未放宽生产身份要求。
+
+原8827终态0，/tmp/iqc-b-ui-integrated-full-final.log.exit=0，全套50文件328项通过；/tmp/iqc-b-ui-integrated-build-final.log.exit=0，npm run build完成vue-tsc与Vite（43.23s），保留大于500kB chunk提示。全量测试仍含既有stub未注册组件的Vue警告，不等于真实浏览器或PDP/服务端整链验收。没有包含后续自动挖掘v2 UI，完整适用I1–I7仍未完成。
