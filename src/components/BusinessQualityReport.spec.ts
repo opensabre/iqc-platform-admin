@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createApp, defineComponent, h, nextTick, type App } from "vue";
+import { createApp, defineComponent, h, nextTick, reactive, type App } from "vue";
 import BusinessQualityReport from "./BusinessQualityReport.vue";
 import { getBusinessQualityReport, type BusinessQualityReport as Report } from "@/api/quality";
 import { listTaskExecutions, listTasks } from "@/api/tasks";
@@ -47,7 +47,7 @@ function mount() {
   app.mount(host);
 }
 describe("business quality report", () => {
-  beforeEach(() => { vi.clearAllMocks(); state.permissions = ["iqc:report:view", "iqc:task:view"];
+  beforeEach(() => { vi.clearAllMocks(); state.permissions = reactive(["iqc:report:view", "iqc:task:view"]);
     vi.mocked(getBusinessQualityReport).mockResolvedValue(report);
     vi.mocked(listTaskExecutions).mockResolvedValue([]);
     vi.mocked(listTasks).mockResolvedValue({ records: [{ id: "task", name: "电话销售" } as never], current: 1, size: 20, total: 1 }); });
@@ -209,6 +209,31 @@ describe("business quality report", () => {
     mount(); await select(["task"]); await enableUsage(); button("查询业务统计").click(); await settle();
     expect(host.textContent).toContain("费用未知 8");
     expect(host.textContent).not.toContain("供应商已报告输入 Token");
+  });
+
+  it("requires a fresh query after report permission is revoked and restored", async () => {
+    state.permissions.push("iqc:task:model-calls:view");
+    vi.mocked(getBusinessQualityReport).mockResolvedValue(withTokens());
+    mount(); await select(["task"]); await enableUsage(); button("查询业务统计").click(); await settle();
+    expect(host.textContent).toContain("18446744073709551615");
+    state.permissions.splice(state.permissions.indexOf("iqc:report:view"), 1); await settle();
+    expect(host.textContent).toContain("暂无质检报表查看权限");
+    state.permissions.push("iqc:report:view"); await settle();
+    expect(host.textContent).not.toContain("18446744073709551615");
+    expect(host.querySelector("table")).toBeNull();
+    expect(getBusinessQualityReport).toHaveBeenCalledTimes(1);
+  });
+  it("discards in-flight reports across report permission revocation and restoration", async () => {
+    state.permissions.push("iqc:task:model-calls:view");
+    let resolve!: (value: Report) => void;
+    vi.mocked(getBusinessQualityReport).mockReturnValueOnce(new Promise(done => { resolve=done; }));
+    mount(); await select(["task"]); await enableUsage(); button("查询业务统计").click(); await settle();
+    state.permissions.splice(state.permissions.indexOf("iqc:report:view"), 1); await settle();
+    resolve(withTokens()); await settle();
+    state.permissions.push("iqc:report:view"); await settle();
+    expect(host.textContent).not.toContain("18446744073709551615");
+    expect(host.querySelector("table")).toBeNull();
+    expect(button("查询业务统计").disabled).toBe(false);
   });
 
 });

@@ -46,6 +46,8 @@ watch(selected, () => {
     executionLoading.value = false;
   });
 }, { deep: true, flush: "sync" });
+// Hiding the section is insufficient: restoration must not revive stale or late evidence.
+watch(()=>can("iqc:report:view"),allowed=>{if(!allowed)clearReport();},{flush:"sync"});
 watch(includeModelUsage,clearReport,{flush:"sync"});
 watch(()=>can("iqc:task:model-calls:view"),()=>{includeModelUsage.value=false;clearReport();},{flush:"sync"});
 watch([runPolicy, executionSelections], clearReport, { deep: true, flush: "sync" });
