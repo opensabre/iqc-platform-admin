@@ -43,9 +43,17 @@
             <a-form-item label="业务载荷（JSON 对象）"><a-textarea :value="payloadDrafts[index] ?? JSON.stringify(action.configuration.payload,null,2)" :disabled="disabled" :rows="5" @update:value="(value:string)=>setPayload(index,value)"/><a-alert v-if="payloadErrors[index]" type="error" :message="payloadErrors[index]"/></a-form-item>
           </template>
           <template v-if="action.type==='ADD_TO_EVALUATION_CANDIDATE'">
-            <p>指定业务复核轮次完成后创建候选；候选仍需原标注和独立审核才能进入金标集。</p>
-            <a-form-item label="样本类型"><a-select :value="text(action,'sampleType')" :options="sampleOptions" :disabled="disabled" @change="(value:string)=>config(index,{sampleType:value})"/></a-form-item>
-            <a-form-item label="来源业务复核轮次"><a-input-number :value="number(action,'reviewRevision',1)" :disabled="disabled" :min="1" :max="2147483647" :precision="0" @change="(value:unknown)=>config(index,{reviewRevision:value})"/></a-form-item>
+            <a-form-item label="候选生成方式"><a-select :value="action.adapterVersion??1" :options="[{value:1,label:'业务复核完成后沉淀（v1）'},{value:2,label:'自动挖掘待标注候选（v2）'}]" :disabled="disabled" @change="(value:1|2)=>candidateMode(index,value)"/></a-form-item>
+            <template v-if="isMinedCandidateAction(action)">
+              <a-alert type="info" show-icon message="从已提交会话筛选缺失、未知、置信度缺失/不足或观测分歧，不额外调用模型。不判断误报/漏报；候选仍须人工标注与独立审核。需要后台动作执行已启用及当前样本管理权限。"/>
+              <a-form-item label="挖掘事实范围"><a-select :value="miningCodes(action)" mode="multiple" :options="findingCodes.map(code=>({value:code,label:code}))" :disabled="disabled" @change="(value:string[])=>config(index,{findingCodes:value})"/></a-form-item>
+              <a-form-item label="低置信度阈值（0–1精确十进制文本）"><a-input :value="text(action,'threshold')" :maxlength="64" :disabled="disabled" placeholder="0.8" @update:value="(value:string)=>config(index,{threshold:value})"/><p>该数值只是筛选线索，不是正确率保证；缺失置信度也可入池。</p></a-form-item>
+            </template>
+            <template v-else>
+              <p>指定业务复核轮次完成后创建候选；候选仍需原标注和独立审核才能进入金标集。</p>
+              <a-form-item label="样本类型"><a-select :value="text(action,'sampleType')" :options="sampleOptions" :disabled="disabled" @change="(value:string)=>config(index,{sampleType:value})"/></a-form-item>
+              <a-form-item label="来源业务复核轮次"><a-input-number :value="number(action,'reviewRevision',1)" :disabled="disabled" :min="1" :max="2147483647" :precision="0" @change="(value:unknown)=>config(index,{reviewRevision:value})"/></a-form-item>
+            </template>
             <a-form-item label="候选名称（可选）"><a-input :value="text(action,'name')" :disabled="disabled" :maxlength="128" @update:value="(value:string)=>optional(index,'name',value)"/></a-form-item>
             <a-form-item label="样本标签（可选）"><a-select :value="tags(action)" mode="tags" :disabled="disabled" @change="(value:string[])=>config(index,{tags:value})"/></a-form-item>
           </template>
@@ -63,7 +71,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import type {ActionPolicy,FindingLabelPolicy} from '@/api/pipelines';
-import {always,conditionCount,editableAction,isExternalAction,parseExternalActionPayload,supportedActionNames,type PolicyAction} from '@/api/action-policy-editor';
+import {always,conditionCount,editableAction,isMinedCandidateAction,isExternalAction,parseExternalActionPayload,supportedActionNames,type PolicyAction} from '@/api/action-policy-editor';
 import ActionConditionEditor from './ActionConditionEditor.vue';
 import AutomaticRetryPolicyEditor from './AutomaticRetryPolicyEditor.vue';
 const props=defineProps<{modelValue?:ActionPolicy|null;labels?:FindingLabelPolicy|null;findingCodes:string[];itemCodes:string[];disabled?:boolean}>();
@@ -78,6 +86,13 @@ function setPayload(index:number,value:string){
   catch(error){config(index,{payload:value});payloadErrors.value[index]=error instanceof Error?error.message:'业务载荷无效';}
 }
 const sampleOptions=[{value:'POSITIVE',label:'正样本'},{value:'NEGATIVE',label:'负样本'},{value:'FALSE_POSITIVE',label:'误报'},{value:'FALSE_NEGATIVE',label:'漏报'}];
+function miningCodes(action:PolicyAction){return Array.isArray(action.configuration.findingCodes)?action.configuration.findingCodes.filter((value):value is string=>typeof value==='string'):[];}
+function candidateMode(index:number,version:1|2){
+ if(props.disabled)return;const action=props.modelValue?.actions[index];if(!action||action.type!=='ADD_TO_EVALUATION_CANDIDATE'||version===(action.adapterVersion??1))return;
+ const configuration:Record<string,unknown>=version===2?{findingCodes:[],threshold:'0.8'}:{sampleType:'POSITIVE',reviewRevision:1};
+ for(const key of ['name','tags'])if(Object.hasOwn(action.configuration,key))configuration[key]=action.configuration[key];
+ patch(index,{adapterVersion:version,configuration});
+}
 function actionName(action:PolicyAction){return Object.hasOwn(supportedActionNames,action.type)?supportedActionNames[action.type as keyof typeof supportedActionNames]:action.type;}
 function update(actions:PolicyAction[]){if(!props.disabled)emit('update:modelValue',{schemaVersion:'iqc-action-policy-v1',actions});}
 function patch(index:number,value:Partial<PolicyAction>){if(props.disabled)return;update((props.modelValue?.actions||[]).map((action,i)=>i===index?{...action,...value}:action));}

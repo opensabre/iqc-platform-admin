@@ -52,3 +52,13 @@ Finding标签政策labelPolicy作为可选发布字段沿PipelineReleaseEditor�
 风险面板处置弹窗复用原Modal，risk:handle独立显示，字符串观察版本+有限目标状态+必填原因；提交防重复/关闭，MAX禁用，响应ID/状态校验后刷新实际记录不本地伪造处置。旧观察不自动重试，切结果/撤权/卸载废弃响应。真实权限/浏览器验收待。
 
 RiskEventPanel复用原Modal增加独立history:view历史查询，50条/string版次分页，状态前后/原因/actor/UTC普通文本展示；页内及跨页连续版本和状态链、返回游标/字段界限核验。关闭/刷新/处理后刷新/换结果/撤权/卸载清旧响应，失败不伪造空历史，不提供历史重放。真实浏览器与SQL授权验收待。
+
+## 自动挖掘待标注候选 v2（2026-10-25）
+
+复用流水线动作表单，ADD_TO_EVALUATION_CANDIDATE 显式选择原业务复核 v1 或自动挖掘 v2；切换清理 sampleType/reviewRevision 与 findingCodes/threshold 等不兼容字段，保留名称、标签及原动作条件。旧未指定版本仍按 v1，未知适配版本保持只读，不自动升级。
+
+v2 必须选择当前流水线已声明的 1–50 个不同事实编码，阈值使用精确十进制字符串（0–1，沿用 precision 38/scale 18），不经 JavaScript Number 转换。保存时校验引用；阈值只是筛选线索，不代表正确率。执行仍依赖后端动作开关、原生产来源及当前 sample:manage 授权，不从表单直接创建样本。仅处理已提交的会话结果，不新增语音处理或模型调用。
+
+候选池将 UNCLASSIFIED 显示为“未分类（挖掘候选）”，与金标状态分别展示；不预判误报/漏报，也不自动生成金标。人工标注及独立审核沿用已有入口，数据范围沿用单租户组织权限。来源元数据的可见性仍由原服务端读取投影控制。
+
+本轮 Root 仅执行 pnpm run build（vue-tsc + Vite），原 4951 已终态且 /tmp/iqc-mining-action-v2-ui.exit=0；保留现有 chunk 大小提示。组件交互、真实授权、发现/claim/生产持久化及 Gold 整链验证交由 B 后续专项，不以构建通过代替验收。

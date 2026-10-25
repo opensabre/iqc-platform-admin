@@ -30,7 +30,8 @@ export function conditionCount(condition:ActionCondition):number {
   while(pending.length && count<=100){const next=pending.pop();count++;if(Array.isArray(next?.children))pending.push(...next.children);}
   return count;
 }
-export function editableAction(action:PolicyAction):boolean {return (action.adapterVersion??1)===1 && Object.hasOwn(supportedActionNames,action.type) && ['RECORD_ONLY','ESCALATE_REVIEW'].includes(action.failureHandling);}
+export function isMinedCandidateAction(action:PolicyAction):boolean {return action.type==='ADD_TO_EVALUATION_CANDIDATE'&&(action.adapterVersion??1)===2;}
+export function editableAction(action:PolicyAction):boolean {return ((action.adapterVersion??1)===1||isMinedCandidateAction(action)) && Object.hasOwn(supportedActionNames,action.type) && ['RECORD_ONLY','ESCALATE_REVIEW'].includes(action.failureHandling);}
 function boundedInteger(value:unknown,min:number,max:number){return typeof value==='number' && Number.isSafeInteger(value) && value>=min && value<=max;}
 export function isActionScalar(value:unknown){return typeof value==='string' || typeof value==='boolean' || typeof value==='number' && Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value));}
 export const decimalConditionKinds:ActionCondition['kind'][]=['FINDING_EQUALS','LABEL_EQUALS','BUSINESS_EQUALS','FINAL_SCORE_BELOW'];
@@ -68,7 +69,7 @@ export function validateCondition(condition:ActionCondition,depth:number,count:{
 }
 function configuration(action:PolicyAction){
   const c=action.configuration;
-  const keys=isExternalAction(action.type)?['destinationId','destinationVersion','payload']:action.type==='SAVE_RESULT'?[]:action.type==='UPDATE_LABEL'?['labelId','valueCode']:action.type==='CREATE_RISK_EVENT'?['category','title','description']:action.type==='CREATE_REVIEW'?['reason','expectedRevision']:action.type==='SEND_ALERT'?['sceneCode','channel','target','args']:['sampleType','name','tags','reviewRevision'];
+  const keys=isExternalAction(action.type)?['destinationId','destinationVersion','payload']:action.type==='SAVE_RESULT'?[]:action.type==='UPDATE_LABEL'?['labelId','valueCode']:action.type==='CREATE_RISK_EVENT'?['category','title','description']:action.type==='CREATE_REVIEW'?['reason','expectedRevision']:action.type==='SEND_ALERT'?['sceneCode','channel','target','args']:isMinedCandidateAction(action)?['findingCodes','threshold','name','tags']:['sampleType','name','tags','reviewRevision'];
   if(Object.keys(c).some(key=>!keys.includes(key)))throw Error(`动作 ${action.actionId} 包含不支持的配置字段`);
   if(isExternalAction(action.type)){
     if(typeof c.destinationId!=='string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(c.destinationId))throw Error('目的地编码须为1到64位字母、数字、下划线或短横线');
@@ -93,13 +94,20 @@ function configuration(action:PolicyAction){
     if(c.expectedRevision!==undefined && !boundedInteger(c.expectedRevision,0,2147483646))throw Error('复核预期轮次无效');
   }
   if(action.type==='ADD_TO_EVALUATION_CANDIDATE'){
-    if(typeof c.sampleType!=='string' || !['POSITIVE','NEGATIVE','FALSE_POSITIVE','FALSE_NEGATIVE'].includes(c.sampleType))throw Error('请选择评测样本类型');
-    if(c.reviewRevision!==undefined && !boundedInteger(c.reviewRevision,1,2147483647))throw Error('候选来源复核轮次无效');
+    if(isMinedCandidateAction(action)){
+      if(!Array.isArray(c.findingCodes)||!c.findingCodes.length||c.findingCodes.length>50||new Set(c.findingCodes).size!==c.findingCodes.length||c.findingCodes.some(code=>typeof code!=='string'||!/^[A-Z][A-Z0-9_]{1,63}$/.test(code)))throw Error('挖掘须选择1至50个不同事实编码');
+      validateDecimalOperand(c.threshold);
+      const absolute=c.threshold.replace(/^[+-]/,''),[whole,fraction='']=absolute.split('.');
+      if(c.threshold.startsWith('-')&&/[1-9]/.test(absolute)||BigInt(whole!)>1n||BigInt(whole!)===1n&&/[1-9]/.test(fraction))throw Error('挖掘阈值须为0–1精确十进制字符串');
+    }else{
+      if(typeof c.sampleType!=='string' || !['POSITIVE','NEGATIVE','FALSE_POSITIVE','FALSE_NEGATIVE'].includes(c.sampleType))throw Error('请选择评测样本类型');
+      if(c.reviewRevision!==undefined && !boundedInteger(c.reviewRevision,1,2147483647))throw Error('候选来源复核轮次无效');
+    }
     if(c.name!==undefined && (typeof c.name!=='string' || !c.name.trim() || c.name.trim().length>128))throw Error('候选名称须为1到128字');
     if(c.tags!==undefined && (!Array.isArray(c.tags) || c.tags.length>50 || c.tags.some(tag=>typeof tag!=='string' || !tag.trim() || tag.length>64)))throw Error('候选标签最多50项，每项最多64字');
   }
 }
-export function validateActionPolicy(policy?:ActionPolicy|null):ActionPolicy|undefined {
+export function validateActionPolicy(policy?:ActionPolicy|null,declaredFindingCodes?:readonly string[]):ActionPolicy|undefined {
   if(!policy)return undefined;
   const copy=JSON.parse(JSON.stringify(policy)) as ActionPolicy;
   if(copy.schemaVersion!=='iqc-action-policy-v1' || !Array.isArray(copy.actions) || copy.actions.length>100)throw Error('动作政策必须使用受支持协议，最多100项');
@@ -113,6 +121,7 @@ export function validateActionPolicy(policy?:ActionPolicy|null):ActionPolicy|und
     validateCondition(action.condition,1,{value:0});
     const pending=[action.condition];while(pending.length){const condition=pending.pop()!;if(['LABEL_EQUALS','BUSINESS_EQUALS'].includes(condition.kind))throw Error('标签和业务字段条件目前仅用于独立风险政策');pending.push(...condition.children);}
     if(editableAction(action)){action.retry=validateAutomaticRetry(action.retry);configuration(action);}
+    if(isMinedCandidateAction(action)&&declaredFindingCodes&&(action.configuration.findingCodes as string[]).some(code=>!declaredFindingCodes.includes(code)))throw Error('挖掘引用的事实未在当前流水线声明');
   }
   return copy;
 }

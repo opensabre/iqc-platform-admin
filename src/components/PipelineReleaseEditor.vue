@@ -298,7 +298,7 @@ function release():PipelineRelease {
  for(const item of items.value){validateNumeric(item.numericPredicate);validateNumeric(item.appliesWhenNumericPredicate);if(item.appliesWhenNumericPredicate&&!item.appliesWhenFindingCode?.trim())throw Error('数值适用条件需要选择事实编码');}
  const labels=validateFindingLabelPolicy(labelPolicy.value);
  const risk=validatedRisk();
- const actions=validateActionPolicy(actionPolicy.value);
+ const actions=validateActionPolicy(actionPolicy.value,nodes.value.map(node=>node.factCode).filter(Boolean));
  const review=validateReviewPolicy(reviewPolicy.value,nodes.value.map(n=>n.factCode).filter(Boolean),items.value.map(i=>i.itemCode),labels,actions);
  validateLabelActionTargets(actions,labels);
  let completion:ParallelCompletionPolicy|undefined;
