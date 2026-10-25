@@ -24,7 +24,7 @@ function populate(row:GoldSample){
  }
  if(row.goldDraftJson){
   const d=JSON.parse(row.goldDraftJson) as GoldDraft;
-  if(d.schemaVersion!=='iqc-gold-draft-v1'||d.sourceSampleId!==props.sampleId||!Array.isArray(d.messages)||!Array.isArray(d.findings))throw Error('草稿协议无效');
+  if(!['iqc-gold-draft-v1','iqc-gold-draft-v2'].includes(d.schemaVersion)||d.sourceSampleId!==props.sampleId||!Array.isArray(d.messages)||!Array.isArray(d.findings))throw Error('草稿协议无效');
   precisionRestricted.value=selectorJsonNeedsExactEditor(row.goldDraftJson);
   if(precisionRestricted.value){
    findings.value=[];tags.value=[];difficulty.value='BASIC';context.value='{}';decisionEnabled.value=false;decision.value={};labels.value='{}';scoreText.value='';baseline.value=stateKey();return;
