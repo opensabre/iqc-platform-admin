@@ -1,19 +1,20 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {createApp,defineComponent,h,nextTick,type App} from 'vue';
 import GoldSampleEditor from './GoldSampleEditor.vue';
-import {getGoldSample,type GoldSample} from '@/api/evaluation';
+import {message} from 'ant-design-vue';
+import {getGoldSample,annotateGold,reviewGold,type GoldSample,type GoldVersion} from '@/api/evaluation';
 vi.mock('@/composables/permission',()=>({usePermission:()=>({can:()=>true})}));
 vi.mock('@/api/evaluation',()=>({getGoldSample:vi.fn(),annotateGold:vi.fn(),reviewGold:vi.fn(),listGoldVersions:vi.fn(),getGoldVersion:vi.fn()}));
 vi.mock('ant-design-vue',()=>({message:{success:vi.fn(),warning:vi.fn(),error:vi.fn()}}));
 const pass=defineComponent({setup(_,{slots,attrs}){return()=>h('div',[attrs.message as string,slots.default?.()]);}});
-let app:App,host:HTMLDivElement;
+let app:App|undefined,host:HTMLDivElement;
 async function settle(){for(let i=0;i<12;i++){await Promise.resolve();await nextTick();}}
 function sample(schemaVersion:string,value='true'):GoldSample {
  return {id:'sample',name:'待标注候选',sampleType:'UNCLASSIFIED',status:'CANDIDATE',contentSnapshot:null,goldDraftRevision:1,goldStatus:'PENDING_REVIEW',
   goldDraftJson:`{"schemaVersion":"${schemaVersion}","sourceSampleId":"sample","conversationId":"conversation","messages":[{"id":"message","role":"agent","content":"frozen text","sequence":1}],"findings":[{"code":"FACT","valueType":"${value==='true'?'BOOLEAN':'NUMBER'}","state":"KNOWN","value":${value},"evidenceMessageIds":["message"]}],"annotatorId":"annotator","source":"RESULT:result","tags":[],"difficulty":"BASIC"}`};
 }
-function mount(){
- host=document.createElement('div');document.body.append(host);app=createApp(GoldSampleEditor,{sampleId:'sample'});
+function mount(changed=vi.fn()){
+ host=document.createElement('div');document.body.append(host);app=createApp(GoldSampleEditor,{sampleId:'sample',onChanged:changed});
  for(const name of ['ASpin','AAlert','ATag','ACollapse','ACollapsePanel','AForm','AFormItem','ASpace','ACard','AList','AListItem','APagination','ASelect','ASwitch'])app.component(name,pass);
  app.component('AButton',defineComponent({setup(_,{attrs,slots}){return()=>h('button',attrs,slots.default?.());}}));
  app.component('AInput',defineComponent({props:['value','disabled'],setup(props){return()=>h('input',{value:props.value,disabled:props.disabled});}}));
@@ -36,5 +37,30 @@ describe('Gold draft protocol compatibility',()=>{
  it('rejects unknown protocols rather than interpreting them as legacy drafts',async()=>{
   vi.mocked(getGoldSample).mockResolvedValue(sample('iqc-gold-draft-v99'));mount();await settle();
   expect(host.textContent).toContain('加载失败或协议无效');expect(host.textContent).not.toContain('frozen text');expect(saveButton()?.disabled).toBe(true);
+ });
+});
+
+function deferred<T>(){let resolve!:(value:T)=>void,reject!:(reason:Error)=>void;const promise=new Promise<T>((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
+function dispose(){app?.unmount();app=undefined;}
+describe('Gold editor pending commands after unmount',()=>{
+ it('does not emit changed or reload after a late saved annotation',async()=>{
+  const row=sample('iqc-gold-draft-v2'),pending=deferred<GoldSample>(),changed=vi.fn();
+  vi.mocked(getGoldSample).mockResolvedValue(row);vi.mocked(annotateGold).mockReturnValue(pending.promise);
+  mount(changed);await settle();saveButton()!.click();await settle();expect(annotateGold).toHaveBeenCalledTimes(1);
+  dispose();pending.resolve(row);await settle();
+  expect(changed).not.toHaveBeenCalled();expect(getGoldSample).toHaveBeenCalledTimes(1);expect(message.success).not.toHaveBeenCalled();
+ });
+ it('does not show a global error for a failed annotation after leaving',async()=>{
+  const pending=deferred<GoldSample>();vi.mocked(getGoldSample).mockResolvedValue(sample('iqc-gold-draft-v2'));vi.mocked(annotateGold).mockReturnValue(pending.promise);
+  mount();await settle();saveButton()!.click();await settle();expect(annotateGold).toHaveBeenCalledTimes(1);
+  dispose();pending.reject(new Error('late failure'));await settle();expect(message.error).not.toHaveBeenCalled();
+ });
+ it('does not emit changed or reload after a late independent review',async()=>{
+  const pending=deferred<GoldVersion>(),changed=vi.fn();vi.mocked(getGoldSample).mockResolvedValue(sample('iqc-gold-draft-v2'));vi.mocked(reviewGold).mockReturnValue(pending.promise);
+  mount(changed);await settle();const reason=host.querySelector<HTMLTextAreaElement>('textarea[placeholder="审核原因（必填）"]')!;
+  reason.value='independently checked';reason.dispatchEvent(new Event('input'));await settle();
+  [...host.querySelectorAll('button')].find(b=>b.textContent==='批准')!.click();await settle();expect(reviewGold).toHaveBeenCalledTimes(1);
+  dispose();pending.resolve({id:'version',sampleId:'sample',versionNo:1,sourceDraftRevision:1,decision:'APPROVED',reviewerId:'reviewer',reason:'checked',contentHash:'hash'});await settle();
+  expect(changed).not.toHaveBeenCalled();expect(getGoldSample).toHaveBeenCalledTimes(1);expect(message.success).not.toHaveBeenCalled();
  });
 });

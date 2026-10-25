@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed,ref,watch,shallowRef} from 'vue';
+import {computed,ref,watch,shallowRef,onBeforeUnmount} from 'vue';
 import {message} from 'ant-design-vue';
 import {segmentRange,confidenceLabel} from '@/utils/transcriptAlignment';
 import {selectorJsonNeedsExactEditor} from '@/api/selectors';
@@ -39,6 +39,8 @@ function populate(row:GoldSample){
 }
 async function load(){const ticket=++generation;++historyGeneration;++snapshotGeneration;sample.value=undefined;draft.value=undefined;precisionRestricted.value=false;scoreText.value='';findings.value=[];versions.value=[];historyPage.value=1;historyTotal.value=0;snapshot.value='';snapshotProjected.value=false;reason.value='';tags.value=[];difficulty.value='BASIC';context.value='{}';decisionEnabled.value=false;decision.value={};labels.value='{}';baseline.value='';error.value='';loading.value=true;busy.value=false;try{const row=await getGoldSample(props.sampleId);if(ticket===generation)populate(row);}catch{if(ticket===generation)error.value='金标草稿加载失败或协议无效，请重试。';}finally{if(ticket===generation)loading.value=false;}}
 watch(()=>props.sampleId,()=>void load(),{immediate:true});
+// Invalidate pending loads and commands when the editor leaves its owning page.
+onBeforeUnmount(()=>{++generation;clearAuxiliary();});
 class GoldPrecisionError extends Error {}
 function exactJson(raw:string){
  if(selectorJsonNeedsExactEditor(raw))throw new GoldPrecisionError('此表单无法精确保留该数值，请使用原标注接口提交精确JSON；未保存或舍入。');

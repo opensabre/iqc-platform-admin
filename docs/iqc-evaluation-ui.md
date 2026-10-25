@@ -80,3 +80,9 @@ Benchmark原面板可选附带来源执行已记录调用与费用（task:model-
 GoldSampleEditor同时接受后端已有iqc-gold-draft-v1/v2。此前精确输入候选保存产生v2后，重载会误报协议无效；现在普通可精确保留值可以继续标注。超安全整数等无法用本表单精确保留的值仍显示原始JSON且禁止表单编辑，审核仍针对服务器保存的精确修订。未知协议继续拒绝。
 
 原12661修复前终态1，4项中v2普通/超安全整数两项失败、v1与未知协议两项通过。最小修复后原98568终态0，/tmp/iqc-b-gold-editor-protocol-final.log.exit=0（Gold编辑器4+业务报告15+Benchmark4，共23项）及/tmp/iqc-b-gold-editor-protocol-types.log.exit=0（vue-tsc）。组件API为受控夹具，非真实浏览器/后端/PDP或自动候选挖掘完成。
+
+## 2026-10-25 Gold 编辑器卸载后的命令响应
+
+编辑器卸载时废弃原generation和历史/快照代次。已发送保存或审核仍由服务器处理；迟到结果不再触发旧编辑器重新加载、错误/成功提示或后续UI写入。样本切换仍使用原load代次机制。
+
+原8088修复前终态1：新增保存成功/保存失败/审核成功的卸载回归3项失败，协议4项通过。Vue自身抑制卸载后的emit，但旧代码仍继续GET草稿或显示全局错误。补onBeforeUnmount后原72988终态0，/tmp/iqc-b-gold-editor-unmount-final.log.exit=0（Gold7+业务报告15+Benchmark4，共26项）与/tmp/iqc-b-gold-editor-unmount-types.log.exit=0（vue-tsc）。本轮API为受控Promise，非真实浏览器/后端事务或权限服务验收。
