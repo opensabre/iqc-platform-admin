@@ -39,6 +39,8 @@ async function compare(){
  finally{if(ticket===reportGeneration&&parent===generation)reportBusy.value=false;}
 }
 watch(()=>can('iqc:task:model-calls:view'),allowed=>{if(!allowed){includeModelUsage.value=false;invalidate();}});
+// Revocation invalidates both displayed evidence and in-flight report responses.
+watch(()=>can('iqc:benchmark:report:view'),allowed=>{if(!allowed)invalidate();},{flush:'sync'});
 watch(()=>props.baselineTaskId,()=>void refresh(),{immediate:true});
 onBeforeUnmount(()=>{++generation;++reportGeneration;});
 </script>
