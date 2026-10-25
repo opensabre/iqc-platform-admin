@@ -5,7 +5,9 @@ export interface ModelCall {callId:string;modelKey:string;logicalRecordId:string
 export interface CurrencyCost {currency:string|null;callCount:string;knownCount:string;unknownCount:string;knownSubtotal:string|null}
 export interface CostSummary {callCount:string;knownCount:string;unknownCount:string;currencies:CurrencyCost[]}
 export interface CallLatencySummary {callCount:string;measuredCount:string;unknownCount:string;averageMillis:string|null}
-export interface RunUsage {costs:CostSummary;latency:CallLatencySummary}
+export interface TokenMeasure {knownCount:string;unknownCount:string;knownSubtotal:string|null}
+export interface CallTokenSummary {callCount:string;input:TokenMeasure;output:TokenMeasure;total:TokenMeasure}
+export interface RunUsage {costs:CostSummary;latency:CallLatencySummary;tokens?:CallTokenSummary|null}
 export interface ModelCallPrivacy {policyVersion:string;evidenceVisible:boolean;canReadFull:boolean;canReadPii:boolean;canReadPrompt:boolean;withheldFields:string[]}
 export interface ModelCallPage extends PageResult<ModelCall> {costSummary:CostSummary;privacy?:ModelCallPrivacy}
 export const listModelCalls=(status:ModelCallStatus|undefined,current=1,size=20)=>http.get<ModelCallPage>('/iqc/model-gateway/calls',{params:{status,current,size}}).then(r=>r.data);

@@ -10,6 +10,10 @@ const {can}=usePermission(),router=useRouter();
 const pair=shallowRef<BenchmarkPair>(),report=shallowRef<BenchmarkReport>(),error=ref(''),loading=ref(false),reportBusy=ref(false);
 const includeModelUsage=ref(false);
 const usageSides=computed(()=>{const usage=report.value?.modelUsage;return usage?.schemaVersion==='iqc-benchmark-model-usage-v1'&&usage.scope==='RECORDED_CALLS_OF_VALIDATED_SAMPLE_SOURCE_RUNS'?[{side:'基线',...usage.baseline},{side:'候选',...usage.candidate}]:[];});
+const tokenRows=computed(()=>usageSides.value.flatMap(side=>{
+ const tokens=side.recorded.tokens;
+ return tokens?[{key:side.side+':input',side:side.side,label:'输入',...tokens.input},{key:side.side+':output',side:side.side,label:'输出',...tokens.output},{key:side.side+':total',side:side.side,label:'总量',...tokens.total}]:[];
+}));
 const costRows=computed(()=>usageSides.value.flatMap(side=>side.recorded.costs.currencies.map((cost,index)=>({key:side.side+':'+index,side:side.side,...cost}))));
 const leftRounds=ref<TaskExecutionSummary[]>([]),rightRounds=ref<TaskExecutionSummary[]>([]),leftId=ref<string>(),rightId=ref<string>();
 let generation=0,reportGeneration=0;
@@ -58,6 +62,8 @@ onBeforeUnmount(()=>{++generation;++reportGeneration;});
 <a-descriptions-item label="调用耗时平均毫秒">{{side.recorded.latency.averageMillis??'未测量'}}（已测 {{side.recorded.latency.measuredCount}}，未知 {{side.recorded.latency.unknownCount}}）</a-descriptions-item>
 </a-descriptions>
 <a-table :data-source="costRows" row-key="key" :pagination="false"><a-table-column title="侧别" data-index="side"/><a-table-column title="币种"><template #default="{record}">{{record.currency??'未声明'}}</template></a-table-column><a-table-column title="已知费用小计"><template #default="{record}">{{record.knownSubtotal??'未测量'}}</template></a-table-column><a-table-column title="已知 / 未知调用"><template #default="{record}">{{record.knownCount}} / {{record.unknownCount}}</template></a-table-column></a-table>
+<template v-if="tokenRows.length"><h4>供应商已报告 Token</h4><p>输入、输出、总量各自统计已知与未知调用；不相互推算。小计没有贡献值时保持未测量，不能当成零用量；重试和工具调用仍按上述来源执行范围。</p>
+<a-table :data-source="tokenRows" row-key="key" :pagination="false"><a-table-column title="侧别" data-index="side"/><a-table-column title="用量" data-index="label"/><a-table-column title="已知小计"><template #default="{record}">{{record.knownSubtotal??'未测量'}}</template></a-table-column><a-table-column title="已知 / 未知调用"><template #default="{record}">{{record.knownCount}} / {{record.unknownCount}}</template></a-table-column></a-table></template>
 </template>
 <details><summary>双侧完整报告、缺失样本与原执行来源</summary><pre>{{JSON.stringify(report,null,2)}}</pre></details></template>
 <details><summary>声明变量及冻结不变量摘要</summary><pre>{{JSON.stringify({experimentId:pair.experimentId,datasetHash:pair.datasetHash,selection:pair.selection,comparison:pair.comparison},null,2)}}</pre></details>
