@@ -63,6 +63,14 @@ v2 必须选择当前流水线已声明的 1–50 个不同事实编码，阈值
 
 本轮 Root 仅执行 pnpm run build（vue-tsc + Vite），原 4951 已终态且 /tmp/iqc-mining-action-v2-ui.exit=0；保留现有 chunk 大小提示。组件交互、真实授权、发现/claim/生产持久化及 Gold 整链验证交由 B 后续专项，不以构建通过代替验收。
 
+## 业务报告动作状态统计（2026-10-25）
+
+原业务报告新增可选“动作统计”，只对拥有 action:history:view 的当前用户显示；仍需 report:view。默认不查动作，沿原显式任务/轮次/首次或最新口径，仅显示原选中结果的当前动作账本快照，不自动执行动作。已确认失败率分母只含最终确认成功与最终确认失败；等待重试、阻塞、结果未知等逐状态显示并排除分母，零分母未测量，无动作记录不代表成功。动作数量用字符串展示，不在浏览器转 Number 汇总。跨冻结标准只合计动作状态，不混合评分。
+
+权限变化沿原代次机制清报告、关闭选项并隔离旧响应；旧后端缺可选统计时明确无法确认。后端五字段来源、当前组织授权及 SQL 口径见后端 docs/iqc-action-failure-metrics.md。构建/专项实际终态以根协作记录为准，未据页面存在宣称真实 PDP/浏览器/外部动作成功。
+
+Root 原68367 build 终态0，/tmp/iqc-action-metrics-ui.exit=0，vue-tsc/Vite通过，保留chunk大小提示，diff通过。Root未新增/执行测试；独立组件、真实组织授权与SQL组合仍待 B，不能据构建称指标或PRD整体验收完成。
+
 ## Mined candidate publication validation
 
 `mined-action-policy.spec.ts` adds 24 cases: preserves exact threshold strings (including 18 decimal places and 0/1 boundaries) without Number coercion; rejects numeric/exponent/out-of-range/over-scale values, invalid/duplicate/empty/over-limit/undeclared finding references and stale v1 or expected-label fields. Omitted-version v1 round-trips without upgrade, unknown adapter versions remain read-only with original configuration. Returned configuration is independent of input mutation.
@@ -74,14 +82,6 @@ Original 51409 failed seven new equality assertions because the fixture omitted 
 `ActionPolicyEditor.mining.spec.ts` exercises five component scenarios: v1/v2 switching clears incompatible fields and preserves name/tags/condition; selecting the current omitted-version v1 does not upgrade or reset revision; the threshold input preserves 18-place decimal text; disabled actions cannot switch; unknown versions render read-only. Select/input UI primitives are controlled, while the actual editor handlers and parent model updates run.
 
 Original 47028 had four passes and one fixture DataCloneError from structuredClone on a Vue proxy; the terminal run was corrected to snapshot plain JSON. Original 87648 then passed 29 tests (five interactions plus 24 publication validator cases), `/tmp/iqc-b-mining-mode-final.log.exit=0`. Original 28824 type-check exited 0. No production source changes; this does not prove browser/backend publication.
-## 业务报告动作状态统计（2026-10-25）
-
-原业务报告新增可选“动作统计”，只对拥有 action:history:view 的当前用户显示；仍需 report:view。默认不查动作，沿原显式任务/轮次/首次或最新口径，仅显示原选中结果的当前动作账本快照，不自动执行动作。已确认失败率分母只含最终确认成功与最终确认失败；等待重试、阻塞、结果未知等逐状态显示并排除分母，零分母未测量，无动作记录不代表成功。动作数量用字符串展示，不在浏览器转 Number 汇总。跨冻结标准只合计动作状态，不混合评分。
-
-权限变化沿原代次机制清报告、关闭选项并隔离旧响应；旧后端缺可选统计时明确无法确认。后端五字段来源、当前组织授权及 SQL 口径见后端 docs/iqc-action-failure-metrics.md。构建/专项实际终态以根协作记录为准，未据页面存在宣称真实 PDP/浏览器/外部动作成功。
-
-Root 原68367 build 终态0，/tmp/iqc-action-metrics-ui.exit=0，vue-tsc/Vite通过，保留chunk大小提示，diff通过。Root未新增/执行测试；独立组件、真实组织授权与SQL组合仍待 B，不能据构建称指标或PRD整体验收完成。
-
 ## Action failure metrics component verification
 
 BusinessQualityReport.spec.ts adds seven action metrics scenarios: no history permission means no option or metrics request; explicit opt-in transmits the fifth flag and preserves large decimal count strings; revocation clears loaded data and invalidates pending responses, restoration requires fresh opt-in; absent or unknown metrics protocols warn instead of asserting success; no records retain an unmeasured denominator and explicit no-success-evidence text.

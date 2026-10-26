@@ -280,3 +280,14 @@ Root原34759 build终态0且/tmp/iqc-pipeline-monitoring-ui.exit=0，vue-tsc/Vit
 基线98cf73b（含动作统计、一致性v2及节点监控固定5cd4190），原4696 terminal0，/tmp/iqc-b-ui-integrated-regression.log.exit=0：53文件380测试全部通过。原85531 terminal0，/tmp/iqc-b-ui-integrated-build.log.exit=0：vue-tsc与Vite构建通过，保留chunk大于500kB提示及engine声明版本差异。无源码修改，node_modules symlink不提交。
 
 尚未集成持久任务23系列或模型在途可选系列，本次结果不外推未来提交；监控组件撤权/迟到响应、真实PDP、Prometheus采集与容量整链仍待专门验收。处理好的会话为输入，语音转换不在完成条件中。
+## 持久任务与轮次结束监控（2026-10-26）
+
+原监控页增加持久任务状态、近5分钟已测轮次结束速率、历史终态未测量数、数据库采样健康及年龄。任务23/节点18/模型9系列兼容，任务组必须完整且依赖节点组，缺组明确无法确认；缺失/无效采样不补零。预算等待/暂停/计划/排队与结束状态分别显示，取消不是成功，目标UP不代表数据库样本有效。原权限/请求代次围栏保持，无新页/API/权限。编译构建/独立专项终态以根协作记录为准，未据图表宣称容量或完整PRD完成。
+
+Root原56584 build终态0且/tmp/iqc-task-operational-ui.exit=0，vue-tsc/Vite通过，保留chunk提示，diff通过。Root未运行测试；23系列/旧控制面与采样失效、权限迟到等独立专项仍待B，未部署。
+
+## 显式模型调用在途（2026-10-26）
+
+原监控页可选activeModelCalls图，跨实例应用显式调用在途，不宣称供应商物理并发/GPU/预算占用。缺字段明确无法确认，已采样0与缺测区分，原非有限断点/权限代次不变。兼容旧9/18/23和可选单系列，不新增页面/API/权限。构建及独立采集/组件专项以根协作终态为准，完整I1–I7未完成，未部署。
+
+Root原28604 build终态0且/tmp/iqc-model-active-ui.exit=0，vue-tsc/Vite通过（Vite2m7s），chunk提示保留，diff通过，Root未写/运行测试。新可选在途协议/页面与实际采集仍待B专项，未部署。
