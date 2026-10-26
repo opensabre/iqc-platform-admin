@@ -106,3 +106,9 @@ ModelConsistencyPanel 接受按需报告 v2：同模型键、声明部署引用�
 Root 构建及 B 独立专项终态见根协作记录，旧 v1 组件和 SQL 证据不代表新 v2 已验收。完整适用 I1–I7 仍在推进，未部署。
 
 Root 原16134 build 终态0且 /tmp/iqc-consistency-deployment-ui.exit=0，vue-tsc/Vite通过，现有chunk提示保留；diff通过，Root未运行测试。v2独立组件/真实后端组合专项仍待B。
+
+## 2026-10-26 一致性 v2 界面专项
+
+固定集成 63ee2b0 后，ModelConsistencyPanel.spec.ts 共 8 项通过：v2 部署排除原因、v1 旧报告警示、已加载撤权与恢复后重新请求、挂起响应期间撤权或参考输入变化隔离，以及未知协议拒绝。原执行轮次变化与无权限禁止请求覆盖保留。受控 API/基础组件，不代表真实 PDP 或浏览器后端整链。
+
+/tmp/iqc-b-consistency-ui-final.log.exit 与 /tmp/iqc-b-consistency-ui-types.log.exit 均为 0；vue-tsc 通过。运行环境 Node 22.22.2/pnpm 8.7.6 与声明版本不同，工具保留 engine 警告。
