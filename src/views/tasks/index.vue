@@ -562,7 +562,8 @@ async function reprioritize(task: InspectionTask, offset:number) {
   catch { message.error("当前状态不能调整优先级"); }
 }
 function removeTask(task:InspectionTask) {
-  Modal.confirm({ title:"确认删除任务？", content:"仅逻辑删除任务入口，历史结果和审计记录仍会保留。", async onOk(){ await deleteTask(task.id); message.success("任务已删除"); await refresh(); } });
+  if(task.taskPresentation?.bulkShard){message.info('分片需从父批次统一清理');return;}
+  Modal.confirm({ title:task.taskType==='PIPELINE_BULK'?'确认清理整个批次？':'确认删除任务？', content:task.taskType==='PIPELINE_BULK'?'将统一隐藏父任务及全部终态分片入口，保留历史结果和审计。若仍有运行或暂停的分片，请先取消批次并等待回收。':'仅逻辑删除任务入口，历史结果和审计记录仍会保留。', async onOk(){ await deleteTask(task.id); message.success("任务已删除"); await refresh(); } });
 }
 let resultRequest = 0;
 async function showResults(id: string, labelResultId?: string, openLabels = false) {
@@ -805,7 +806,7 @@ onBeforeUnmount(() => {
             @click="cancel(record.id)"
             >取消</a-button
           ><a-button
-            v-if="['SUCCEEDED','PARTIAL_FAILED','FAILED','NO_DATA','CANCELLED','TRIGGER_EXPIRED','TRIGGER_CONFLICT'].includes(record.status) && can('iqc:task:delete')"
+            v-if="!record.taskPresentation?.bulkShard && ['SUCCEEDED','PARTIAL_FAILED','FAILED','NO_DATA','CANCELLED','TRIGGER_EXPIRED','TRIGGER_CONFLICT'].includes(record.status) && can('iqc:task:delete')"
             type="link" danger @click="removeTask(record)">删除</a-button
           ></template
         ></a-table-column
