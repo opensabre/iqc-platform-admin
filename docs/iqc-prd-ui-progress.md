@@ -275,6 +275,11 @@ BusinessReviewPanel正文受限时不解析为坏投影，显示未展示并禁�
 
 Root原34759 build终态0且/tmp/iqc-pipeline-monitoring-ui.exit=0，vue-tsc/Vite通过，现有chunk提示保留，diff通过。Root未新增/执行测试；新系列/旧控制面/撤权迟到响应和真实采集仍待B独立专项。
 
+## B 2026-10-26 固定合并前端全量回归
+
+基线98cf73b（含动作统计、一致性v2及节点监控固定5cd4190），原4696 terminal0，/tmp/iqc-b-ui-integrated-regression.log.exit=0：53文件380测试全部通过。原85531 terminal0，/tmp/iqc-b-ui-integrated-build.log.exit=0：vue-tsc与Vite构建通过，保留chunk大于500kB提示及engine声明版本差异。无源码修改，node_modules symlink不提交。
+
+尚未集成持久任务23系列或模型在途可选系列，本次结果不外推未来提交；监控组件撤权/迟到响应、真实PDP、Prometheus采集与容量整链仍待专门验收。处理好的会话为输入，语音转换不在完成条件中。
 ## 持久任务与轮次结束监控（2026-10-26）
 
 原监控页增加持久任务状态、近5分钟已测轮次结束速率、历史终态未测量数、数据库采样健康及年龄。任务23/节点18/模型9系列兼容，任务组必须完整且依赖节点组，缺组明确无法确认；缺失/无效采样不补零。预算等待/暂停/计划/排队与结束状态分别显示，取消不是成功，目标UP不代表数据库样本有效。原权限/请求代次围栏保持，无新页/API/权限。编译构建/独立专项终态以根协作记录为准，未据图表宣称容量或完整PRD完成。
@@ -292,3 +297,10 @@ Root原28604 build终态0且/tmp/iqc-model-active-ui.exit=0，vue-tsc/Vite通过
 原业务报告可选分组Finding频次，需report:view及原完整会话/PII双敏感读取；撤权清数据/代次和选项，恢复重选。机器与最新已完成业务复核后有效事实分开，保留来源缺测与事实缺失，显示五状态、KNOWN严重度和BOOL真/假；UNKNOWN不填FALSE，频次不当准确率，不输出任意原值/证据。复核后有效事实可包含未改判的机器值，不是全部逐项人工确认。无流水线Finding协议的方案不适用，缺/坏响应不伪造0。原页面/组件/接口复用，未新建权限或持久副本；正式口径与构建/专项终态见后端文档/根协作记录，完整I1–I7继续。
 
 Root原57046 build终态0且/tmp/iqc-finding-distribution-ui.exit=0，vue-tsc/Vite通过（Vite1m13s），chunk提示保留，diff通过。Root未写/运行测试；后续页面复核来源说明与固定监控校验集成后另行构建，不把首轮证据外推后续变更。
+## B 2026-10-26 监控协议/撤权专项
+
+固定集成4483a74为a16dbdc，保留双方进度追加章节。新增ModelMonitoring.spec.ts共17项，真实解析器+受控API/权限/基础组件：六合法9/10/18/19/23/24组合、无权限不请求、已加载撤权与恢复重新取数、挂起history/source撤权后隔离、status单独撤权、时间窗口代次、节点/任务部分组与任务依赖节点、未知键拒绝、采样0与NaN/Inf断点、失败刷新清图。
+
+原11181 terminal1，16通过1失败，真实复现未知指标键被忽略；生产ModelMonitoring.vue补已声明字段白名单，未知响应整体拒绝。原17773修复后17通过；原69600类型检查失败仅新增测试stub隐式any，终态后改defineComponent类型推导。原17285 terminal0、/tmp/iqc-b-monitoring-ui-verified.log.exit=0，17项通过；原92563 terminal0、/tmp/iqc-b-monitoring-ui-types-final.log.exit=0，vue-tsc通过。保留engine版本差异警告。
+
+未重跑全量/构建，之前380项证据仅属于98cf73b。专项不证明真实PDP/浏览器后端/Prometheus/PromQL、数据库迁移或容量达标。完整I1–I7仍在推进，处理好的会话为输入，未部署。
