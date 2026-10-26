@@ -286,3 +286,9 @@ Root原56584 build终态0且/tmp/iqc-task-operational-ui.exit=0，vue-tsc/Vite�
 原监控页可选activeModelCalls图，跨实例应用显式调用在途，不宣称供应商物理并发/GPU/预算占用。缺字段明确无法确认，已采样0与缺测区分，原非有限断点/权限代次不变。兼容旧9/18/23和可选单系列，不新增页面/API/权限。构建及独立采集/组件专项以根协作终态为准，完整I1–I7未完成，未部署。
 
 Root原28604 build终态0且/tmp/iqc-model-active-ui.exit=0，vue-tsc/Vite通过（Vite2m7s），chunk提示保留，diff通过，Root未写/运行测试。新可选在途协议/页面与实际采集仍待B专项，未部署。
+
+## Finding运营分布（2026-10-26）
+
+原业务报告可选分组Finding频次，需report:view及原完整会话/PII双敏感读取；撤权清数据/代次和选项，恢复重选。机器与最新已完成业务复核后有效事实分开，保留来源缺测与事实缺失，显示五状态、KNOWN严重度和BOOL真/假；UNKNOWN不填FALSE，频次不当准确率，不输出任意原值/证据。复核后有效事实可包含未改判的机器值，不是全部逐项人工确认。无流水线Finding协议的方案不适用，缺/坏响应不伪造0。原页面/组件/接口复用，未新建权限或持久副本；正式口径与构建/专项终态见后端文档/根协作记录，完整I1–I7继续。
+
+Root原57046 build终态0且/tmp/iqc-finding-distribution-ui.exit=0，vue-tsc/Vite通过（Vite1m13s），chunk提示保留，diff通过。Root未写/运行测试；后续页面复核来源说明与固定监控校验集成后另行构建，不把首轮证据外推后续变更。

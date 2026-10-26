@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { getBusinessQualityReport, type BusinessQualityReport } from "@/api/quality";
+import { getBusinessQualityReport, type BusinessQualityReport, type BusinessFindingDistribution, type BusinessFindingSummary } from "@/api/quality";
 import { listTaskExecutions, listTasks, type TaskExecutionSummary } from "@/api/tasks";
 import { usePermission } from "@/composables/permission";
 
@@ -14,10 +14,48 @@ const runPolicy = ref<BusinessQualityReport["runPolicy"] | "">("");
 const loading = ref(false), searching = ref(false), error = ref(""), searchError = ref("");
 const executionLoading = ref(false), executionError = ref("");
 const report = ref<BusinessQualityReport>();
-const includeModelUsage=ref(false),includeActionMetrics=ref(false);
+const includeModelUsage=ref(false),includeActionMetrics=ref(false),includeFindingDistribution=ref(false);
 const actionStateNames:Record<string,string>={PENDING:'待执行',RUNNING:'执行中',WAITING_RETRY:'等待重试',COMPLETE:'完成',FAILED:'失败',REQUIRES_RECONCILIATION:'待核对',BLOCKED_AUTHORIZATION:'授权阻塞',BLOCKED_ADAPTER:'适配器阻塞',BLOCKED_SOURCE:'来源阻塞',EXPIRED:'已过期'};
 const actionOutcomeNames:Record<string,string>={CONFIRMED_SUCCESS:'已确认成功',CONFIRMED_FINAL_FAILURE:'已确认最终失败',CONFIRMED_RETRYABLE_FAILURE:'已确认可重试失败',UNKNOWN:'结果未知'};
 const tokenKinds=[{key:'input',label:'输入'},{key:'output',label:'输出'},{key:'total',label:'总量'}] as const;
+const canFindingDistribution=computed(()=>can('iqc:report:view')&&can('iqc:sensitive:conversation:read')&&can('iqc:sensitive:pii:read'));
+const findingSources=[{key:'machine',label:'机器事实'},{key:'reviewed',label:'最新已完成复核事实'}] as const;
+const findingStates=[{key:'KNOWN',label:'有值'},{key:'UNKNOWN',label:'未知'},{key:'CONFLICT',label:'冲突'},{key:'ERROR',label:'错误'},{key:'NOT_EVALUATED',label:'未评测'}] as const;
+const findingSeverities=['NONE','LOW','MEDIUM','HIGH','CRITICAL'] as const;
+const severityNames:Record<string,string>={NONE:'无',LOW:'低',MEDIUM:'中',HIGH:'高',CRITICAL:'严重'};
+function severityText(counts:Record<string,number>){return findingSeverities.filter(key=>(counts[key]??0)>0).map(key=>`${severityNames[key]} ${counts[key]}`).join(' / ')||'—';}
+const boundedCount=(value:unknown,max:number)=>typeof value==='number'&&Number.isInteger(value)&&value>=0&&value<=max;
+function validCounts(counts:Record<string,number>,keys:readonly string[],max:number,total:number){
+ return !!counts&&typeof counts==='object'&&!Array.isArray(counts)&&Object.keys(counts).length===keys.length
+  &&keys.every(key=>boundedCount(counts[key],max))&&keys.reduce((sum,key)=>sum+(counts[key]??NaN),0)===total;
+}
+function validFindingSummary(source:BusinessFindingSummary,expected:number){
+ if(!source||source.expectedResults!==expected||!boundedCount(expected,500)||!boundedCount(source.sourceResults,expected)
+   ||source.unavailableResults!==expected-source.sourceResults||!Array.isArray(source.facts)||source.facts.length>200)return false;
+ const codes=new Set<string>();
+ return source.facts.every(row=>{
+  if(!row||typeof row.code!=='string'||!/^[A-Z][A-Z0-9_]{1,63}$/.test(row.code)||codes.has(row.code)
+    ||!['BOOLEAN','STRING','NUMBER','ENUM','OBJECT'].includes(row.valueType)||!boundedCount(row.presentCount,source.sourceResults)
+    ||row.missingFindingCount!==source.sourceResults-row.presentCount)return false;
+  codes.add(row.code);
+  return validCounts(row.states,findingStates.map(state=>state.key),source.sourceResults,row.presentCount)
+    &&validCounts(row.knownSeverityCounts,findingSeverities,source.sourceResults,row.states.KNOWN??NaN)
+    &&boundedCount(row.trueCount,row.states.KNOWN??-1)&&boundedCount(row.falseCount,row.states.KNOWN??-1)
+    &&(row.valueType==='BOOLEAN'?row.trueCount+row.falseCount===row.states.KNOWN:row.trueCount===0&&row.falseCount===0);
+ });
+}
+const findingDistributions=computed(()=>{
+ const output:Record<string,BusinessFindingDistribution>={};
+ if(!includeFindingDistribution.value||!canFindingDistribution.value)return output;
+ for(const group of report.value?.groups??[]){
+  const data=report.value?.findingDistributions?.[group.groupKey];
+  if(data?.schemaVersion!=='iqc-business-finding-distribution-v1'||!validFindingSummary(data.machine,group.conversationCount)
+    ||!validFindingSummary(data.reviewed,group.conversationCount)||data.machine.facts.length!==data.reviewed.facts.length
+    ||data.machine.facts.some((fact,index)=>fact.code!==data.reviewed.facts[index]?.code||fact.valueType!==data.reviewed.facts[index]?.valueType))continue;
+  output[group.groupKey]=data;
+ }
+ return output;
+});
 let reportRequest = 0, searchRequest = 0, executionRequest = 0;
 const valid = computed(() => {
   if (selected.value.length === 0 || selected.value.length > 20 || !runPolicy.value
@@ -50,7 +88,8 @@ watch(selected, () => {
 }, { deep: true, flush: "sync" });
 // Hiding the section is insufficient: restoration must not revive stale or late evidence.
 watch(()=>can("iqc:report:view"),allowed=>{if(!allowed)clearReport();},{flush:"sync"});
-watch([includeModelUsage,includeActionMetrics],clearReport,{flush:"sync"});
+watch([includeModelUsage,includeActionMetrics,includeFindingDistribution],clearReport,{flush:"sync"});
+watch(canFindingDistribution,()=>{includeFindingDistribution.value=false;clearReport();},{flush:"sync"});
 watch(()=>can("iqc:task:model-calls:view"),()=>{includeModelUsage.value=false;clearReport();},{flush:"sync"});
 watch(()=>can("iqc:action:history:view"),()=>{includeActionMetrics.value=false;clearReport();},{flush:"sync"});
 watch([runPolicy, executionSelections], clearReport, { deep: true, flush: "sync" });
@@ -74,7 +113,8 @@ async function refresh() {
     const selections = runPolicy.value === "SELECTED_RUNS" ? { ...executionSelections.value } : undefined;
     const usage=includeModelUsage.value&&can("iqc:task:model-calls:view");
     const actions=includeActionMetrics.value&&can("iqc:action:history:view");
-    const value = actions?await getBusinessQualityReport([...selected.value],selections,runPolicy.value as BusinessQualityReport["runPolicy"],usage,true)
+    const value = includeFindingDistribution.value&&canFindingDistribution.value?await getBusinessQualityReport([...selected.value],selections,runPolicy.value as BusinessQualityReport["runPolicy"],usage,actions,true)
+      :actions?await getBusinessQualityReport([...selected.value],selections,runPolicy.value as BusinessQualityReport["runPolicy"],usage,true)
       :usage?await getBusinessQualityReport([...selected.value],selections,runPolicy.value as BusinessQualityReport["runPolicy"],true)
       :await getBusinessQualityReport([...selected.value],selections,runPolicy.value as BusinessQualityReport["runPolicy"]);
     if (request === reportRequest) report.value = value;
@@ -139,6 +179,7 @@ defineExpose({ refresh });
       </a-form-item>
       <a-form-item v-if="can('iqc:task:model-calls:view')" label="模型调用统计"><a-checkbox v-model:checked="includeModelUsage">包含所选结果轮次的调用费用与耗时</a-checkbox></a-form-item>
       <a-form-item v-if="can('iqc:action:history:view')" label="动作统计"><a-checkbox v-model:checked="includeActionMetrics">包含所选结果轮次的动作状态与已确认失败率</a-checkbox></a-form-item>
+      <a-form-item v-if="canFindingDistribution" label="Finding 分布"><a-checkbox v-model:checked="includeFindingDistribution">包含按冻结标准分组的机器与复核事实频次</a-checkbox></a-form-item>
       <a-button type="primary" :disabled="!valid || loading" :loading="loading" @click="refresh">查询业务统计</a-button>
     </a-form>
     <a-alert v-if="error" type="error" show-icon :message="error" />
@@ -160,6 +201,23 @@ defineExpose({ refresh });
       <a-card v-for="group in report.groups" :key="group.groupKey" style="margin-top:16px" :title="`${group.pipelineId?'流水线':'方案'} ${group.pipelineId || group.schemeId || '未记录'} · ${group.versionNo ? '发布版本 ' + group.versionNo : '试跑修订 ' + (group.draftRevision || '未记录')}`">
         <p>{{ group.mode === 'DEDUCTION' ? '扣分制' : '得分制' }}<template v-if="group.mode === 'DEDUCTION'"> · 基础分 {{ group.baseScore ?? '—' }}</template>
           · 合格线 {{ group.passingScore }} · {{ group.conversationCount }} 次评估</p>
+        <template v-if="includeFindingDistribution&&canFindingDistribution">
+          <a-card v-if="findingDistributions[group.groupKey]" title="Finding 运营分布" size="small" style="margin:12px 0">
+            <p>按声明事实、状态及有值事实的严重度统计；BOOLEAN 另列真/假。频次不代表准确率，UNKNOWN 不计作 FALSE，严重度不等同任务风险等级。</p>
+            <section v-for="source in findingSources" :key="source.key">
+              <h4>{{source.label}}</h4>
+              <p>可用来源 {{findingDistributions[group.groupKey]![source.key].sourceResults}} / {{findingDistributions[group.groupKey]![source.key].expectedResults}} · 无对应来源 {{findingDistributions[group.groupKey]![source.key].unavailableResults}}<span v-if="source.key==='reviewed'">（缺结果或未完成复核，不填充机器频次）</span></p>
+              <a-table :data-source="findingDistributions[group.groupKey]![source.key].facts" row-key="code" :pagination="false" size="small">
+                <a-table-column title="事实" data-index="code"/><a-table-column title="类型" data-index="valueType"/>
+                <a-table-column title="有事实 / 缺失"><template #default="{record}">{{record.presentCount}} / {{record.missingFindingCount}}</template></a-table-column>
+                <a-table-column v-for="state in findingStates" :key="state.key" :title="state.label"><template #default="{record}">{{record.states[state.key]}}</template></a-table-column>
+                <a-table-column title="真 / 假"><template #default="{record}">{{record.valueType==='BOOLEAN'?`${record.trueCount} / ${record.falseCount}`:'—'}}</template></a-table-column>
+                <a-table-column title="有值事实严重度"><template #default="{record}">{{severityText(record.knownSeverityCounts)}}</template></a-table-column>
+              </a-table>
+            </section>
+          </a-card>
+          <a-alert v-else :type="group.pipelineId?'warning':'info'" show-icon :message="group.pipelineId?'本次响应未提供有效 Finding 分布，无法确认频次。':'本组方案没有流水线 Finding 协议，Finding 分布不适用。'"/>
+        </template>
         <a-card v-if="group.rollout?.schemaVersion==='iqc-business-rollout-attribution-v1'" title="生产灰度观测" size="small" style="margin:12px 0">
           <p>原分配：{{group.rollout.side==='CANDIDATE'?'候选':'基线'}} · 策略修订 {{group.rollout.revisionNo}} · {{group.rollout.state==='ROLLED_BACK'?'已回退策略':'启用策略'}}</p>
           <p>基线 v{{group.rollout.baselineVersionNo}} / 候选 v{{group.rollout.candidateVersionNo}} · 原候选分配比例 {{(group.rollout.candidateBasisPoints/100).toFixed(2)}}% · 实际所选 v{{group.rollout.selectedVersionNo}}</p>

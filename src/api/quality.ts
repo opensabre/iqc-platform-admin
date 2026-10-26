@@ -53,15 +53,21 @@ export interface BusinessActionMetrics {
   actionCount:string;confirmedSuccessCount:string;confirmedFailureCount:string;unresolvedCount:string;confirmedFailureRate:number|null;
   states:Array<{status:string;outcome:string|null;actionCount:string}>;
 }
+export interface BusinessFactDistribution {
+  code:string;valueType:string;presentCount:number;missingFindingCount:number;states:Record<string,number>;
+  knownSeverityCounts:Record<string,number>;trueCount:number;falseCount:number;
+}
+export interface BusinessFindingSummary {expectedResults:number;sourceResults:number;unavailableResults:number;facts:BusinessFactDistribution[]}
+export interface BusinessFindingDistribution {schemaVersion:'iqc-business-finding-distribution-v1';machine:BusinessFindingSummary;reviewed:BusinessFindingSummary}
 export interface BusinessQualityReport {
   scope: "SELECTED_TASK_RUNS"; runPolicy: "SELECTED_RUNS" | "FIRST_PER_CONVERSATION" | "LATEST_PER_CONVERSATION";
-  taskCount: number; conversationCount: number; groups: BusinessPolicyGroup[]; actionMetrics?:BusinessActionMetrics|null;
+  taskCount: number; conversationCount: number; groups: BusinessPolicyGroup[]; actionMetrics?:BusinessActionMetrics|null; findingDistributions?:Record<string,BusinessFindingDistribution>|null;
 }
 /** Explicit bounded business view; the default message report contract stays unchanged. */
-export const getBusinessQualityReport = (taskIds: string[], executionSelections?: Record<string, string>, runPolicy?: BusinessQualityReport["runPolicy"], includeModelUsage=false, includeActionMetrics=false) =>
+export const getBusinessQualityReport = (taskIds: string[], executionSelections?: Record<string, string>, runPolicy?: BusinessQualityReport["runPolicy"], includeModelUsage=false, includeActionMetrics=false, includeFindingDistribution=false) =>
   http.get<BusinessQualityReport>("/iqc/quality-operations/report", {
     params: { view: "BUSINESS", taskIds: taskIds.join(","),
-      ...(executionSelections ? { executionSelections: JSON.stringify(executionSelections) } : {}), ...(runPolicy ? { runPolicy } : {}), ...(includeModelUsage?{includeModelUsage:true}:{}), ...(includeActionMetrics?{includeActionMetrics:true}:{}) }
+      ...(executionSelections ? { executionSelections: JSON.stringify(executionSelections) } : {}), ...(runPolicy ? { runPolicy } : {}), ...(includeModelUsage?{includeModelUsage:true}:{}), ...(includeActionMetrics?{includeActionMetrics:true}:{}), ...(includeFindingDistribution?{includeFindingDistribution:true}:{}) }
   }).then(r => r.data);
 
 export type ReviewFeedbackCategory='AI_FALSE_POSITIVE'|'AI_FALSE_NEGATIVE'|'EVIDENCE_WRONG'|'SCORE_POLICY_WRONG'|'DATA/ASR_ERROR'|'RULE_ERROR'|'BUSINESS_STANDARD_CHANGED';
