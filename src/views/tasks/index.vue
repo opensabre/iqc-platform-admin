@@ -758,7 +758,7 @@ onBeforeUnmount(() => {
       />
       <a-table-column key="actions" title="操作" :width="250"
         ><template #default="{ record }"
-          ><a-button v-if="record.taskType==='PIPELINE_BULK'&&can('iqc:task:view')" type="link" @click="showBulkChildren(record.id)">查看分片</a-button><a-button type="link" @click="showDetail(record.id)">详情</a-button
+          ><a-button v-if="record.taskType==='PIPELINE_BULK'&&can('iqc:task:view')" type="link" @click="showBulkChildren(record.id)">查看分片</a-button><a-button v-if="record.taskType==='PIPELINE_BULK'&&can('iqc:result:view')&&can('iqc:result:business:view')" type="link" @click="router.push({path:'/results',query:{parentTaskId:record.id}})">批次结果</a-button><a-button type="link" @click="showDetail(record.id)">详情</a-button
           ><a-button
             v-if="['CREATED','SCHEDULED','QUEUED','PAUSED'].includes(record.status) && can('iqc:task:execute')"
             type="link" @click="reprioritize(record, 1)">提权</a-button

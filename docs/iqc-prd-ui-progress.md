@@ -316,3 +316,9 @@ Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit
 ## 2026-10-27 批次统一终态清理界面
 
 原删除按钮对有bulkShard来源的分片隐藏，函数入口同样拒绝并引导从父批次统一处理；父删除确认明确统一隐藏父与全部终态分片，仍有活动/暂停片需先取消回收，原结果与审计保留。沿用原DELETE与原删除grant，不新增入口。原39282 build terminal0且/tmp/iqc-bulk-cleanup-ui-build.exit=0，vue-tsc/Vite通过（53.83s），engine/chunk提示保留，diff通过；Root未写/执行测试。需配套本轮后端锁序与原子清理，行为/并发仍待B独立验证，未部署。
+
+## 2026-10-27 父批次结果与风险分页检索
+
+原任务目录父批次“批次结果”复用原结果中心/results，按parentTaskId读取当前可见分片的业务会话结果，仍可筛风险/分数。父过滤时禁消息观察兼容视图，避免兼容API忽略参数后显示全库；显式清除批次或改选单任务才离开父范围，非法URL参数失败而非降级为无过滤。详情依旧用实际子taskId/conversationId进入原复核/证据，不构造父均分或P95。入口同时保留原路由result:view与business:view权限。
+
+原45985 build terminal0且/tmp/iqc-bulk-result-page-ui-build.exit=0，vue-tsc/Vite通过，既有engine/chunk提示保留，diff通过；Root未写/执行测试。后端7071f5e直接SQL应用组织范围/父过滤/最新轮次先于评分风险，不加载全库任务ID。B仍需协议/权限/迟到/跳转与真实SQL及容量验收，本轮未部署，完整I1–I7未完成。

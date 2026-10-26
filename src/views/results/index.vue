@@ -54,8 +54,8 @@ const highlightedSequenceNo = ref<number>(); let highlightResetTimer: number | u
 const conversationDrawerOpen = ref(false), conversationDetailId = ref<string>();
 const resultStatuses = ref<DictionaryItem[]>([{ value: "HIT", label: "命中", tagType: "error" }, { value: "NOT_HIT", label: "未命中", tagType: "success" }, { value: "PARTIAL_ERROR", label: "部分错误", tagType: "warning" }, { value: "ERROR", label: "错误", tagType: "error" }]);
 const riskLevels = ref<DictionaryItem[]>([{ value: "HIGH", label: "高风险" }, { value: "MEDIUM", label: "中风险" }, { value: "LOW", label: "低风险" }]);
-const filters = ref({ taskId: undefined as string|undefined, agentId: undefined as string|undefined, ownerId: undefined as string|undefined, groupId: undefined as string|undefined, status: undefined as string|undefined, minScore: undefined as number|undefined, maxScore: undefined as number|undefined, speakerRole: undefined as string|undefined, riskLevel: undefined as string|undefined });
-const selectedTaskId = computed({ get: () => filters.value.taskId || "", set: (value: string) => { filters.value.taskId = value.trim() || undefined; } });
+const filters = ref({ parentTaskId:undefined as string|undefined,taskId: undefined as string|undefined, agentId: undefined as string|undefined, ownerId: undefined as string|undefined, groupId: undefined as string|undefined, status: undefined as string|undefined, minScore: undefined as number|undefined, maxScore: undefined as number|undefined, speakerRole: undefined as string|undefined, riskLevel: undefined as string|undefined });
+const selectedTaskId = computed({ get: () => filters.value.taskId || "", set: (value: string) => { filters.value.taskId = value.trim() || undefined;if(filters.value.taskId)filters.value.parentTaskId=undefined; } });
 const { can } = usePermission();
 const route = useRoute();
 const router = useRouter();
@@ -133,7 +133,7 @@ function locateMessage(sequenceNo?: number) {
 function resultLabel(value?: string) { return dictionaryLabel(resultStatuses.value, value); }
 function riskLabel(value?: string) { return dictionaryLabel(riskLevels.value, value); }
 function statusColor(status?: string) { return status === "HIT" ? "error" : status === "NOT_HIT" ? "success" : "warning"; }
-function resetFilters() { filters.value = { taskId: undefined, agentId: undefined, ownerId: undefined, groupId: undefined, status: undefined, minScore: undefined, maxScore: undefined, speakerRole: undefined, riskLevel: undefined }; page.value = 1; void refresh(); }
+function resetFilters() { filters.value = { parentTaskId:undefined,taskId: undefined, agentId: undefined, ownerId: undefined, groupId: undefined, status: undefined, minScore: undefined, maxScore: undefined, speakerRole: undefined, riskLevel: undefined }; page.value = 1; void refresh(); }
 function applyFilters() { page.value = 1; void refresh(); }
 async function copyText(value?: string, key = value) {
   if (!value) return;
@@ -159,7 +159,7 @@ async function refresh() {
   const selected = {...filters.value}, view = resultView.value;
   try {
     if (view === "BUSINESS") {
-      const result = await listBusinessResults({taskId:selected.taskId,scoreStatus:selected.status,
+      const result = await listBusinessResults({parentTaskId:selected.parentTaskId,taskId:selected.taskId,scoreStatus:selected.status,
         riskLevel:selected.riskLevel,minScore:selected.minScore,maxScore:selected.maxScore}, {current:page.value,size:pageSize.value});
       if (request !== resultRequest) return;
       businessResults.value = result.records; total.value = result.total;
@@ -174,7 +174,7 @@ async function refresh() {
   } catch { if (request === resultRequest) message.error("结果或会话评分加载失败，未加载的分数不作推断"); }
   finally { if (request === resultRequest) loading.value = false; }
 }
-function changeResultView() { filters.value.status = undefined; filters.value.agentId = undefined; page.value = 1; void refresh(); }
+function changeResultView() { if(filters.value.parentTaskId&&resultView.value!=='BUSINESS'){resultView.value='BUSINESS';return;}filters.value.status = undefined; filters.value.agentId = undefined; page.value = 1; void refresh(); }
 async function changePage(current: number, size: number) { page.value = current; pageSize.value = size; await refresh(); }
 async function showDetail(id: string) {
   const request = ++detailRequest;
@@ -274,7 +274,8 @@ async function openReview(id:string){try{await requestReview(id,"从结果中心
 async function saveAsSample(id:string,type:"POSITIVE"|"FALSE_POSITIVE"|"FALSE_NEGATIVE"){try{await createSample(id,{sampleType:type});message.success("已加入样本库");}catch{message.error("样本创建失败");}}
 async function loadDictionaries() { try { const data = await getCachedDictionaries(["iqc_result_status", "iqc_risk_level"]); if (data.iqc_result_status?.length) resultStatuses.value = data.iqc_result_status; if (data.iqc_risk_level?.length) riskLevels.value = data.iqc_risk_level; } catch { /* 治理中心不可用时保留本地展示兜底。 */ } }
 onMounted(() => {
-  if (typeof route.query.taskId === "string") filters.value.taskId = route.query.taskId;
+  if(route.query.parentTaskId!=null)filters.value.parentTaskId=typeof route.query.parentTaskId==='string'?route.query.parentTaskId:'invalid/batch';
+  else if (typeof route.query.taskId === "string") filters.value.taskId = route.query.taskId;
   void refresh(); void loadDictionaries();
   const { taskId, conversationId, sourceResultId } = route.query;
   if (typeof taskId === "string" && typeof conversationId === "string" && typeof sourceResultId === "string")
@@ -283,8 +284,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <a-radio-group v-model:value="resultView" button-style="solid" @change="changeResultView" style="margin-bottom:16px"><a-radio-button value="BUSINESS">业务会话结果</a-radio-button><a-radio-button value="MESSAGE">消息观察（兼容）</a-radio-button></a-radio-group>
+  <a-radio-group v-model:value="resultView" button-style="solid" @change="changeResultView" style="margin-bottom:16px"><a-radio-button value="BUSINESS">业务会话结果</a-radio-button><a-radio-button value="MESSAGE" :disabled="!!filters.parentTaskId">消息观察（兼容）</a-radio-button></a-radio-group>
   <section class="page-intro"><div><span class="section-kicker">QUALITY RESULTS</span><h2>质检结果</h2><p>先看不满足项与扣分，再追溯判断理由、证据和改进建议。</p></div><a-button v-if="resultView === 'MESSAGE' && can('iqc:result:export')" @click="exportCsv">导出消息观察（兼容）</a-button></section>
+  <a-alert v-if="filters.parentTaskId" type="info" :message="`当前查看批次 ${filters.parentTaskId} 的可见分片业务结果，可按风险或分数筛选；列表不是批次总均分。`"><template #action><a-button size="small" @click="resetFilters">清除批次筛选</a-button></template></a-alert>
   <a-card :bordered="false" class="filter-card"><a-form layout="inline"><a-form-item label="任务"><ReviewTaskSelector v-model="selectedTaskId"/></a-form-item><a-form-item v-if="resultView === 'MESSAGE'" label="Agent"><a-input v-model:value="filters.agentId" allow-clear placeholder="Agent ID" style="width:140px"/></a-form-item><a-form-item label="状态"><a-select v-model:value="filters.status" allow-clear style="width:120px"><template v-if="resultView === 'BUSINESS'"><a-select-option value="FINAL">评分已确定</a-select-option><a-select-option value="PENDING">待确认</a-select-option><a-select-option value="NOT_APPLICABLE">不计分</a-select-option></template><a-select-option v-for="item in resultView === 'MESSAGE' ? resultStatuses : []" :key="item.value" :value="item.value">{{item.label}}</a-select-option></a-select></a-form-item><a-form-item label="风险"><a-select v-model:value="filters.riskLevel" allow-clear style="width:110px"><a-select-option v-for="item in riskLevels" :key="item.value" :value="item.value">{{item.label}}</a-select-option></a-select></a-form-item><a-form-item label="分数"><a-input-number v-model:value="filters.minScore" :min="0" :max="100" placeholder="最低"/><span class="range-separator">-</span><a-input-number v-model:value="filters.maxScore" :min="0" :max="100" placeholder="最高"/></a-form-item><a-form-item><a-button type="primary" @click="applyFilters">筛选</a-button><a-button class="reset-button" @click="resetFilters">重置</a-button></a-form-item></a-form></a-card>
 
   <a-card :bordered="false"><div class="table-hint">{{resultView === "BUSINESS" ? "每个任务/会话只显示当前业务结果；分页按会话计数，结果数为质检项数。待确认不推断分数，标签任务不计分。" : "消息观察兼容视图：分页按历史观察计数，会话合并仅限当前页，不代表完整会话统计。"}}</div><a-table :data-source="conversationRows" :loading="loading" :pagination="false" row-key="rowKey" table-layout="fixed" :scroll="{x:1430}"><a-table-column title="质检任务" :width="190"><template #default="{record}"><a-typography-text :ellipsis="{ tooltip: record.taskName || record.taskId }" :content="record.taskName || record.taskId"/><div v-if="record.taskName" class="task-id-secondary">{{record.taskId}}</div></template></a-table-column><a-table-column title="会话得分" :width="110"><template #default="{record}"><strong>{{record.averageScore == null ? (record.scoreStatus === "NOT_APPLICABLE" ? "不计分" : "—") : Number(record.averageScore).toFixed(2)}}</strong></template></a-table-column><a-table-column :title="resultView === 'BUSINESS' ? '不满足项' : '命中'" data-index="hitCount" :width="80"/><a-table-column title="高风险" :width="90"><template #default="{record}"><a-tag v-if="record.highRiskCount" color="error">{{record.highRiskCount}}</a-tag><span v-else>0</span></template></a-table-column><a-table-column title="异常" data-index="errorCount" :width="80"/><a-table-column title="会话 ID" :width="250"><template #default="{record}"><a-space><a-typography-text :ellipsis="{ tooltip: record.conversationId }" :content="record.conversationId"/><a-tooltip :title="copiedConversationId === record.conversationId ? '已复制' : '复制会话 ID'"><a-button type="link" size="small" class="copy-button" :aria-label="copiedConversationId === record.conversationId ? '已复制会话 ID' : '复制会话 ID'" @click.stop="copyText(record.conversationId, record.conversationId)"><CheckOutlined v-if="copiedConversationId === record.conversationId" class="copy-success"/><CopyOutlined v-else /></a-button></a-tooltip></a-space></template></a-table-column><a-table-column title="会话名称" :width="220"><template #default="{record}"><a-typography-text :ellipsis="{ tooltip: record.sourceFileName }" :content="record.sourceFileName || '—'"/></template></a-table-column><a-table-column title="结果数" data-index="resultCount" :width="90"/><a-table-column title="操作" :width="220" fixed="right"><template #default="{record}"><a-space><a-button type="link" @click="showConversation(record)">本次质检明细</a-button><a-button type="link" @click="showRawConversation(record.conversationId)">原始会话</a-button></a-space></template></a-table-column></a-table><a-pagination v-if="total" v-model:current="page" v-model:page-size="pageSize" :total="total" show-size-changer class="pagination" @change="changePage"/></a-card>

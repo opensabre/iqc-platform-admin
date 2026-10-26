@@ -1,6 +1,6 @@
 import http from "@/api/http";
 export interface BusinessConversationResult { id:string; taskId:string; taskName?:string; conversationId:string; sourceFileName?:string; executionId?:string; scoreStatus:"FINAL"|"PENDING"|"NOT_APPLICABLE"; finalScore:number|null; itemCount:number; failureCount:number; errorCount:number; riskLevel?:string; }
-export interface BusinessResultFilters { taskId?:string; scoreStatus?:string; riskLevel?:string; minScore?:number; maxScore?:number; }
+export interface BusinessResultFilters { parentTaskId?:string;taskId?:string; scoreStatus?:string; riskLevel?:string; minScore?:number; maxScore?:number; }
 export async function listBusinessResults(filters:BusinessResultFilters = {}, page:{current?:number;size?:number} = {}) {
   const {data} = await http.get<{records:BusinessConversationResult[];current:number;size:number;total:number}>("/iqc/results/business", {params:{...filters,...page}});
   return data;
