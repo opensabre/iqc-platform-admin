@@ -47,9 +47,9 @@ const taskDefinitions=[
   {title:'数据库采样健康（1为全部实例有效）',fields:[{key:'taskMetricsHealth',label:'采样健康'}]},
   {title:'距最近数据库采样成功（秒）',fields:[{key:'taskMetricsAge',label:'样本年龄'}]}
 ];
-const pipelineSupported=ref(false),taskSupported=ref(false);
+const pipelineSupported=ref(false),taskSupported=ref(false),activeModelSupported=ref(false);
 const charts=ref<Array<{title:string;options:ReturnType<typeof modelTrendOptions>;known:boolean}>>([]);
-async function load(){const ticket=++generation;history.value=undefined;charts.value=[];pipelineSupported.value=false;taskSupported.value=false;error.value='';if(!authorized.value){loading.value=false;return;}loading.value=true;const sourceRequest=loadSource(ticket);
+async function load(){const ticket=++generation;history.value=undefined;charts.value=[];pipelineSupported.value=false;taskSupported.value=false;activeModelSupported.value=false;error.value='';if(!authorized.value){loading.value=false;return;}loading.value=true;const sourceRequest=loadSource(ticket);
   try{const result=await getModelMonitoringHistory(range.value);if(ticket!==generation)return;
     if(result.range!==range.value)throw new Error('range mismatch');
     const keys=pipelineDefinitions.flatMap(definition=>definition.fields.map(field=>field.key));
@@ -60,8 +60,9 @@ async function load(){const ticket=++generation;history.value=undefined;charts.v
     const tasksPresent=taskKeys.filter(key=>Object.hasOwn(result.series,key)).length;
     if(tasksPresent!==0&&(!supported||tasksPresent!==taskKeys.length))throw new Error('incomplete task metrics');
     const tasksSupported=tasksPresent===taskKeys.length;
-    const parsed=[...definitions,...(supported?pipelineDefinitions:[]),...(tasksSupported?taskDefinitions:[])].map(definition=>{const options=modelTrendOptions(result,definition.fields);return {title:definition.title,options,known:options.series.some(series=>series.data.some(point=>point[1]!=null))};});
-    history.value=result;charts.value=parsed;pipelineSupported.value=supported;taskSupported.value=tasksSupported;
+    const activeSupported=Object.hasOwn(result.series,'activeModelCalls');
+    const parsed=[...definitions,...(activeSupported?[{title:'本应用显式模型调用在途（跨实例）',fields:[{key:'activeModelCalls',label:'在途调用'}]}]:[]),...(supported?pipelineDefinitions:[]),...(tasksSupported?taskDefinitions:[])].map(definition=>{const options=modelTrendOptions(result,definition.fields);return {title:definition.title,options,known:options.series.some(series=>series.data.some(point=>point[1]!=null))};});
+    history.value=result;charts.value=parsed;pipelineSupported.value=supported;taskSupported.value=tasksSupported;activeModelSupported.value=activeSupported;
   }catch{if(ticket===generation)error.value='模型监控读取或解析失败，请重试并检查监控服务。';}
   finally{await sourceRequest;if(ticket===generation)loading.value=false;}
 }
@@ -73,6 +74,7 @@ watch([range,authorized,canStatus],()=>void load(),{immediate:true,flush:'sync'}
 <a-alert v-if="error" type="error" :message="error"/><a-spin :spinning="loading"><p v-if="history">查询窗口：{{history.start}} — {{history.end}} · 步长 {{history.stepSeconds}} 秒</p>
 <a-alert v-if="history&&!pipelineSupported" type="info" message="当前控制面未返回节点运行系列，节点指标尚无法确认。"/>
 <a-alert v-if="history&&!taskSupported" type="info" message="当前控制面未返回持久任务系列，任务积压与轮次结束速率尚无法确认。"/>
+<p v-if="history&&!activeModelSupported">当前控制面尚未提供模型调用在途指标，无法确认当前调用并发。</p>
 <div class="charts"><a-card v-for="chart in charts" :key="chart.title" :title="chart.title"><ECharts v-if="chart.known" :options="chart.options"/><a-empty v-else description="没有有效样本；请检查时间窗口、采集状态和用量覆盖。"/></a-card></div></a-spin>
-<p>运行计数随实例重启变化，不能替代精确账本。检测图耗时不含融合评分和持久化；超时、取消后的逻辑结算耗时不代表底层任务已经停止。共享线程池包含评测，不是持久任务积压或 GPU 用量；持久状态按数据库快照，暂停、预算等待与排队分别显示；结束速率只包含已记录完成时间的轮次，取消不等于质检成功。历史缺测不回填，过期或失败样本保断点，目标 UP 不代表数据库样本有效。本图尚无 GPU 数据来源。</p></section></template>
+<p>模型在途仅计已准入且进入显式供应商调用的本应用边界，返回/抛错后归还；不含准入、归档或结算等待，不代表供应商GPU占用。运行计数随实例重启变化，不能替代精确账本。检测图耗时不含融合评分和持久化；超时、取消后的逻辑结算耗时不代表底层任务已经停止。共享线程池包含评测，不是持久任务积压或 GPU 用量；持久状态按数据库快照，暂停、预算等待与排队分别显示；结束速率只包含已记录完成时间的轮次，取消不等于质检成功。历史缺测不回填，过期或失败样本保断点，目标 UP 不代表数据库样本有效。本图尚无 GPU 数据来源。</p></section></template>
 <style scoped>.monitoring{margin-top:24px}.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px;margin-top:16px}h3{margin:0}</style>
