@@ -19,7 +19,7 @@ const actionStateNames:Record<string,string>={PENDING:'待执行',RUNNING:'执�
 const actionOutcomeNames:Record<string,string>={CONFIRMED_SUCCESS:'已确认成功',CONFIRMED_FINAL_FAILURE:'已确认最终失败',CONFIRMED_RETRYABLE_FAILURE:'已确认可重试失败',UNKNOWN:'结果未知'};
 const tokenKinds=[{key:'input',label:'输入'},{key:'output',label:'输出'},{key:'total',label:'总量'}] as const;
 const canFindingDistribution=computed(()=>can('iqc:report:view')&&can('iqc:sensitive:conversation:read')&&can('iqc:sensitive:pii:read'));
-const findingSources=[{key:'machine',label:'机器事实'},{key:'reviewed',label:'最新已完成复核事实'}] as const;
+const findingSources=[{key:'machine',label:'机器事实'},{key:'reviewed',label:'已完成业务复核后的有效事实'}] as const;
 const findingStates=[{key:'KNOWN',label:'有值'},{key:'UNKNOWN',label:'未知'},{key:'CONFLICT',label:'冲突'},{key:'ERROR',label:'错误'},{key:'NOT_EVALUATED',label:'未评测'}] as const;
 const findingSeverities=['NONE','LOW','MEDIUM','HIGH','CRITICAL'] as const;
 const severityNames:Record<string,string>={NONE:'无',LOW:'低',MEDIUM:'中',HIGH:'高',CRITICAL:'严重'};
@@ -203,7 +203,7 @@ defineExpose({ refresh });
           · 合格线 {{ group.passingScore }} · {{ group.conversationCount }} 次评估</p>
         <template v-if="includeFindingDistribution&&canFindingDistribution">
           <a-card v-if="findingDistributions[group.groupKey]" title="Finding 运营分布" size="small" style="margin:12px 0">
-            <p>按声明事实、状态及有值事实的严重度统计；BOOLEAN 另列真/假。频次不代表准确率，UNKNOWN 不计作 FALSE，严重度不等同任务风险等级。</p>
+            <p>按声明事实、状态及有值事实的严重度统计；BOOLEAN 另列真/假。频次不代表准确率，UNKNOWN 不计作 FALSE，严重度不等同任务风险等级。复核后有效事实可能沿用未改判的机器值，不表示每项事实均已人工确认。</p>
             <section v-for="source in findingSources" :key="source.key">
               <h4>{{source.label}}</h4>
               <p>可用来源 {{findingDistributions[group.groupKey]![source.key].sourceResults}} / {{findingDistributions[group.groupKey]![source.key].expectedResults}} · 无对应来源 {{findingDistributions[group.groupKey]![source.key].unavailableResults}}<span v-if="source.key==='reviewed'">（缺结果或未完成复核，不填充机器频次）</span></p>

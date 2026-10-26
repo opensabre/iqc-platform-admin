@@ -304,3 +304,5 @@ Root原57046 build终态0且/tmp/iqc-finding-distribution-ui.exit=0，vue-tsc/Vi
 原11181 terminal1，16通过1失败，真实复现未知指标键被忽略；生产ModelMonitoring.vue补已声明字段白名单，未知响应整体拒绝。原17773修复后17通过；原69600类型检查失败仅新增测试stub隐式any，终态后改defineComponent类型推导。原17285 terminal0、/tmp/iqc-b-monitoring-ui-verified.log.exit=0，17项通过；原92563 terminal0、/tmp/iqc-b-monitoring-ui-types-final.log.exit=0，vue-tsc通过。保留engine版本差异警告。
 
 未重跑全量/构建，之前380项证据仅属于98cf73b。专项不证明真实PDP/浏览器后端/Prometheus/PromQL、数据库迁移或容量达标。完整I1–I7仍在推进，处理好的会话为输入，未部署。
+
+Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit=0，vue-tsc/Vite通过，保留chunk提示；包括B监控未知key拒绝及Finding复核有效事实用词澄清。Root未执行测试，Finding权限/计数/来源/组件专项仍待B，不将构建或旧380项当新功能验收。
