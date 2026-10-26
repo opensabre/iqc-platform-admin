@@ -274,3 +274,9 @@ BusinessReviewPanel正文受限时不解析为坏投影，显示未展示并禁�
 原模型运行监控页扩展生产检测图完成速率/逻辑P95/在途、节点尝试状态速率/成功率/P95/未开始跳过与共享线程池active/queued；不另建页。新九系列完整可选，旧控制面明确无法确认节点指标，部分系列视为协议错误；缺测/NaN/Inf不补零，权限与范围变更同步清图及代次。明确重试/备用各自计数、线程池含评测、图逻辑耗时排除融合评分/持久化，GPU仍无来源。后端详细口径见iqc-pipeline-monitoring.md，构建/独立专项实际终态见根协作记录；未据图存在宣称容量或PRD完成。
 
 Root原34759 build终态0且/tmp/iqc-pipeline-monitoring-ui.exit=0，vue-tsc/Vite通过，现有chunk提示保留，diff通过。Root未新增/执行测试；新系列/旧控制面/撤权迟到响应和真实采集仍待B独立专项。
+
+## B 2026-10-26 固定合并前端全量回归
+
+基线98cf73b（含动作统计、一致性v2及节点监控固定5cd4190），原4696 terminal0，/tmp/iqc-b-ui-integrated-regression.log.exit=0：53文件380测试全部通过。原85531 terminal0，/tmp/iqc-b-ui-integrated-build.log.exit=0：vue-tsc与Vite构建通过，保留chunk大于500kB提示及engine声明版本差异。无源码修改，node_modules symlink不提交。
+
+尚未集成持久任务23系列或模型在途可选系列，本次结果不外推未来提交；监控组件撤权/迟到响应、真实PDP、Prometheus采集与容量整链仍待专门验收。处理好的会话为输入，语音转换不在完成条件中。
