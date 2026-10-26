@@ -110,7 +110,7 @@ const labelStateCounts = computed(() => ["KNOWN", "UNKNOWN", "CONFLICT", "ERROR"
 const labelInsights = ref<LabelInsightSummary>();
 const conversationResult = ref<ConversationResultDetail>();
 const taskStatuses = ref<DictionaryItem[]>([]);
-const filters = ref({ keyword: "", status: undefined as string | undefined, taskType: undefined as string | undefined });
+const filters = ref({ keyword: "", status: undefined as string | undefined, taskType: undefined as string | undefined, parentTaskId:undefined as string|undefined });
 let pollingTimer: number | undefined;
 const form = ref({
   name: "",
@@ -321,10 +321,23 @@ async function search() {
   await refresh();
 }
 async function resetFilters() {
-  filters.value = { keyword: "", status: undefined, taskType: undefined };
+  filters.value = { keyword: "", status: undefined, taskType: undefined, parentTaskId:undefined };
   await search();
 }
+async function showBulkChildren(id:string){
+  if(!can('iqc:task:view'))return;
+  filters.value={keyword:'',status:undefined,taskType:undefined,parentTaskId:id};page.value=1;detailOpen.value=false;
+  await refresh();
+}
+function bulkProgressText(task:InspectionTask):string {
+  const progress=task.taskPresentation?.bulk;
+  if(!progress||progress.schemaVersion!=='iqc-bulk-presentation-v1'||!/^\d{1,19}$/.test(progress.scannedConversations)||!/^\d{1,19}$/.test(progress.selectedConversations)||!Number.isSafeInteger(progress.scannedPages)||progress.scannedPages<0||typeof progress.scanComplete!=='boolean')return '扫描进度暂不可用，请刷新详情';
+  const scanned=BigInt(progress.scannedConversations),selected=BigInt(progress.selectedConversations);
+  if(selected>scanned||scanned>9223372036854775807n)return '扫描进度暂不可用，请刷新详情';
+  return `已扫描 ${scanned} 个候选会话，已选中 ${selected} 个会话；${progress.scanComplete?'扫描已完成，任务状态仍以分片处理结果为准':'扫描尚未完成'}`;
+}
 function taskTypeLabel(taskType?: string) {
+  if(taskType === "PIPELINE_BULK") return "全量分片批次";
   if(taskType === "PIPELINE_EVALUATION") return "固定数据集评测";
   if(taskType === "PIPELINE_TRIAL") return "流水线试跑";
   if(taskType === "PIPELINE") return "流水线质检";
@@ -677,7 +690,7 @@ onBeforeUnmount(() => {
       </a-form-item>
       <a-form-item label="任务类型">
         <a-select v-model:value="filters.taskType" allow-clear placeholder="全部类型" style="width: 140px">
-          <a-select-option value="BATCH">立即批量</a-select-option>
+          <a-select-option value="PIPELINE_BULK">全量分片批次</a-select-option><a-select-option value="BATCH">立即批量</a-select-option>
           <a-select-option value="SAMPLE">随机抽样</a-select-option>
           <a-select-option value="SCHEDULED">定时筛选</a-select-option>
         </a-select>
@@ -689,6 +702,7 @@ onBeforeUnmount(() => {
     </a-form>
   </a-card>
   <a-card :bordered="false" class="tasks-card">
+    <a-alert v-if="filters.parentTaskId" type="info" :message="`当前显示批次 ${filters.parentTaskId} 的可见分片`"><template #action><a-button size="small" @click="resetFilters">返回全部任务</a-button></template></a-alert>
     <a-table
       :data-source="tasks"
       :loading="loading"
@@ -725,7 +739,7 @@ onBeforeUnmount(() => {
       </a-table-column>
       <a-table-column key="progress" title="进度" :width="220"
         ><template #default="{ record }"
-          ><a-progress
+          ><span v-if="record.taskType==='PIPELINE_BULK'">逐片协调，详情查看扫描进度</span><a-progress v-else
             :percent="
               record.totalMessages
                 ? Math.round(
@@ -743,7 +757,7 @@ onBeforeUnmount(() => {
       />
       <a-table-column key="actions" title="操作" :width="250"
         ><template #default="{ record }"
-          ><a-button type="link" @click="showDetail(record.id)">详情</a-button
+          ><a-button v-if="record.taskType==='PIPELINE_BULK'&&can('iqc:task:view')" type="link" @click="showBulkChildren(record.id)">查看分片</a-button><a-button type="link" @click="showDetail(record.id)">详情</a-button
           ><a-button
             v-if="['CREATED','SCHEDULED','QUEUED','PAUSED'].includes(record.status) && can('iqc:task:execute')"
             type="link" @click="reprioritize(record, 1)">提权</a-button
@@ -752,7 +766,7 @@ onBeforeUnmount(() => {
             type="link" @click="reprioritize(record, -1)">降权</a-button
           ><a-button
             v-if="
-              ['SUCCEEDED', 'PARTIAL_FAILED', 'FAILED'].includes(
+              record.taskType !== 'PIPELINE_BULK' && ['SUCCEEDED', 'PARTIAL_FAILED', 'FAILED'].includes(
                 record.status
               ) && (record.taskType === 'PIPELINE_EVALUATION' ? can('iqc:evaluation:report:view') : can('iqc:result:view'))
             "
@@ -767,12 +781,12 @@ onBeforeUnmount(() => {
             type="link"
             @click="run(record.id)"
             >{{
-              ["FAILED", "PARTIAL_FAILED"].includes(record.status)
+              record.taskType==='PIPELINE_BULK' ? '重新汇总' : ["FAILED", "PARTIAL_FAILED"].includes(record.status)
                 ? "重试"
                 : "执行"
             }}</a-button
           ><a-button
-            v-if="record.status === 'RUNNING' && can('iqc:task:execute')"
+            v-if="['RUNNING','QUEUED'].includes(record.status) && can('iqc:task:execute')"
             type="link"
             @click="pause(record.id)"
             >暂停</a-button
@@ -1117,7 +1131,7 @@ onBeforeUnmount(() => {
         ><a-descriptions-item label="会话/并发"
           >{{ conversationCount(detail) }} 个 /
           {{ detail.concurrencyLimit }}</a-descriptions-item
-        ><a-descriptions-item label="进度"
+        ><a-descriptions-item v-if="detail.taskType==='PIPELINE_BULK'" label="扫描进度">{{ bulkProgressText(detail) }}</a-descriptions-item><a-descriptions-item v-else label="进度"
           ><a-progress
             :percent="
               detail.totalMessages
@@ -1126,7 +1140,7 @@ onBeforeUnmount(() => {
                   )
                 : 0
             " /></a-descriptions-item
-        ><a-descriptions-item label="消息统计"
+        ><a-descriptions-item v-if="detail.taskType!=='PIPELINE_BULK'" label="消息统计"
           >总数 {{ detail.totalMessages }}，已处理
           {{ detail.processedMessages }}，失败
           {{ detail.failedMessages }}</a-descriptions-item

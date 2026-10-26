@@ -50,7 +50,7 @@ export interface TaskRuleSnapshot {
 }
 
 export interface InspectionTask {
-  taskPresentation?:{schemaVersion:string;kind:string;labelOnly:boolean|null;hasLabels:boolean|null;schemeDraftRevision?:number;selectedVariantCode?:string;conversationCount?:number|null;benchmarkBaselineTaskId?:string;rollout?:{schemaVersion:string;policyRevision:number;side:'BASELINE'|'CANDIDATE';selectedVersionNo:number;selectedReleaseHash:string}};
+  taskPresentation?:{bulk?:{schemaVersion:string;scannedConversations:string;selectedConversations:string;scannedPages:number;scanComplete:boolean};schemaVersion:string;kind:string;labelOnly:boolean|null;hasLabels:boolean|null;schemeDraftRevision?:number;selectedVariantCode?:string;conversationCount?:number|null;benchmarkBaselineTaskId?:string;rollout?:{schemaVersion:string;policyRevision:number;side:'BASELINE'|'CANDIDATE';selectedVersionNo:number;selectedReleaseHash:string}};
   privacy?:{policyVersion:string;snapshotsVisible:boolean;canReadFull:boolean;canReadPii:boolean;canReadPrompt:boolean;withheldFields:string[]};
   id: string;
   conversationId?: string;
@@ -58,7 +58,7 @@ export interface InspectionTask {
   selectionFilterJson?: string;
   scheduledTime?: string;
   name: string;
-  taskType: "BATCH" | "SCHEDULED" | "SAMPLE" | "PIPELINE" | "PIPELINE_TRIAL" | "PIPELINE_EVALUATION";
+  taskType: "PIPELINE_BULK" | "BATCH" | "SCHEDULED" | "SAMPLE" | "PIPELINE" | "PIPELINE_TRIAL" | "PIPELINE_EVALUATION";
   concurrencyLimit: number;
   agentId?: string;
   ruleSetId?: string;
@@ -102,7 +102,7 @@ export type ExecutionMode = "RULE_ONLY" | "RULE_THEN_LLM" | "LLM_THEN_RULE" | "A
 export interface CreateTaskRequest { name?: string; taskType: "BATCH" | "SCHEDULED" | "SAMPLE"; conversationId?: string; conversationIds?: string[]; selectionFilter?: ScheduledSelectionFilter; scheduledTime?: string; sampleSize?:number; sampleSeed?:string; agentId?: string; executionMode?: ExecutionMode; ruleSetId?: string; ruleIds?: string[]; labelSelection?:LabelSelection; labelOptions?:LabelOptions; concurrencyLimit: number; }
 export interface PageResult<T> { records: T[]; current: number; size: number; total: number; }
 
-export interface TaskFilters { keyword?: string; status?: string; taskType?: string; }
+export interface TaskFilters { parentTaskId?:string;keyword?: string; status?: string; taskType?: string; }
 
 export async function listTasks(params: TaskFilters & { current?: number; size?: number } = {}) {
   const { data } = await http.get<PageResult<InspectionTask>>("/iqc/tasks", { params });

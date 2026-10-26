@@ -306,3 +306,9 @@ Root原57046 build终态0且/tmp/iqc-finding-distribution-ui.exit=0，vue-tsc/Vi
 未重跑全量/构建，之前380项证据仅属于98cf73b。专项不证明真实PDP/浏览器后端/Prometheus/PromQL、数据库迁移或容量达标。完整I1–I7仍在推进，处理好的会话为输入，未部署。
 
 Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit=0，vue-tsc/Vite通过，保留chunk提示；包括B监控未知key拒绝及Finding复核有效事实用词澄清。Root未执行测试，Finding权限/计数/来源/组件专项仍待B，不将构建或旧380项当新功能验收。
+
+## 2026-10-27 全量分片批次原页面接入
+
+原发布版本任务+临时选择器增加显式全量分片开关/每片候选数，只允许ALL及执行grant；原请求重试冻结bulk选项，切换任务/选数方式或失去执行权限清除可选开关。原任务目录新增父类型、按父查看分片/返回全部，详情有界严格校验扫描统计协议/十进制计数/守恒，缺失或异常保持未知。父进度不再按0条消息显示百分比，扫描完成不代表分片完成；父终态按钮标为重新汇总，不能伪称自动重跑失败模型。
+
+原12686 build terminal0且/tmp/iqc-bulk-ui-build.exit=0，vue-tsc/Vite通过（Vite2m47s），engine及chunk提示保留，diff通过，Root未写/执行测试。API需配套当前批次后端与迁移77；B独立权限/坏协议/迟到响应/重试/过滤及真实联调验证仍待，跨分片报告及统一终态清理未完成。未部署。
