@@ -98,3 +98,11 @@ Gold编辑器同步监听样本ID与gold:view；撤权走原load清除草稿、�
 在c1d2c8f包含全部Gold/报表修复的基线上，全套测试首轮原90782终态1：50文件326项中324通过，ConfidenceDiagnosticsPanel两项旧文案/未绑定身份夹具失败；该轮没有执行build，同名旧build日志不计。仅更新测试契约：有效候选显式modelKey/deploymentRef，未绑定或坏身份不提供执行引用但保留诊断，切回绑定重新出现引用。未放宽生产身份要求。
 
 原8827终态0，/tmp/iqc-b-ui-integrated-full-final.log.exit=0，全套50文件328项通过；/tmp/iqc-b-ui-integrated-build-final.log.exit=0，npm run build完成vue-tsc与Vite（43.23s），保留大于500kB chunk提示。全量测试仍含既有stub未注册组件的Vue警告，不等于真实浏览器或PDP/服务端整链验收。没有包含后续自动挖掘v2 UI，完整适用I1–I7仍未完成。
+
+## 一致性声明部署口径（2026-10-25）
+
+ModelConsistencyPanel 接受按需报告 v2：同模型键、声明部署引用与输入有序指纹序列才可比较，缺部署与不同部署均单列，不充当一致。仍接受旧 v1 响应，但明确警告旧口径只核对模型配置身份/输入，不能证明部署相同。声明部署引用不等于供应商权重真实性。输入/执行/权限变化同步清报告与请求代次，撤权时不显示旧报告；不新增端点或修改原评测产物。
+
+Root 构建及 B 独立专项终态见根协作记录，旧 v1 组件和 SQL 证据不代表新 v2 已验收。完整适用 I1–I7 仍在推进，未部署。
+
+Root 原16134 build 终态0且 /tmp/iqc-consistency-deployment-ui.exit=0，vue-tsc/Vite通过，现有chunk提示保留；diff通过，Root未运行测试。v2独立组件/真实后端组合专项仍待B。
