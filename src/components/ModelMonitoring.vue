@@ -31,21 +31,36 @@ const definitions=[
   {title:'准入阶段（次/秒）',fields:[{key:'admission',label:'准入'}]},
   {title:'账本核销结果（次/秒）',fields:[{key:'settlement',label:'核销'}]}
 ];
+const pipelineDefinitions=[
+  {title:'生产检测图完成速率（会话/秒）',fields:[{key:'pipelineTps',label:'会话/秒'}]},
+  {title:'生产逻辑耗时 P95（毫秒）',fields:[{key:'pipelineP95',label:'检测图 P95',multiplier:1000},{key:'nodeP95',label:'节点尝试 P95',multiplier:1000}]},
+  {title:'生产节点尝试成功率（%）',fields:[{key:'nodeSuccessRatio',label:'尝试成功率',multiplier:100}]},
+  {title:'生产节点尝试完成速率（次/秒）',fields:[{key:'nodeAttemptTps',label:'节点状态'}]},
+  {title:'生产未开始节点跳过速率（节点/秒）',fields:[{key:'nodeSkippedTps',label:'跳过/秒'}]},
+  {title:'生产检测图逻辑在途（会话）',fields:[{key:'pipelineActive',label:'在途会话'}]},
+  {title:'共享节点线程池（含评测）',fields:[{key:'nodeExecutorActive',label:'活跃线程'},{key:'nodeExecutorQueued',label:'排队尝试'}]}
+];
+const pipelineSupported=ref(false);
 const charts=ref<Array<{title:string;options:ReturnType<typeof modelTrendOptions>;known:boolean}>>([]);
-async function load(){const ticket=++generation;history.value=undefined;charts.value=[];error.value='';if(!authorized.value){loading.value=false;return;}loading.value=true;const sourceRequest=loadSource(ticket);
+async function load(){const ticket=++generation;history.value=undefined;charts.value=[];pipelineSupported.value=false;error.value='';if(!authorized.value){loading.value=false;return;}loading.value=true;const sourceRequest=loadSource(ticket);
   try{const result=await getModelMonitoringHistory(range.value);if(ticket!==generation)return;
     if(result.range!==range.value)throw new Error('range mismatch');
-    const parsed=definitions.map(definition=>{const options=modelTrendOptions(result,definition.fields);return {title:definition.title,options,known:options.series.some(series=>series.data.some(point=>point[1]!=null))};});
-    history.value=result;charts.value=parsed;
+    const keys=pipelineDefinitions.flatMap(definition=>definition.fields.map(field=>field.key));
+    const present=keys.filter(key=>Object.hasOwn(result.series,key)).length;
+    if(present!==0&&present!==keys.length)throw new Error('incomplete pipeline metrics');
+    const supported=present===keys.length;
+    const parsed=[...definitions,...(supported?pipelineDefinitions:[])].map(definition=>{const options=modelTrendOptions(result,definition.fields);return {title:definition.title,options,known:options.series.some(series=>series.data.some(point=>point[1]!=null))};});
+    history.value=result;charts.value=parsed;pipelineSupported.value=supported;
   }catch{if(ticket===generation)error.value='模型监控读取或解析失败，请重试并检查监控服务。';}
   finally{await sourceRequest;if(ticket===generation)loading.value=false;}
 }
-watch([range,authorized,canStatus],()=>void load(),{immediate:true});onBeforeUnmount(()=>{generation++;});
+watch([range,authorized,canStatus],()=>void load(),{immediate:true,flush:'sync'});onBeforeUnmount(()=>{generation++;});
 </script>
-<template><section v-if="authorized" class="monitoring"><a-space><h3>模型运行趋势</h3><a-select v-model:value="range" style="width:130px" :options="[{value:'15m',label:'15分钟'},{value:'1h',label:'1小时'},{value:'6h',label:'6小时'},{value:'24h',label:'24小时'},{value:'7d',label:'7天'},{value:'30d',label:'30天'}]"/><a-button :disabled="loading" @click="load">刷新</a-button></a-space>
-<a-alert type="info" message="统计全局显式模型调用。响应返回不代表质检成功，结果未知不能断言供应商失败。Token类别有重叠，不可相加；缺失样本保留断点。"/>
+<template><section v-if="authorized" class="monitoring"><a-space><h3>模型与节点运行趋势</h3><a-select v-model:value="range" style="width:130px" :options="[{value:'15m',label:'15分钟'},{value:'1h',label:'1小时'},{value:'6h',label:'6小时'},{value:'24h',label:'24小时'},{value:'7d',label:'7天'},{value:'30d',label:'30天'}]"/><a-button :disabled="loading" @click="load">刷新</a-button></a-space>
+<a-alert type="info" message="统计全局显式模型调用及生产检测图。节点成功率按每次尝试计算，重试和备用节点分别计数，未开始的跳过不充当执行成功。响应返回不代表质检成功；Token类别不可相加，缺失样本保留断点。"/>
 <a-alert v-if="sourceMessage" :type="sourceWarning?'warning':'info'" :message="sourceMessage"/>
 <a-alert v-if="error" type="error" :message="error"/><a-spin :spinning="loading"><p v-if="history">查询窗口：{{history.start}} — {{history.end}} · 步长 {{history.stepSeconds}} 秒</p>
+<a-alert v-if="history&&!pipelineSupported" type="info" message="当前控制面未返回节点运行系列，节点指标尚无法确认。"/>
 <div class="charts"><a-card v-for="chart in charts" :key="chart.title" :title="chart.title"><ECharts v-if="chart.known" :options="chart.options"/><a-empty v-else description="没有有效样本；请检查时间窗口、采集状态和用量覆盖。"/></a-card></div></a-spin>
-<p>运行计数随实例重启变化，不能替代精确预算账本或供应商账单。GPU、业务质检失败率尚无此图的数据来源。</p></section></template>
+<p>运行计数随实例重启变化，不能替代精确账本。检测图耗时不含融合评分和持久化；超时、取消后的逻辑结算耗时不代表底层任务已经停止。共享线程池包含评测，不是持久任务积压或 GPU 用量；本图尚无 GPU 数据来源。</p></section></template>
 <style scoped>.monitoring{margin-top:24px}.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px;margin-top:16px}h3{margin:0}</style>
