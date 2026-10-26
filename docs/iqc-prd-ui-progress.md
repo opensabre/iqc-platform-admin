@@ -291,3 +291,11 @@ Root原56584 build终态0且/tmp/iqc-task-operational-ui.exit=0，vue-tsc/Vite�
 原监控页可选activeModelCalls图，跨实例应用显式调用在途，不宣称供应商物理并发/GPU/预算占用。缺字段明确无法确认，已采样0与缺测区分，原非有限断点/权限代次不变。兼容旧9/18/23和可选单系列，不新增页面/API/权限。构建及独立采集/组件专项以根协作终态为准，完整I1–I7未完成，未部署。
 
 Root原28604 build终态0且/tmp/iqc-model-active-ui.exit=0，vue-tsc/Vite通过（Vite2m7s），chunk提示保留，diff通过，Root未写/运行测试。新可选在途协议/页面与实际采集仍待B专项，未部署。
+
+## B 2026-10-26 监控协议/撤权专项
+
+固定集成4483a74为a16dbdc，保留双方进度追加章节。新增ModelMonitoring.spec.ts共17项，真实解析器+受控API/权限/基础组件：六合法9/10/18/19/23/24组合、无权限不请求、已加载撤权与恢复重新取数、挂起history/source撤权后隔离、status单独撤权、时间窗口代次、节点/任务部分组与任务依赖节点、未知键拒绝、采样0与NaN/Inf断点、失败刷新清图。
+
+原11181 terminal1，16通过1失败，真实复现未知指标键被忽略；生产ModelMonitoring.vue补已声明字段白名单，未知响应整体拒绝。原17773修复后17通过；原69600类型检查失败仅新增测试stub隐式any，终态后改defineComponent类型推导。原17285 terminal0、/tmp/iqc-b-monitoring-ui-verified.log.exit=0，17项通过；原92563 terminal0、/tmp/iqc-b-monitoring-ui-types-final.log.exit=0，vue-tsc通过。保留engine版本差异警告。
+
+未重跑全量/构建，之前380项证据仅属于98cf73b。专项不证明真实PDP/浏览器后端/Prometheus/PromQL、数据库迁移或容量达标。完整I1–I7仍在推进，处理好的会话为输入，未部署。

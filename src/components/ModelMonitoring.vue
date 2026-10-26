@@ -52,6 +52,9 @@ const charts=ref<Array<{title:string;options:ReturnType<typeof modelTrendOptions
 async function load(){const ticket=++generation;history.value=undefined;charts.value=[];pipelineSupported.value=false;taskSupported.value=false;activeModelSupported.value=false;error.value='';if(!authorized.value){loading.value=false;return;}loading.value=true;const sourceRequest=loadSource(ticket);
   try{const result=await getModelMonitoringHistory(range.value);if(ticket!==generation)return;
     if(result.range!==range.value)throw new Error('range mismatch');
+    const allowedKeys=new Set([...definitions,...pipelineDefinitions,...taskDefinitions].flatMap(definition=>definition.fields.map(field=>field.key)));
+    allowedKeys.add('activeModelCalls');
+    if(Object.keys(result.series).some(key=>!allowedKeys.has(key)))throw new Error('unknown monitoring series');
     const keys=pipelineDefinitions.flatMap(definition=>definition.fields.map(field=>field.key));
     const present=keys.filter(key=>Object.hasOwn(result.series,key)).length;
     if(present!==0&&present!==keys.length)throw new Error('incomplete pipeline metrics');
