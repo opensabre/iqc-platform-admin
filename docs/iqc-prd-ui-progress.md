@@ -322,3 +322,9 @@ Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit
 原任务目录父批次“批次结果”复用原结果中心/results，按parentTaskId读取当前可见分片的业务会话结果，仍可筛风险/分数。父过滤时禁消息观察兼容视图，避免兼容API忽略参数后显示全库；显式清除批次或改选单任务才离开父范围，非法URL参数失败而非降级为无过滤。详情依旧用实际子taskId/conversationId进入原复核/证据，不构造父均分或P95。入口同时保留原路由result:view与business:view权限。
 
 原45985 build terminal0且/tmp/iqc-bulk-result-page-ui-build.exit=0，vue-tsc/Vite通过，既有engine/chunk提示保留，diff通过；Root未写/执行测试。后端7071f5e直接SQL应用组织范围/父过滤/最新轮次先于评分风险，不加载全库任务ID。B仍需协议/权限/迟到/跳转与真实SQL及容量验收，本轮未部署，完整I1–I7未完成。
+
+## 2026-10-27 独立高风险规则证据门
+
+原风险编辑器不允许HIGH/CRITICAL默认；高风险规则需要已知事实证据门（ALL至少一项、ANY各分支、已知状态/等值/直接NOT等值），服务端还会核验同code所有冻结生产者都要求证据。UNKNOWN不是RiskPolicy.Severity合法配置选项。旧加载配置不静默转换值，需显式修正后保存新版本；原历史显示不改。
+
+原33465 build terminal0且/tmp/iqc-high-risk-evidence-ui-build.exit=0，vue-tsc/Vite通过（1m9s），既有engine/chunk提示保留，diff通过，Root未写/执行测试。配套后端4f73190，原历史RiskPolicy求值/JSON/Hash不改；旧配置迁移和正反组合需B独立验证，不将静态门当语义质量或完整27.9验收，未部署。
