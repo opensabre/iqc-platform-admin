@@ -328,3 +328,9 @@ Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit
 原风险编辑器不允许HIGH/CRITICAL默认；高风险规则需要已知事实证据门（ALL至少一项、ANY各分支、已知状态/等值/直接NOT等值），服务端还会核验同code所有冻结生产者都要求证据。UNKNOWN不是RiskPolicy.Severity合法配置选项。旧加载配置不静默转换值，需显式修正后保存新版本；原历史显示不改。
 
 原33465 build terminal0且/tmp/iqc-high-risk-evidence-ui-build.exit=0，vue-tsc/Vite通过（1m9s），既有engine/chunk提示保留，diff通过，Root未写/执行测试。配套后端4f73190，原历史RiskPolicy求值/JSON/Hash不改；旧配置迁移和正反组合需B独立验证，不将静态门当语义质量或完整27.9验收，未部署。
+
+## B MCP独立操作权限组件验证（2026-10-29）
+
+仅merge固定d9b0d91为56942ee，进度文档冲突保留双方记录。新增operation-permissions.spec.ts六项：旧manage只创建不能更新、update只更新不能创建、确认期间撤销disable不调用、enable不能disable且调用自身端点、更新撤权关闭表单及拒迟到保存、读取撤权丢弃在途列表。
+
+原70219 terminal0，/tmp/iqc-b-asset-operation-ui-20261029.log.exit=0，新MCP6+原模板目录6=12项通过6.80s；原84408 vue-tsc终态0，/tmp/iqc-b-asset-operation-types-20261029.log.exit=0。旧模板modal未stub警告保留。测试使用真实Vue页面、受控permission/API与Ant组件stub，通过setupState调用业务入口并检查模态DOM及API边界，非真实浏览器或PDP。没有声称本次验证了模型/Skill/模板物化全部新操作码，也未重跑全量套件或Vite构建。无生产改动/部署，完整适用I1–I7继续。
