@@ -342,3 +342,17 @@ Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit
 原75397终态0且/tmp/iqc-b-assets-template-operations-20261029.log.exit=0，三个文件28项全部通过7.95s（模型/Skill13、MCP6、模板9）。原57583 vue-tsc终态0且/tmp/iqc-b-model-skill-template-types-20261029.log.exit=0，diff通过。首轮模型不适用的正文空用例已删除，不计证据。原模板未stub modal警告保留，不影响断言。
 
 组件使用真实Vue页面、受控API/权限和Ant stub，通过setupState调用业务入口并检查DOM/API边界；不是浏览器/真实组织权限/PDP。未重跑全量或Vite，不把原四页构建证据升级为本轮全量验收。后续任务页新码/全量与真实登录范围仍继续，完整适用I1–I7未完成，无部署。
+
+
+## 2026-10-29 B 规则集精确操作权限与全量回归
+
+基线 b01819f，含生产固定 732b531 的规则集页面。新增 `src/views/rule-sets/operation-permissions.spec.ts` 十项，复用真实 Vue owning 页面、响应式权限 mock、API mock 与 Ant stub，无生产源码修改：
+
+- 旧 rule:view/manage/approve 不替代规则集读取、创建或审批操作；set:view 单独读取，不额外请求成员规则。
+- 创建要求 set:manage 与 rule:view，保留必填校验、已发布成员选项和请求中的成员列表；列表不保留规则表达式或说明正文。
+- submit/approve/reject 各自仅允许对应调用，互不授权，也不授权创建。
+- 撤销成员读取关闭并清空创建表单、拒绝后续保存；撤销读取丢弃在途规则/规则集响应；审批撤权后迟到成功不提示、不额外刷新；保留提交失败反馈。
+
+原 70696 首轮 9 通过 / 1 失败，为测试误把撤权本身触发的刷新计作审批完成后的刷新；待类型检查原进程终态后，修正为撤权稳定后的调用基线，不修改生产行为。原 53812 `vue-tsc --noEmit` terminal 0，`/tmp/iqc-b-rule-set-operation-types-20261029.log.exit=0`，该类型检查先于此断言修正。
+
+最终原 29305 `pnpm exec vitest run` terminal 0，`/tmp/iqc-b-rule-set-full-ui-20261029.log.exit=0`：58 文件、456 项全部通过，110.18s，含最终规则集 10 项及模型/Skill/MCP/模板专项。日志保留既有组件 stub 警告。测试依赖受控权限/API 和组件 stub，不代表浏览器、真实岗位、PDP 或后台持久化通过；不含 A 尚未固定的任务页慢轮询修正，本轮未重跑 Vite build。完整适用 I1–I7 仍在推进，输入仅已处理会话。
