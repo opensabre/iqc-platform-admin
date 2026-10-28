@@ -44,8 +44,8 @@ async function refresh() {
   const current = ++generation;
   try {
     const [nextSets, nextRules] = await Promise.all([
-      listRuleSets(),
-      listRules(),
+      can("iqc:rule-set:view") ? listRuleSets() : Promise.resolve([]),
+      can("iqc:rule:view") ? listRules() : Promise.resolve([]),
     ]);
     if (disposed || current !== generation) return;
     sets.value = nextSets.map(({ description: _description, ...metadata }) => metadata);
@@ -55,7 +55,7 @@ async function refresh() {
   }
 }
 function createNew() {
-  if (disposed || !can("iqc:rule:manage")) return;
+  if (disposed || !can("iqc:rule-set:manage") || !can("iqc:rule:view")) return;
   form.value = {
     name: "",
     code: "",
@@ -66,13 +66,13 @@ function createNew() {
   open.value = true;
 }
 async function save() {
-  if (disposed || saving.value || !can("iqc:rule:manage")) return;
+  if (disposed || saving.value || !can("iqc:rule-set:manage") || !can("iqc:rule:view")) return;
   if (!form.value.name || !form.value.code || !form.value.ruleIds.length)
     return void message.warning("请填写名称、编码并选择规则");
   saving.value = true;
   try {
     await createRuleSet({ ...form.value, ruleIds: [...form.value.ruleIds] });
-    if (disposed) return;
+    if (disposed || !can("iqc:rule-set:manage") || !can("iqc:rule:view")) return;
     message.success("规则集已创建");
     open.value = false;
     await refresh();
@@ -83,10 +83,10 @@ async function save() {
   }
 }
 async function submit(id: string) {
-  if (disposed || !can("iqc:rule:manage")) return;
+  if (disposed || !can("iqc:rule-set:submit")) return;
   try {
     await submitRuleSet(id);
-    if (disposed) return;
+    if (disposed || !can("iqc:rule-set:submit")) return;
     message.success("已提交审批");
     await refresh();
   } catch {
@@ -94,10 +94,10 @@ async function submit(id: string) {
   }
 }
 async function approve(id: string) {
-  if (disposed || !can("iqc:rule:approve")) return;
+  if (disposed || !can("iqc:rule-set:approve")) return;
   try {
     await approveRuleSet(id);
-    if (disposed) return;
+    if (disposed || !can("iqc:rule-set:approve")) return;
     message.success("规则集已发布");
     await refresh();
   } catch {
@@ -105,16 +105,21 @@ async function approve(id: string) {
   }
 }
 async function reject(id: string) {
-  if (disposed || !can("iqc:rule:approve")) return;
+  if (disposed || !can("iqc:rule-set:reject")) return;
   try {
     await rejectRuleSet(id);
-    if (disposed) return;
+    if (disposed || !can("iqc:rule-set:reject")) return;
     message.success("规则集已驳回");
     await refresh();
   } catch {
     message.error("驳回失败");
   }
 }
+watch(() => [can("iqc:rule-set:view"), can("iqc:rule:view"), can("iqc:rule-set:manage")], () => {
+  if (!can("iqc:rule-set:manage") || !can("iqc:rule:view")) open.value = false;
+  sets.value = []; rules.value = [];
+  void refresh();
+});
 watch(open, (visible) => {
   if (!visible) form.value = { name: "", code: "", description: "", ruleIds: [], aggregationMode: "ALL" };
 });
@@ -133,12 +138,12 @@ onMounted(refresh);
         将已发布的单消息规则和 DLS 会话规则按顺序编排，作为智能体与质检任务的稳定输入。
       </p>
     </div>
-    <a-button v-if="can('iqc:rule:manage')" type="primary" @click="createNew"
+    <a-button v-if="can('iqc:rule-set:manage')" :disabled="!can('iqc:rule:view')" :title="can('iqc:rule:view') ? undefined : '需要读取已发布规则以选择成员'" type="primary" @click="createNew"
       >创建规则集</a-button
     >
   </section>
   <a-card :bordered="false"
-    ><a-table :data-source="sets" row-key="id"
+    ><a-alert v-if="!can('iqc:rule-set:view')" type="info" show-icon message="当前未授权查看规则集" /><a-table v-else :data-source="sets" row-key="id"
       ><a-table-column title="名称" data-index="name" /><a-table-column
         title="编码"
         data-index="code"
@@ -159,20 +164,20 @@ onMounted(refresh);
         :width="240"
         ><template #default="{ record }"
           ><a-button
-            v-if="record.status === 'DRAFT' && can('iqc:rule:manage')"
+            v-if="record.status === 'DRAFT' && can('iqc:rule-set:submit')"
             type="link"
             @click="submit(record.id)"
             >提交审批</a-button
           ><a-button
             v-if="
-              record.status === 'PENDING_APPROVAL' && can('iqc:rule:approve')
+              record.status === 'PENDING_APPROVAL' && can('iqc:rule-set:approve')
             "
             type="link"
             @click="approve(record.id)"
             >发布</a-button
           ><a-button
             v-if="
-              record.status === 'PENDING_APPROVAL' && can('iqc:rule:approve')
+              record.status === 'PENDING_APPROVAL' && can('iqc:rule-set:reject')
             "
             danger
             type="link"
