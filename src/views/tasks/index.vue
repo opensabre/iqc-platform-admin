@@ -112,7 +112,7 @@ const conversationResult = ref<ConversationResultDetail>();
 const taskStatuses = ref<DictionaryItem[]>([]);
 const filters = ref({ keyword: "", status: undefined as string | undefined, taskType: undefined as string | undefined, parentTaskId:undefined as string|undefined });
 let pollingTimer: number | undefined;
-let disposed=false,listGeneration=0,pollGeneration=0,conversationRequest=0;
+let disposed=false,listGeneration=0,pollGeneration=0,conversationRequest=0,polling=false;
 const form = ref({
   name: "",
   taskType: "BATCH" as "BATCH" | "SCHEDULED" | "SAMPLE",
@@ -297,7 +297,7 @@ async function refresh() {
   }
 }
 async function poll() {
-  if(disposed||loading.value||!can("iqc:task:view"))return;
+  if(disposed||loading.value||polling||!can("iqc:task:view"))return;
   const epoch=listGeneration,request=++pollGeneration;
   if (
     !tasks.value.some((item) =>
@@ -305,6 +305,7 @@ async function poll() {
     )
   )
     return;
+  polling=true;
   try {
     const result = await listTasks({
       current: page.value,
@@ -316,7 +317,7 @@ async function poll() {
     total.value = result.total;
   } catch {
     /* 刷新失败不打断正在执行的任务 */
-  }
+  } finally { polling=false; }
 }
 async function changePage(current: number, size: number) {
   page.value = current;
