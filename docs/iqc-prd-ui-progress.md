@@ -334,3 +334,11 @@ Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit
 仅merge固定d9b0d91为56942ee，进度文档冲突保留双方记录。新增operation-permissions.spec.ts六项：旧manage只创建不能更新、update只更新不能创建、确认期间撤销disable不调用、enable不能disable且调用自身端点、更新撤权关闭表单及拒迟到保存、读取撤权丢弃在途列表。
 
 原70219 terminal0，/tmp/iqc-b-asset-operation-ui-20261029.log.exit=0，新MCP6+原模板目录6=12项通过6.80s；原84408 vue-tsc终态0，/tmp/iqc-b-asset-operation-types-20261029.log.exit=0。旧模板modal未stub警告保留。测试使用真实Vue页面、受控permission/API与Ant组件stub，通过setupState调用业务入口并检查模态DOM及API边界，非真实浏览器或PDP。没有声称本次验证了模型/Skill/模板物化全部新操作码，也未重跑全量套件或Vite构建。无生产改动/部署，完整适用I1–I7继续。
+
+## B 模型Skill与模板物化独立权限验证（2026-10-29）
+
+基线5cf534d，仅新增模型/Skill共享参数化组件测试13项与模板目录3项。模型6与Skill6分别覆盖旧manage可创建不可更新、update可更新不可创建、enable不可disable、确认期间撤权、更新撤权关闭并拒保存、读撤权丢弃迟到列表；Skill另验证正文缺失的受限投影不能补空保存。模板验证template:view+旧rule:manage仅预览、不调用物化；新template:materialize成功调用；撤销物化权限后迟到成功不显示成功消息。
+
+原75397终态0且/tmp/iqc-b-assets-template-operations-20261029.log.exit=0，三个文件28项全部通过7.95s（模型/Skill13、MCP6、模板9）。原57583 vue-tsc终态0且/tmp/iqc-b-model-skill-template-types-20261029.log.exit=0，diff通过。首轮模型不适用的正文空用例已删除，不计证据。原模板未stub modal警告保留，不影响断言。
+
+组件使用真实Vue页面、受控API/权限和Ant stub，通过setupState调用业务入口并检查DOM/API边界；不是浏览器/真实组织权限/PDP。未重跑全量或Vite，不把原四页构建证据升级为本轮全量验收。后续任务页新码/全量与真实登录范围仍继续，完整适用I1–I7未完成，无部署。
