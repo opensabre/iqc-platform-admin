@@ -85,9 +85,15 @@ describe('task exact operation permissions and polling',()=>{
  });
  it('label export revoked in flight cannot create a downloadable Blob URL',async()=>{
   const create=vi.fn();vi.stubGlobal('URL',Object.assign(class extends URL {},{createObjectURL:create,revokeObjectURL:vi.fn()}));
-  access.codes.push('iqc:result:summary:view','iqc:result:labels:export');await mount();await vm.showResults('task');const slow=pending();api.export.mockReturnValueOnce(slow.promise);const request=vm.exportLabels();expect(api.export).toHaveBeenCalledExactlyOnceWith('task');
+  access.codes.push('iqc:result:summary:view','iqc:result:labels:export','iqc:sensitive:conversation:read','iqc:sensitive:pii:read');await mount();await vm.showResults('task');const slow=pending();api.export.mockReturnValueOnce(slow.promise);const request=vm.exportLabels();expect(api.export).toHaveBeenCalledExactlyOnceWith('task');
   access.codes=['iqc:task:view','iqc:result:summary:view'];await settle();slow.resolve({data:new Blob(['private labels'])});await request;expect(create).not.toHaveBeenCalled();
  });
+ for(const missing of ['iqc:sensitive:conversation:read','iqc:sensitive:pii:read']){
+  it(`label export requires ${missing} as well as its operation grant`,async()=>{
+   access.codes.push(...['iqc:result:summary:view','iqc:result:labels:export','iqc:sensitive:conversation:read','iqc:sensitive:pii:read'].filter(code=>code!==missing));
+   await mount();await vm.showResults('task');await vm.exportLabels();expect(api.export).not.toHaveBeenCalled();
+  });
+ }
  it('unmount discards a pending poll and clears its interval',async()=>{
   await mount();const slow=pending();api.list.mockReturnValueOnce(slow.promise);vi.advanceTimersByTime(3000);await settle();app!.unmount();app=undefined;
   slow.resolve({records:[{...task,queuePriority:99}],total:1});await settle();expect(vm.tasks[0].queuePriority).toBe(4);vi.advanceTimersByTime(9000);await settle();expect(api.list).toHaveBeenCalledTimes(2);
