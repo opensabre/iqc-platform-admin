@@ -65,23 +65,23 @@ onBeforeUnmount(() => {
 /** Ignore responses after another scheme is opened or this read-only panel is closed. */
 async function loadHistory(beforeVersion?: number) {
   const target = historyTarget.value;
-  if (!target || !historyOpen.value || !can("iqc:scheme:manage")) return;
+  if (!target || !historyOpen.value || !can("iqc:scheme:versions:view")) return;
   const generation = ++historyGeneration;
   historyLoading.value = true; historyError.value = "";
   if (beforeVersion === undefined) { historyVersions.value = []; nextBeforeVersion.value = null; }
   try {
     const page = await listSchemeVersions(target.id, beforeVersion);
-    if (generation !== historyGeneration) return;
+    if (disposed || generation !== historyGeneration || !can("iqc:scheme:versions:view")) return;
     historyVersions.value = beforeVersion === undefined ? page.versions : [...historyVersions.value, ...page.versions];
     nextBeforeVersion.value = page.nextBeforeVersion;
   } catch {
-    if (generation === historyGeneration) historyError.value = "发布历史加载失败，请重试；未改变模板或任务。";
+    if (!disposed && generation === historyGeneration && can("iqc:scheme:versions:view")) historyError.value = "发布历史加载失败，请重试；未改变模板或任务。";
   } finally {
-    if (generation === historyGeneration) historyLoading.value = false;
+    if (!disposed && generation === historyGeneration && can("iqc:scheme:versions:view")) historyLoading.value = false;
   }
 }
 function openHistory(scheme: InspectionScheme) {
-  if (!can("iqc:scheme:manage")) return;
+  if (!can("iqc:scheme:versions:view")) return;
   historyCompareBase.value = undefined; historyComparePair.value = undefined;
   historyTarget.value = scheme; historyOpen.value = true; void loadHistory();
 }
@@ -92,12 +92,12 @@ function closeHistory() {
 }
 function compareHistory(version: ReleasedSchemeVersion) {
   const base = historyCompareBase.value;
-  if (!base || !historyBodyVisible(base) || !historyBodyVisible(version) || base.versionNo === version.versionNo || !historyTarget.value || !can("iqc:scheme:manage")) return;
+  if (!base || !historyBodyVisible(base) || !historyBodyVisible(version) || base.versionNo === version.versionNo || !historyTarget.value || !can("iqc:scheme:versions:view")) return;
   historyComparePair.value = base.versionNo < version.versionNo
     ? { before: base, after: version } : { before: version, after: base };
 }
 function previewHistory(version: ReleasedSchemeVersion) {
-  if (!historyTarget.value || !can("iqc:scheme:manage")) return;
+  if (!historyTarget.value || !can("iqc:scheme:versions:view")) return;
   historyPreview.value = { schemeId: historyTarget.value.id, versionNo: version.versionNo,
     contentHash: version.contentHash, snapshot: version.snapshot, privacy: version.privacy };
   closeHistory();
@@ -251,6 +251,7 @@ function variantExecution(variant: SchemeExecutionVariant, item: SchemeItem): Sc
   return variant.routes[item.itemCode] ?? defaultExecution(item);
 }
 async function selectExecutionStage(currentExecution: () => SchemeExecution | null | undefined, id: string) {
+  if(disposed||!can("iqc:rule:view")||!can("iqc:rule:versions:view"))return;
   const execution = currentExecution();
   const stage = execution?.prefilter ?? execution?.candidate;
   if (!stage) return;
@@ -377,6 +378,7 @@ function trialOnlyLabels(task: InspectionTask) {
   catch { return false; }
 }
 function selectLabels(ids: string[]) {
+  if(disposed||!can("iqc:label:view"))return;
   form.value.definition.labels = ids.map(id => {
     const label = publishedLabels.value.find(item => item.id === id);
     const previous = form.value.definition.labels?.find(item => item.id === id);
@@ -391,18 +393,20 @@ function empty(): SchemeDraftRequest {
 }
 function fail(reason: unknown) { error.value = reason instanceof Error ? reason.message : "操作失败，请稍后重试"; }
 async function refresh() {
-  if(disposed)return;const generation=++listGeneration;
+  if(disposed||!can("iqc:scheme:manage"))return;const generation=++listGeneration;
   loading.value = true; error.value = "";
   try {
-    const rows=await listSchemes();if(disposed||generation!==listGeneration)return;
+    const rows=await listSchemes();if(disposed||generation!==listGeneration||!can("iqc:scheme:manage"))return;
     schemes.value=rows.map(row=>schemeBodyVisible(row)?row:{...row,draftConfigJson:null,description:null});
     if(trialTarget.value){const updated=schemes.value.find(row=>row.id===trialTarget.value?.id);if(updated)trialTarget.value=updated;else trialOpen.value=false;}
     if(editing.value && !schemes.value.some(row=>row.id===editing.value?.id&&schemeBodyVisible(row))) {editorGeneration++;editorOpen.value=false;form.value=empty();editing.value=undefined;}
   } catch (reason) { if(!disposed&&generation===listGeneration)fail(reason); } finally { if(!disposed&&generation===listGeneration)loading.value = false; }
 }
 async function loadVersions(ruleId: string) {
+  if(disposed||!can("iqc:rule:versions:view"))return;
   const generation=editorGeneration;const rows=await listRuleVersions(ruleId);
   if(disposed||generation!==editorGeneration)return;
+  if(!can("iqc:rule:versions:view"))return;
   versions.value[ruleId] = rows.filter(v => v.status === "PUBLISHED");
 }
 async function openEditor(scheme?: InspectionScheme) {
@@ -414,7 +418,7 @@ async function openEditor(scheme?: InspectionScheme) {
     form.value = scheme ? { name: scheme.name, code: scheme.code, description: scheme.description ?? undefined, businessScene: scheme.businessScene,
       definition: draftDefinition(scheme) } : empty();
     expandedVariantCode.value = form.value.definition.executionVariants?.recommendedCode;
-    const [availableRules, availableAgents, labelTree] = await Promise.all([listRules(), listAgents(), getLabelTree().catch(() => null)]);
+    const [availableRules, availableAgents, labelTree] = await Promise.all([can("iqc:rule:view")?listRules():Promise.resolve([]), can("iqc:agent:view")?listAgents():Promise.resolve([]), can("iqc:label:view")?getLabelTree().catch(() => null):Promise.resolve(null)]);
     if(disposed||generation!==editorGeneration)return;
     rules.value = availableRules; agents.value = availableAgents;
     publishedLabels.value = labelTree?.labels.filter(label => label.status === "PUBLISHED") ?? [];
@@ -426,7 +430,7 @@ async function openEditor(scheme?: InspectionScheme) {
       .filter((rule): rule is { id: string; versionNo: number } => !!rule && !!rule.id).map(rule => rule.id);
     await Promise.all([...new Set(dependencyIds)].map(loadVersions));
     if(disposed||generation!==editorGeneration)return;
-    const availableAgentVersions = form.value.definition.agent ? (await listAgentVersions(form.value.definition.agent.id)).filter(validAgentVersion) : [];
+    const availableAgentVersions = form.value.definition.agent && can("iqc:agent:versions:view") ? (await listAgentVersions(form.value.definition.agent.id)).filter(validAgentVersion) : [];
     if(disposed||generation!==editorGeneration)return;
     agentVersions.value=availableAgentVersions;
     editorOpen.value = true;
@@ -439,16 +443,19 @@ function validAgentVersion(v: QualityAgentVersion) {
   try { return v.status === "PUBLISHED" && JSON.parse(v.configJson || "{}").schemaVersion === "3.0"; } catch { return false; }
 }
 async function selectAgent(id?: string) {
+  if(disposed||!can("iqc:agent:view")||!can("iqc:agent:versions:view"))return;
+  const generation=editorGeneration;
   agentVersions.value = []; form.value.definition.agent = id ? { id, versionNo: 0 } : null;
   if (!id) return;
   try {
     const found = (await listAgentVersions(id)).filter(validAgentVersion);
-    if (form.value.definition.agent?.id !== id) return;
+    if (disposed||generation!==editorGeneration||!can("iqc:agent:versions:view")||form.value.definition.agent?.id !== id) return;
     agentVersions.value = found;
     form.value.definition.agent.versionNo = found[0]?.versionNo || 0;
   } catch (reason) { fail(reason); }
 }
 async function selectRule(item: SchemeItem, id: string) {
+  if(disposed||!can("iqc:rule:view")||!can("iqc:rule:versions:view"))return;
   item.rule = { id, versionNo: 0 };
   try {
     await loadVersions(id);
@@ -468,6 +475,7 @@ function toggleApplicability(item: SchemeItem, enabled: boolean) {
   else delete item.appliesWhen;
 }
 async function selectApplicability(item: SchemeItem, id: string) {
+  if(disposed||!can("iqc:rule:view")||!can("iqc:rule:versions:view"))return;
   item.appliesWhen = { id, versionNo: 0 };
   try {
     await loadVersions(id);
@@ -491,6 +499,7 @@ function toggleScore(item: SchemeItem, checked: boolean) {
 }
 async function save() {
   if(disposed || busy.value || (editing.value ? !can("iqc:scheme:update") || !schemeBodyVisible(editing.value) : !can("iqc:scheme:create")))return;
+  const generation=editorGeneration, permission=editing.value?"iqc:scheme:update":"iqc:scheme:create";
   const value = form.value;
   const limits = value.definition.runLimits;
   if (limits && (!Number.isInteger(limits.maxConversations) || limits.maxConversations < 1 || limits.maxConversations > 1000
@@ -570,6 +579,7 @@ async function save() {
     if (editing.value) await reviseScheme(editing.value.id, editing.value.draftRevision, value);
     else await createScheme(value);
     if(disposed)return;
+    if(generation!==editorGeneration||!can(permission))return;
     editorOpen.value = false; message.success("草稿已保存；需重新试跑并发布才会影响可用模板。"); await refresh();
   } catch (reason) { fail(reason); } finally { busy.value = false; }
 }
@@ -689,17 +699,24 @@ async function publish() {
     trialOpen.value = false; message.success(`已发布 V${result.versionNo}，质检人员可在业务模板中使用。`); await refresh();
   } catch (reason) { fail(reason); } finally { busy.value = false; }
 }
+watch(()=>JSON.stringify([can("iqc:scheme:manage"),can("iqc:scheme:versions:view"),can("iqc:scheme:create"),can("iqc:scheme:update"),can("iqc:rule:view"),can("iqc:rule:versions:view"),can("iqc:agent:view"),can("iqc:agent:versions:view"),can("iqc:label:view"),can("iqc:sensitive:conversation:read"),can("iqc:sensitive:pii:read"),can("iqc:sensitive:prompt:read")]),()=>{
+  ++listGeneration;++editorGeneration;loading.value=false;schemes.value=[];
+  editorOpen.value=false;editing.value=undefined;form.value=empty();rules.value=[];agents.value=[];versions.value={};agentVersions.value=[];publishedLabels.value=[];
+  closeHistory();historyPreview.value=undefined;deriveOpen.value=false;deriveSourceVersion.value=undefined;deriveName.value="";deriveCode.value="";deriveDescription.value="";
+  trialOpen.value=false;
+  if(can("iqc:scheme:manage"))void refresh();
+},{flush:"sync"});
 onMounted(refresh);
 </script>
 <template>
-  <section class="page-intro"><div><span class="section-kicker">BUSINESS STANDARDS</span><h2>业务方案 · 专家维护</h2><p>编排质检项与独立评分，试跑并确认后发布为普通用户可直接使用的模板。</p></div><a-space><a-button @click="refresh">刷新</a-button><a-button type="primary" @click="openEditor()">新建业务方案</a-button></a-space></section>
+  <section class="page-intro"><div><span class="section-kicker">BUSINESS STANDARDS</span><h2>业务方案 · 专家维护</h2><p>编排质检项与独立评分，试跑并确认后发布为普通用户可直接使用的模板。</p></div><a-space><a-button @click="refresh">刷新</a-button><a-button v-if="can('iqc:scheme:create')" type="primary" @click="openEditor()">新建业务方案</a-button></a-space></section>
   <a-alert v-if="error && !editorOpen && !trialOpen" :message="error" type="error" show-icon style="margin-bottom: 16px" />
   <a-table row-key="id" :data-source="schemes" :columns="columns" :loading="loading">
     <template #bodyCell="{ column, record }">
       <template v-if="column.key === 'release'">{{ record.activePublishedVersion ? `V${record.activePublishedVersion}` : '未发布' }}</template>
       <template v-if="column.key === 'origin'">{{ record.sourceSchemeId ? `${record.sourceSchemeName || record.sourceSchemeCode || record.sourceSchemeId} · V${record.sourceVersionNo}` : '独立创建' }}</template>
       <template v-if="column.key === 'availability'"><a-tag :color="record.status === 'ACTIVE' ? 'green' : 'default'">{{ record.status === 'ACTIVE' ? '启用' : record.status === 'DISABLED' ? '已停用' : '状态异常' }}</a-tag></template>
-      <a-button v-if="column.key === 'actions' && can('iqc:scheme:manage')" type="link" @click="openHistory(record)">发布历史</a-button>
+      <a-button v-if="column.key === 'actions' && can('iqc:scheme:versions:view')" type="link" @click="openHistory(record)">发布历史</a-button>
       <a-space v-if="column.key === 'actions'"><a-button type="link" :disabled="busy || !schemeBodyVisible(record) || !can('iqc:scheme:update')" @click="openEditor(record)">编辑草稿</a-button><a-button type="link" :disabled="busy || record.status !== 'ACTIVE'" @click="check(record)">检查依赖</a-button><a-tag v-if="draftHasLabels(record)" color="blue">联合输出</a-tag><a-tag v-if="draftHasConditions(record)" color="blue">条件适用</a-tag><a-button type="link" :disabled="busy || record.status !== 'ACTIVE'" @click="openTrials(record)">{{ draftHasLabels(record) ? '联合试跑' : draftHasConditions(record) ? '条件试跑' : '试跑与发布' }}</a-button><a-button v-if="can('iqc:scheme:publish')" type="link" :danger="record.status === 'ACTIVE'" :disabled="busy || !['ACTIVE', 'DISABLED'].includes(record.status)" @click="confirmAvailability(record)">{{ record.status === 'DISABLED' ? '恢复模板' : '停用模板' }}</a-button></a-space>
     </template>
   </a-table>
@@ -723,7 +740,7 @@ onMounted(refresh);
       <a-alert v-if="!form.definition.items.length" type="info" message="可只选择下方画像标签进行无评分试跑和发布；标签识别独立于质检评分。" style="margin-bottom: 12px" />
       <a-card v-for="(item, index) in form.definition.items" :key="item.itemCode" :data-scheme-item-code="item.itemCode" size="small" style="margin-bottom: 12px" :title="`质检项 ${index + 1}`">
         <template #extra><a-button danger type="link" :disabled="busy || (!!form.definition.executionVariants && form.definition.items.length <= 1)" @click="removeItem(item)">移除</a-button></template>
-        <a-row :gutter="12"><a-col :span="8"><a-form-item label="业务名称" required><a-input v-model:value="item.name" :maxlength="100" placeholder="如：是否完整介绍费用" /></a-form-item></a-col><a-col :span="10"><a-form-item label="已有检测规则" required><a-select :value="item.rule.id || undefined" show-search option-filter-prop="label" :options="ruleOptions" @change="(id: unknown) => selectRule(item, String(id))" /></a-form-item></a-col><a-col :span="6"><a-form-item label="已发布版本" required><a-select v-model:value="item.rule.versionNo" :options="(versions[item.rule.id] || []).map(v => ({ label: `V${v.versionNo} · ${v.name}`, value: v.versionNo }))" /></a-form-item></a-col></a-row>
+        <a-row :gutter="12"><a-col :span="8"><a-form-item label="业务名称" required><a-input v-model:value="item.name" :maxlength="100" placeholder="如：是否完整介绍费用" /></a-form-item></a-col><a-col :span="10"><a-form-item label="已有检测规则" required><a-select :value="item.rule.id || undefined" show-search option-filter-prop="label" :disabled="!can('iqc:rule:view') || !can('iqc:rule:versions:view')" :options="ruleOptions" @change="(id: unknown) => selectRule(item, String(id))" /></a-form-item></a-col><a-col :span="6"><a-form-item label="已发布版本" required><a-select v-model:value="item.rule.versionNo" :disabled="!can('iqc:rule:versions:view')" :options="(versions[item.rule.id] || []).map(v => ({ label: `V${v.versionNo} · ${v.name}`, value: v.versionNo }))" /></a-form-item></a-col></a-row>
         <a-form-item label="检测命中时的业务含义"><a-radio-group v-model:value="item.hitMeaning"><a-radio value="VIOLATION">不满足（如：发现违禁词）</a-radio><a-radio value="COMPLIANCE">满足（如：完成必要告知）</a-radio></a-radio-group></a-form-item>
         <a-form-item v-if="!form.definition.executionVariants" label="逐项执行路线（专家试跑）">
           <a-select :value="item.execution?.route ?? 'LEGACY'" :options="[{ label: '保持原有配置（兼容）', value: 'LEGACY' }, ...executionRouteOptions]" @change="(route: unknown) => setRoute(item, route)" />
@@ -731,8 +748,8 @@ onMounted(refresh);
         </a-form-item>
         <template v-if="!form.definition.executionVariants && (item.execution?.prefilter || item.execution?.candidate)">
           <a-row :gutter="12">
-            <a-col :span="16"><a-form-item :label="item.execution.prefilter ? '普通规则初筛依据' : 'LLM 候选提取依据'" required><a-select :value="(item.execution.prefilter ?? item.execution.candidate)?.id || undefined" show-search option-filter-prop="label" :options="ruleOptions.filter(option => option.value !== item.rule.id)" @change="(id: unknown) => selectStage(item, String(id))" /></a-form-item></a-col>
-            <a-col :span="8"><a-form-item label="阶段已发布版本" required><a-select v-if="item.execution.prefilter" v-model:value="item.execution.prefilter.versionNo" :options="(versions[item.execution.prefilter.id] || []).map(v => ({ label: `V${v.versionNo} · ${v.name}`, value: v.versionNo }))" /><a-select v-else-if="item.execution.candidate" v-model:value="item.execution.candidate.versionNo" :options="(versions[item.execution.candidate.id] || []).map(v => ({ label: `V${v.versionNo} · ${v.name}`, value: v.versionNo }))" /></a-form-item></a-col>
+            <a-col :span="16"><a-form-item :label="item.execution.prefilter ? '普通规则初筛依据' : 'LLM 候选提取依据'" required><a-select :value="(item.execution.prefilter ?? item.execution.candidate)?.id || undefined" show-search option-filter-prop="label" :disabled="!can('iqc:rule:view') || !can('iqc:rule:versions:view')" :options="ruleOptions.filter(option => option.value !== item.rule.id)" @change="(id: unknown) => selectStage(item, String(id))" /></a-form-item></a-col>
+            <a-col :span="8"><a-form-item label="阶段已发布版本" required><a-select v-if="item.execution.prefilter" v-model:value="item.execution.prefilter.versionNo" :disabled="!can('iqc:rule:versions:view')" :options="(versions[item.execution.prefilter.id] || []).map(v => ({ label: `V${v.versionNo} · ${v.name}`, value: v.versionNo }))" /><a-select v-else-if="item.execution.candidate" v-model:value="item.execution.candidate.versionNo" :disabled="!can('iqc:rule:versions:view')" :options="(versions[item.execution.candidate.id] || []).map(v => ({ label: `V${v.versionNo} · ${v.name}`, value: v.versionNo }))" /></a-form-item></a-col>
           </a-row>
           <a-form-item v-if="item.execution.prefilter" label="初筛覆盖承诺" required><a-checkbox v-model:checked="item.execution.prefilterCoversViolation">已确认初筛覆盖全部目标违规；未命中可跳过复核</a-checkbox></a-form-item>
           <a-alert v-else message="普通规则只验证模型引用的真实候选片段，不回退检查整段原文；候选捏造或不完整时保持待复核。" type="info" show-icon />
@@ -750,8 +767,8 @@ onMounted(refresh);
           <p v-if="!item.appliesWhen">无额外适用条件，按检测规则的会话与说话人范围评估。</p>
           <template v-else>
             <a-row :gutter="12" style="margin-top: 12px">
-              <a-col :span="16"><a-form-item label="条件检测规则" required><a-select :value="item.appliesWhen.id || undefined" show-search option-filter-prop="label" :options="ruleOptions.filter(option => option.value !== item.rule.id)" @change="(id: unknown) => selectApplicability(item, String(id))" /></a-form-item></a-col>
-              <a-col :span="8"><a-form-item label="条件已发布版本" required><a-select :value="item.appliesWhen.versionNo || undefined" placeholder="请选择已发布版本" @update:value="(value: number) => { if (item.appliesWhen) item.appliesWhen.versionNo = value; }" :options="(versions[item.appliesWhen.id] || []).map(v => ({ label: `V${v.versionNo} · ${v.name}`, value: v.versionNo }))" /></a-form-item></a-col>
+              <a-col :span="16"><a-form-item label="条件检测规则" required><a-select :value="item.appliesWhen.id || undefined" show-search option-filter-prop="label" :disabled="!can('iqc:rule:view') || !can('iqc:rule:versions:view')" :options="ruleOptions.filter(option => option.value !== item.rule.id)" @change="(id: unknown) => selectApplicability(item, String(id))" /></a-form-item></a-col>
+              <a-col :span="8"><a-form-item label="条件已发布版本" required><a-select :value="item.appliesWhen.versionNo || undefined" placeholder="请选择已发布版本" @update:value="(value: number) => { if (item.appliesWhen) item.appliesWhen.versionNo = value; }" :disabled="!can('iqc:rule:versions:view')" :options="(versions[item.appliesWhen.id] || []).map(v => ({ label: `V${v.versionNo} · ${v.name}`, value: v.versionNo }))" /></a-form-item></a-col>
             </a-row>
             <a-alert message="条件完整评估且未命中时，本项不适用、不计分；条件缺失、错误或争议仍待确认，不能当成不适用。所有评分项不适用时无分数，不是满分。条件结果纳入冻结任务与证据；不会提前跳过检测调用。" type="warning" show-icon />
           </template>
@@ -783,12 +800,12 @@ onMounted(refresh);
             <template v-if="variantExecution(variant, item).prefilter || variantExecution(variant, item).candidate">
               <a-row :gutter="12"><a-col :span="16"><a-form-item :label="variantExecution(variant, item).prefilter ? '普通规则初筛依据' : 'LLM 候选提取依据'" required>
                 <a-select :value="(variantExecution(variant, item).prefilter ?? variantExecution(variant, item).candidate)?.id || undefined" show-search option-filter-prop="label"
-                  :options="ruleOptions.filter(option => option.value !== item.rule.id)" @change="(id: unknown) => selectVariantStage(variant, item, String(id))" />
+                  :disabled="!can('iqc:rule:view') || !can('iqc:rule:versions:view')" :options="ruleOptions.filter(option => option.value !== item.rule.id)" @change="(id: unknown) => selectVariantStage(variant, item, String(id))" />
               </a-form-item></a-col><a-col :span="8"><a-form-item label="阶段已发布版本" required>
                 <a-select v-if="variantExecution(variant, item).prefilter" v-model:value="variantExecution(variant, item).prefilter!.versionNo"
-                  :options="(versions[variantExecution(variant, item).prefilter!.id] || []).map(v => ({ label: `V${v.versionNo} · ${v.name}`, value: v.versionNo }))" />
+                  :disabled="!can('iqc:rule:versions:view')" :options="(versions[variantExecution(variant, item).prefilter!.id] || []).map(v => ({ label: `V${v.versionNo} · ${v.name}`, value: v.versionNo }))" />
                 <a-select v-else-if="variantExecution(variant, item).candidate" v-model:value="variantExecution(variant, item).candidate!.versionNo"
-                  :options="(versions[variantExecution(variant, item).candidate!.id] || []).map(v => ({ label: `V${v.versionNo} · ${v.name}`, value: v.versionNo }))" />
+                  :disabled="!can('iqc:rule:versions:view')" :options="(versions[variantExecution(variant, item).candidate!.id] || []).map(v => ({ label: `V${v.versionNo} · ${v.name}`, value: v.versionNo }))" />
               </a-form-item></a-col></a-row>
               <a-form-item v-if="variantExecution(variant, item).prefilter" label="初筛覆盖承诺" required>
                 <a-checkbox v-model:checked="variantExecution(variant, item).prefilterCoversViolation">已确认初筛覆盖全部目标违规；未命中可跳过复核</a-checkbox>
@@ -809,7 +826,7 @@ onMounted(refresh);
       <a-alert message="选择已发布的明确主体标签并冻结当前版本。试跑时核对评分、标签状态与证据；标签结论独立于质检评分。路线、条件和策略变体可与联合标签组合。" type="info" show-icon style="margin-bottom: 12px" />
       <a-alert v-if="labelLoadWarning" :message="labelLoadWarning" type="warning" show-icon style="margin-bottom: 12px" />
       <a-form-item label="需要识别的标签">
-        <a-select mode="multiple" :disabled="!!labelLoadWarning" :value="form.definition.labels?.map(label => label.id) || []" :options="labelOptions" option-filter-prop="label" placeholder="例如：贷款意向、有房有车" @change="(ids: unknown) => selectLabels(ids as string[])" />
+        <a-select mode="multiple" :disabled="!!labelLoadWarning || !can('iqc:label:view')" :value="form.definition.labels?.map(label => label.id) || []" :options="labelOptions" option-filter-prop="label" placeholder="例如：贷款意向、有房有车" @change="(ids: unknown) => selectLabels(ids as string[])" />
         <p v-if="form.definition.labels?.length">已冻结 {{ form.definition.labels.length }} 个标签版本；标签更新后需重新选择、检查并试跑。</p>
         <p v-if="form.definition.labels?.some(label => !publishedLabels.some(item => item.id === label.id && item.versionNo === label.versionNo))">部分历史标签版本已不在当前发布目录中；保存草稿会保留原引用，但依赖检查可能不通过。</p>
       </a-form-item>
@@ -819,7 +836,7 @@ onMounted(refresh);
       <h3 style="margin-top: 24px">LLM 检测能力（仅包含 LLM 规则时需要）</h3>
       <a-alert v-if="needsLlm" message="检测规则或适用条件包含 LLM，请选择已发布的 3.0 能力型智能体。执行策略由任务快照管理。" type="info" style="margin-bottom: 12px" />
       <a-alert v-else-if="form.definition.labels?.length" message="若所选标签绑定 LLM 规则，也需选择智能体；保存后可用依赖检查确认具体要求。" type="info" style="margin-bottom: 12px" />
-      <a-row :gutter="16"><a-col :span="16"><a-form-item label="智能体"><a-select :value="form.definition.agent?.id" allow-clear :options="agents.filter(a => a.status !== 'DISABLED').map(a => ({ label: a.name, value: a.id }))" @change="(id: unknown) => selectAgent(id ? String(id) : undefined)" /></a-form-item></a-col><a-col :span="8"><a-form-item label="已发布能力版本"><a-select v-if="form.definition.agent" v-model:value="form.definition.agent.versionNo" :options="agentVersions.map(v => ({ label: `V${v.versionNo}`, value: v.versionNo }))" /></a-form-item></a-col></a-row>
+      <a-row :gutter="16"><a-col :span="16"><a-form-item label="智能体"><a-select :value="form.definition.agent?.id" allow-clear :disabled="!can('iqc:agent:view') || !can('iqc:agent:versions:view')" :options="agents.filter(a => a.status !== 'DISABLED').map(a => ({ label: a.name, value: a.id }))" @change="(id: unknown) => selectAgent(id ? String(id) : undefined)" /></a-form-item></a-col><a-col :span="8"><a-form-item label="已发布能力版本"><a-select v-if="form.definition.agent" v-model:value="form.definition.agent.versionNo" :disabled="!can('iqc:agent:versions:view')" :options="agentVersions.map(v => ({ label: `V${v.versionNo}`, value: v.versionNo }))" /></a-form-item></a-col></a-row>
     </a-form>
     <template #footer><a-space style="float: right"><a-button :disabled="busy" @click="editorOpen = false">取消</a-button><a-button type="primary" :loading="busy" @click="save">保存草稿</a-button></a-space></template>
   </a-drawer>
