@@ -45,15 +45,18 @@ async function refresh(){
  if(active.value==='business-report'){await businessReport.value?.refresh();return;}
  if(active.value==='business'){await queue.value?.refresh();return;}
  if(active.value==='labels'){await labelQueue.value?.refresh();return;}
- const tab=active.value;loading.value=true;
+ const tab=active.value;loading.value=true;report.value=undefined;
+ const permission=tab==='reviews'?'iqc:review:view':tab==='feedback'?'iqc:result:feedback:view':tab==='samples'?'iqc:sample:view':undefined;
  try{
-  const rows=tab==='reviews'&&can('iqc:review:view')?await listReviews():tab==='feedback'&&can('iqc:result:view')?await listFeedbacks():tab==='samples'&&can('iqc:sample:view')?await listSamples():[];
-  if(disposed||ticket!==generation)return;
+  const rows=tab==='reviews'&&can('iqc:review:view')?await listReviews():tab==='feedback'&&can('iqc:result:feedback:view')?await listFeedbacks():tab==='samples'&&can('iqc:sample:view')?await listSamples():[];
+  if(disposed||ticket!==generation||tab!==active.value)return;
+  if(permission&&can(permission)){
   if(tab==='reviews')reviews.value=(rows as ResultReview[]).map(row=>reviewWithheld(row)?{...row,reviewComment:null}:row);
   if(tab==='feedback')feedbacks.value=rows as ResultFeedback[];
   if(tab==='samples')samples.value=rows as QualitySample[];
+  }
   const stats=can('iqc:report:view')?await getQualityReport():undefined;
-  if(!disposed&&ticket===generation)report.value=stats;
+  if(!disposed&&ticket===generation&&tab===active.value&&can('iqc:report:view'))report.value=stats;
  }catch{if(!disposed&&ticket===generation)message.error('质量运营数据加载失败');}
  finally{if(!disposed&&ticket===generation)loading.value=false;}
 }
@@ -64,9 +67,8 @@ async function saveDecision(){
  try{await decideReview(id,payload);if(disposed)return;message.success('复核结论已保存');decisionOpen.value=false;await refresh();}
  catch{if(!disposed)message.error('复核处理未确认，请核对历史后再重试');}finally{if(!disposed)deciding.value=false;}
 }
-watch(()=>[can('iqc:sample:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')].join('|'),()=>{
- samples.value=[];
- if(active.value==='samples'){generation++;loading.value=false;void refresh();}
+watch(()=>JSON.stringify([can('iqc:review:view'),can('iqc:result:feedback:view'),can('iqc:sample:view'),can('iqc:report:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')]),()=>{
+ ++generation;loading.value=false;reviews.value=[];feedbacks.value=[];samples.value=[];report.value=undefined;
 },{flush:'sync'});
 watch(decisionOpen,visible=>{if(!visible){selected.value=undefined;form.value={decision:'APPROVED',finalStatus:'HIT',finalScore:100,finalRiskLevel:'LOW',comment:''};}});
 onBeforeUnmount(()=>{disposed=true;generation++;reviews.value=[];feedbacks.value=[];samples.value=[];report.value=undefined;selected.value=undefined;form.value.comment='';});
