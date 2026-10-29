@@ -18,7 +18,7 @@ const history=ref<PeriodicVersion[]>([]),instances=ref<InspectionTask[]>([]),ins
 // Navigation invalidates command continuations as well as read generations.
 let disposed=false;
 let generation=0,detailGeneration=0,catalogGeneration=0,versionGeneration=0;
-let publishGeneration=0,editorGeneration=0,operationGeneration=0;
+let publishGeneration=0,editorGeneration=0,operationGeneration=0,editorChangeGeneration=0;
 watch(()=>JSON.stringify([can('iqc:schedule:publish'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read'),can('iqc:sensitive:prompt:read')]),()=>{++publishGeneration;},{flush:'sync'});
 const sensitiveReadKey=computed(()=>JSON.stringify([can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read'),can('iqc:sensitive:prompt:read')]));
 watch(()=>JSON.stringify([can('iqc:schedule:view'),sensitiveReadKey.value]),()=>{++generation;rows.value=[];total.value=0;loading.value=false;},{flush:'sync'});
@@ -44,6 +44,7 @@ function isRestricted(row:PeriodicSchedule|PeriodicVersion) {const p=row.privacy
 const restricted=computed(()=>reloadRequired.value||!!selected.value&&isRestricted(selected.value));
 function clearDetails(){++detailGeneration;++versionGeneration;history.value=[];instances.value=[];instanceTotal.value=0;pipelineVersions.value=[];selectorLabel.value='';}
 const dirty=computed(()=>baseline.value!==JSON.stringify([name.value,definition.value]));
+watch(()=>JSON.stringify([code.value,name.value,definition.value]),()=>{++editorChangeGeneration;},{flush:'sync'});
 watch(()=>JSON.stringify(definition.value),()=>{times.value=[];});
 const writable=computed(()=>!restricted.value&&can(selected.value?'iqc:schedule:update':'iqc:schedule:create'));
 function apply(row:PeriodicSchedule){
@@ -135,9 +136,16 @@ async function preview(){
  catch{if(current())message.error('计划预览失败，请检查 Cron、时区及有效期。');}finally{if(!disposed&&operation===operationGeneration)busy.value=false;}
 }
 
-function reload(){const row=selected.value;if(!row||busy.value)return;if(dirty.value)Modal.confirm({title:"重新加载并放弃未保存的修改？",onOk:()=>load(row)});else void load(row);}
+function confirmDiscard(title:string,action:()=>unknown){
+ const context=editorGeneration,operation=operationGeneration,changes=editorChangeGeneration;
+ Modal.confirm({title,onOk:()=>{if(disposed||busy.value||context!==editorGeneration||operation!==operationGeneration||changes!==editorChangeGeneration)return;return action();}});
+}
+function reload(){const selectedRow=selected.value;if(disposed||!selectedRow||busy.value)return;
+ const row={...selectedRow,name:'',draftConfigJson:null,lastError:null};
+ if(dirty.value)confirmDiscard('重新加载并放弃未保存的修改？',()=>load(row));else void load(row);
+}
 function finishClose(){++editorGeneration;++operationGeneration;open.value=false;clearDetails();selected.value=undefined;code.value='';name.value='';definition.value=fresh();baseline.value='';reloadRequired.value=false;}
-function close(){if(busy.value)return;if(dirty.value)Modal.confirm({title:'放弃未保存的修改？',onOk:finishClose});else finishClose();}
+function close(){if(disposed||busy.value)return;if(dirty.value)confirmDiscard('放弃未保存的修改？',finishClose);else finishClose();}
 
 onMounted(()=>{void refresh();void catalogs();});onBeforeUnmount(()=>{disposed=true;++generation;++detailGeneration;++catalogGeneration;++versionGeneration;finishClose();});
 </script>
