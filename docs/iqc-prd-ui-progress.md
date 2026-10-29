@@ -453,3 +453,13 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 原5437 terminal0，/tmp/iqc-b-results-operation-final-20261029.log.exit=0，5文件58项18.81s通过（新28+原结果导航12/路由6/分组3/选择器9）。原导航保留既有Ant stub/happy-dom localhost:3000 EPERM日志，新28项全部API受控；不把测试日志或受控成功当真实后台成功。原32977最终pnpm build仍在途，源码冻结，终态另记。未跑全量，旧550不套当前组合；全部适用I1–I7、真实五职责/PDP/成功写入/外部/监控/容量与A–E继续。输入仅处理好的会话，不做语音处理，未部署/修改共享SQL/framework。
 
 最终原32977 pnpm build terminal0，/tmp/iqc-b-results-operation-build-20261029.log.exit=0，vue-tsc/Vite通过（Vite1m37s），现有Node引擎/chunk提示保留。原进程全程跟进，无重启；diff通过，无在途构建。进度记录已归入本UI工作树文档。
+
+## 2026-10-29 B 候选与集合精准权限独立专项
+
+基线6eaca56仅cherry-pick A固定ce70872为6b565ae，新增labels/operation-permissions.spec.ts，不改生产源码。实际Vue候选/集合页面、受控API/响应式权限及Ant stub，LabelTreeSelector隔离。20项覆盖候选目录与taxonomy独立、review不代reject/merge、reject不代approve、批准只提交原草稿payload不发布、merge无可选similarities仍能手选/建议失败仍能手选、撤回建议拒迟到及终态候选拒重复处理；集合目录不越读taxonomy，update/detail/旧manage单独均不能编辑，合法update+detail无taxonomy/独立members码仍按原update请求保已有成员，创建需manage+taxonomy，update不代publish/disable，detail撤回恢复不回填、停用确认撤回恢复失效且固定原ID、卸载不重开编辑器。
+
+原19202 terminal0，/tmp/iqc-b-candidate-collection-permissions-20261029.log.exit=0，20项6.05s全部通过。原65983 vue-tsc仍在途，/tmp/iqc-b-candidate-collection-types-20261029.log及.exit，源码冻结，终态另记。未跑全量/Vite，不将这些受控组件测试视真实PDP/组织岗位/后台成功写入、A–E或完整I1–I7验收。用户输入仅处理好的会话，语音处理排除，无部署/framework/共享SQL改动。
+
+原65983 vue-tsc --noEmit已terminal0，/tmp/iqc-b-candidate-collection-types-20261029.log.exit=0。因本树已累计方案/结果/共享选择器与候选集合生产组合，启动原14539完整Vitest，/tmp/iqc-b-results-labels-full-ui-20261029.log及.exit，源码继续冻结，完整测试结果另记，未据专项推断全量成功。
+
+原14539完整Vitest已terminal0，/tmp/iqc-b-results-labels-full-ui-20261029.log.exit=0，66文件647项全部通过164.56s。包含本树方案/结果/选择器/候选集合组合，不含A后续eb1258a稳定watch与流水线确认源码。既有Ant stub及happy-dom localhost EPERM日志保留，不能扩为真实浏览器/PDP/后台写入证明。
