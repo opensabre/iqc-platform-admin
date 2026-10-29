@@ -2,7 +2,7 @@
 import AutomaticRetryPolicyEditor from "@/components/AutomaticRetryPolicyEditor.vue";
 import {validateAutomaticRetry} from "@/api/automatic-retry";
 import TriggerAttemptHistory from '@/components/TriggerAttemptHistory.vue';
-import {computed,onMounted,onBeforeUnmount,ref} from 'vue';
+import {computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
 import {message,Modal} from 'ant-design-vue';
 import {usePermission} from '@/composables/permission';
 import SelectorAssetLibrary from '@/components/SelectorAssetLibrary.vue';
@@ -18,6 +18,8 @@ const history=ref<SubscriptionVersion[]>([]),instances=ref<InspectionTask[]>([])
 // Navigation invalidates command continuations as well as read generations.
 let disposed=false;
 let generation=0,detailGeneration=0,catalogGeneration=0,versionGeneration=0;
+let publishGeneration=0;
+watch(()=>JSON.stringify([can('iqc:subscription:publish'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read'),can('iqc:sensitive:prompt:read')]),()=>{++publishGeneration;},{flush:'sync'});
 function fresh():SubscriptionDefinition{return {schemaVersion:'iqc-event-subscription-v1',eventType:'ConversationCompleted',effectiveFrom:new Date().toISOString(),effectiveUntil:null,waitSeconds:3600,concurrency:1,pipeline:{pipelineId:'',versionNo:0},selector:null};}
 const reloadRequired=ref(false);
 function isRestricted(row:EventSubscription|SubscriptionVersion) {const p=row.privacy;return !!p&&(p.policyVersion!=='iqc-schedule-read-v1'||p.canonicalPayloadVisible!==true||p.canReadFull!==true||p.canReadPii!==true||p.canReadPrompt!==true);}
@@ -76,8 +78,9 @@ async function save(){
 }
 
 function publish(){const asset=selected.value;if(disposed||!asset||restricted.value||busy.value||dirty.value||!can('iqc:subscription:publish'))return;
+ const permissionTicket=publishGeneration,contextTicket=detailGeneration;
  Modal.confirm({title:`发布修订 ${asset.draftRevision}？`,content:'发布版本不可修改。发布后请显式启用。',async onOk(){
-  if(disposed||restricted.value||busy.value||dirty.value||selected.value?.id!==asset.id||selected.value.draftRevision!==asset.draftRevision)return;
+  if(disposed||permissionTicket!==publishGeneration||contextTicket!==detailGeneration||!can('iqc:subscription:publish')||restricted.value||busy.value||dirty.value||selected.value?.id!==asset.id||selected.value.draftRevision!==asset.draftRevision)return;
   busy.value=true;try{
    try{await publishSchedule(asset.id,asset.draftRevision);}catch{if(disposed)return;message.error('发布未确认，请重新加载核对。');return;}
    if(disposed)return;

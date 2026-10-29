@@ -473,3 +473,8 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 原21006 terminal0，/tmp/iqc-b-stable-watch-pipeline-20261029.log.exit=0，5文件80项18.30s全部通过（新pipeline15+原生命周期13+资产21+标签22+选择器9）。原9113 vue-tsc仍在途，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log及.exit，源码冻结，终态另记。未重跑Vite或全量，旧647仅适用于489253c，不套本次新源。真实Vue/受控API权限与stub，非真实岗位/PDP/后台成功写或完整I1–I7。已处理会话输入不变，无语音转换/framework/共享SQL/部署。
 
 最终原9113 vue-tsc --noEmit terminal0，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log.exit=0，持续跟进原句柄未因安静重启。diff通过，无在途测试/构建。相关生产源码仍仅为A三个固定提交，本批没有修改生产逻辑。
+
+
+## 2026-10-30 周期/订阅发布确认
+
+原发布弹窗仅打开时校验发布权限。现在确认时再次校验对应 schedule:publish 或 subscription:publish，绑定原详情代际及发布/三敏感读取权限代际；撤权再授权、重新读取或切换资产后，旧确认不能继续发布。无关权限刷新不使确认失效。原修订号、脏草稿/受限副本保护和合法发布参数保持。此项仅确认发出边界，不替代写后回读、敏感副本及真实PDP验收。Root不写跑测试，构建和协作专项各自记录。

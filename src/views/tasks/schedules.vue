@@ -18,6 +18,8 @@ const history=ref<PeriodicVersion[]>([]),instances=ref<InspectionTask[]>([]),ins
 // Navigation invalidates command continuations as well as read generations.
 let disposed=false;
 let generation=0,detailGeneration=0,catalogGeneration=0,versionGeneration=0;
+let publishGeneration=0;
+watch(()=>JSON.stringify([can('iqc:schedule:publish'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read'),can('iqc:sensitive:prompt:read')]),()=>{++publishGeneration;},{flush:'sync'});
 function fresh():PeriodicDefinition{return {schemaVersion:'iqc-periodic-definition-v1',cron:'0 0 2 * * *',zoneId:'Asia/Shanghai',effectiveFrom:new Date().toISOString(),effectiveUntil:null,misfirePolicy:'FIRE_LATEST',maximumCatchUp:1,concurrency:1,pipeline:{pipelineId:'',versionNo:0},selector:{selectorId:'',versionNo:0}};}
 const targetPipelineId=computed(()=>definition.value.rollout?.pipelineId||definition.value.pipeline?.pipelineId||'');
 const rolloutMode=computed({get:()=>definition.value.schemaVersion==='iqc-periodic-rollout-definition-v1',set:(value:boolean)=>{
@@ -73,8 +75,9 @@ async function save(){
 }
 
 function publish(){const asset=selected.value;if(disposed||!asset||restricted.value||busy.value||dirty.value||!can('iqc:schedule:publish'))return;
+ const permissionTicket=publishGeneration,contextTicket=detailGeneration;
  Modal.confirm({title:`发布修订 ${asset.draftRevision}？`,content:'发布版本不可修改。发布后请显式启用。',async onOk(){
-  if(disposed||restricted.value||busy.value||dirty.value||selected.value?.id!==asset.id||selected.value.draftRevision!==asset.draftRevision)return;
+  if(disposed||permissionTicket!==publishGeneration||contextTicket!==detailGeneration||!can('iqc:schedule:publish')||restricted.value||busy.value||dirty.value||selected.value?.id!==asset.id||selected.value.draftRevision!==asset.draftRevision)return;
   busy.value=true;try{
    try{await publishSchedule(asset.id,asset.draftRevision);}catch{if(disposed)return;message.error('发布未确认，请重新加载核对。');return;}
    if(disposed)return;
