@@ -35,7 +35,7 @@ async function evidenceRounds(kind:'QUALITY'|'REGRESSION',id:string){const quali
 watch(qualityTaskId,id=>void evidenceRounds('QUALITY',id));watch(regressionTaskId,id=>void evidenceRounds('REGRESSION',id));
 function publicationEvidence():PublicationEvidence{if(!qualityTaskId.value.trim()||!regressionTaskId.value.trim()||!qualityExecutionId.value||!regressionExecutionId.value)throw Error('请选择质量与回归评测的终态执行轮次');return {qualityEvidence:{taskId:qualityTaskId.value.trim(),executionId:qualityExecutionId.value},regressionEvidence:{taskId:regressionTaskId.value.trim(),executionId:regressionExecutionId.value}};}
 async function previewGate(){const asset=selected.value;if(!asset||dirty.value||gateBusy.value||!can('iqc:pipeline:gate:view'))return;let evidence:PublicationEvidence;try{evidence=publicationEvidence();}catch(e){message.warning(e instanceof Error?e.message:'请补齐评测');return;}const ticket=++gateGeneration;gate.value=undefined;gateBusy.value=true;gateError.value='';try{const decision=await getPublicationGate(asset.id,asset.draftRevision,evidence);if(ticket===gateGeneration&&selected.value?.id===asset.id&&selected.value.draftRevision===asset.draftRevision)gate.value=decision;}catch{if(ticket===gateGeneration)gateError.value='准入报告未获得，请核对评测来源、完整产物及精确冻结配置。';}finally{if(ticket===gateGeneration)gateBusy.value=false;}}
-let generation=0,historyGeneration=0,detailGeneration=0,statusGeneration=0,commandGeneration=0,disposed=false;
+let generation=0,historyGeneration=0,detailGeneration=0,statusGeneration=0,commandGeneration=0,disposed=false,detailLoading=false;
 function taskSummary(task:InspectionTask):InspectionTask{return {id:task.id,name:task.name,status:task.status,taskType:task.taskType,concurrencyLimit:task.concurrencyLimit,totalMessages:task.totalMessages,processedMessages:task.processedMessages,failedMessages:task.failedMessages,taskPresentation:task.taskPresentation};}
 const fresh=():PipelineRelease=>({schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:'iqc-pipeline-v1',nodes:[]},fusion:{id:'DEFAULT',version:1,method:'PRIORITY',nodePriority:{},overrideNodeByCode:{},confidenceCalibrationId:null,calibratedNodeIds:[]},scoring:{version:'iqc-score-v2',mode:'DEDUCTION',baseScore:100,passingScore:60,items:[]},items:[]});
 const writable=computed(()=>!payloadRestricted.value&&(selected.value?can('iqc:pipeline:update'):can('iqc:pipeline:manage')));
@@ -50,19 +50,19 @@ function applyReceipt(asset:PipelineAsset){
  if(p&&(p.policyVersion!=='iqc-pipeline-read-v1'||!p.canReadFull||!p.canReadPii||!p.canReadPrompt))restrictDraft();
 }
 async function load(row:{id:string}){
- if(busy.value||!can('iqc:pipeline:detail:view'))return;
- const ticket=++detailGeneration;busy.value=true;initial.value=undefined;selected.value=undefined;name.value='';code.value='';baseline.value='';resetTask();
+ if(disposed||busy.value||!can('iqc:pipeline:detail:view'))return;
+ const ticket=++detailGeneration;detailLoading=true;busy.value=true;initial.value=undefined;selected.value=undefined;name.value='';code.value='';baseline.value='';resetTask();
  try{
-  const asset=await getPipeline(row.id);if(disposed||ticket!==detailGeneration)return;
+  const asset=await getPipeline(row.id);if(disposed||ticket!==detailGeneration||!can('iqc:pipeline:detail:view'))return;
   selected.value=asset;code.value=asset.code;name.value=asset.name;payloadRestricted.value=pipelinePayloadRestricted(asset);
   if(payloadRestricted.value){restrictDraft();open.value=true;return;}
   if(!asset.draftConfigJson)throw Error();
   if(selectorJsonNeedsExactEditor(asset.draftConfigJson)){restrictDraft();open.value=true;message.warning('草稿包含此编辑器无法精确保存的数值，暂无法打开编辑，避免保存时舍入。');return;}
   const release=JSON.parse(asset.draftConfigJson) as PipelineRelease;
   if(release.schemaVersion!=='iqc-pipeline-release-v1'||!['iqc-pipeline-v1','iqc-pipeline-parallel-v1','iqc-pipeline-parallel-v2'].includes(release.pipeline?.schemaVersion)||(release.pipeline.schemaVersion==='iqc-pipeline-parallel-v2'?!release.pipeline.completionPolicy:release.pipeline.completionPolicy!=null)||!Array.isArray(release.pipeline.nodes)||!release.fusion||!release.scoring||!Array.isArray(release.items))throw Error();
-  initial.value=release;editorKey.value++;open.value=true;await nextTick();if(disposed||ticket!==detailGeneration)return;baseline.value=JSON.stringify([name.value,editor.value?.release()]);
+  initial.value=release;editorKey.value++;open.value=true;await nextTick();if(disposed||ticket!==detailGeneration||!can('iqc:pipeline:detail:view'))return;baseline.value=JSON.stringify([name.value,editor.value?.release()]);
  }catch{if(!disposed&&ticket===detailGeneration){restrictDraft();message.error('流水线加载失败或快照格式无效。');}}
- finally{if(!disposed&&ticket===detailGeneration)busy.value=false;}
+ finally{if(!disposed&&ticket===detailGeneration){detailLoading=false;busy.value=false;}}
 }
 function reload(){if(!selected.value||busy.value)return;const row=selected.value;if(dirty.value)Modal.confirm({title:'重新加载草稿？',content:'未保存的编辑内容将被替换。',onOk:()=>load(row)});else void load(row);}
 async function save(){if(busy.value||!writable.value||!editor.value)return;let release:PipelineRelease;try{release=editor.value.release();if(!name.value.trim()||name.value.length>100||!selected.value&&!/^[A-Z][A-Z0-9_]{1,63}$/.test(code.value))throw Error('请填写名称与稳定编码');}catch(e){message.error(e instanceof Error?e.message:'配置无效');return;}busy.value=true;try{const asset=selected.value?await updatePipeline(selected.value.id,selected.value.draftRevision,name.value,release):await createPipeline(code.value,name.value,release);if(disposed)return;applyReceipt(asset);name.value=asset.name;if(!payloadRestricted.value)baseline.value=JSON.stringify([name.value,release]);trialTaskId.value='';trialStatus.value='';reviewed.value=false;invalidateGate();message.success('草稿已保存，请以新修订重新核对评测证据');await refresh();}catch{message.error('保存未成功。请保留编辑内容并重新加载核对修订、引用资产及配置。');}finally{busy.value=false;}}
@@ -133,6 +133,16 @@ function pretty(raw:string|null){try{return raw?JSON.stringify(JSON.parse(raw),n
 watch(open,value=>{if(!value){++detailGeneration;initial.value=undefined;selected.value=undefined;name.value='';code.value='';baseline.value='';payloadRestricted.value=false;resetTask();}});
 // Invalidate receipts on grant changes while retaining the frozen request for an explicit authorized retry.
 watch(()=>JSON.stringify([can('iqc:pipeline:execute'),can('iqc:pipeline:task:create'),can('iqc:pipeline:rollout:task:create'),can('iqc:task:execute')]),()=>{++commandGeneration;},{flush:'sync'});
+// Clear private drafts and invalidate in-flight reads when their authorization context changes.
+watch(()=>JSON.stringify([can('iqc:pipeline:detail:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read'),can('iqc:sensitive:prompt:read')]),(value,previous)=>{
+ ++detailGeneration;
+ if(detailLoading){detailLoading=false;busy.value=false;}
+ const before=JSON.parse(previous) as boolean[],after=JSON.parse(value) as boolean[];
+ if(before.some((allowed,index)=>allowed&&!after[index])){
+  if(selected.value)selected.value={...selected.value,draftConfigJson:null};
+  restrictDraft();
+ }
+},{flush:'sync'});
 // Navigation invalidates pending creation receipts without changing the server task.
 watch(()=>JSON.stringify([can('iqc:task:detail:view'),can('iqc:task:executions:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read'),can('iqc:sensitive:prompt:read')]),()=>{
  ++commandGeneration;++statusGeneration;++qualityGeneration;++regressionGeneration;trialStatus.value='';reviewed.value=false;qualityRounds.value=[];regressionRounds.value=[];qualityExecutionId.value=undefined;regressionExecutionId.value=undefined;invalidateGate();
