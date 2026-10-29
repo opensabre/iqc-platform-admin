@@ -356,3 +356,17 @@ Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit
 原 70696 首轮 9 通过 / 1 失败，为测试误把撤权本身触发的刷新计作审批完成后的刷新；待类型检查原进程终态后，修正为撤权稳定后的调用基线，不修改生产行为。原 53812 `vue-tsc --noEmit` terminal 0，`/tmp/iqc-b-rule-set-operation-types-20261029.log.exit=0`，该类型检查先于此断言修正。
 
 最终原 29305 `pnpm exec vitest run` terminal 0，`/tmp/iqc-b-rule-set-full-ui-20261029.log.exit=0`：58 文件、456 项全部通过，110.18s，含最终规则集 10 项及模型/Skill/MCP/模板专项。日志保留既有组件 stub 警告。测试依赖受控权限/API 和组件 stub，不代表浏览器、真实岗位、PDP 或后台持久化通过；不含 A 尚未固定的任务页慢轮询修正，本轮未重跑 Vite build。完整适用 I1–I7 仍在推进，输入仅已处理会话。
+
+
+## 2026-10-29 B 任务操作权限与慢轮询专项
+
+基线929291e，仅merge固定efa1420（生产任务b8a0aab与8554207）为c9cdf9a。新增 `src/views/tasks/operation-permissions.spec.ts` 19项，实际Vue页面/响应式权限与API mock、Ant stub、受控3秒interval：
+
+- task:view不额外请求创建资产；rule:view不代rule-set:view。execute不代详情/暂停/恢复/优先级，普通resume只需自身码，bulk resume还需execute与pipeline:task:create。
+- cancel/delete确认回调重新检查当前权限。慢于三个周期的poll保持单请求，完成后可继续；撤权、refresh换代或卸载使旧poll失效，卸载清理interval。
+- detail及summary撤权拒绝迟到数据；summary不越读labels/insights，标签深链无授权仍选inspection；labels/insights各按自身授权独立读取。
+- 冻结配置复用task:view与Prompt权限，Prompt撤回使旧响应失效；旧result:export不代labels:export，标签导出撤权后迟到Blob不得生成下载URL。
+
+原26820首14项连既有bulk10/schedule24共48通过。最终原45509 terminal0，`/tmp/iqc-b-task-operation-ui-final-20261029.log.exit=0`，新19+既有34共53项、3文件全部通过，9.99s。原80906 `pnpm build` terminal0，`/tmp/iqc-b-task-operation-ui-build-20261029.log.exit=0`，vue-tsc与Vite通过（Vite41.25s），保留既有引擎版本及chunk提示。diff检查通过。
+
+不使用历史456全量结果冒称新任务组合已跑全量。本批经setupState调用handler、实际受控定时器检查，未证明完整Ant渲染/真实浏览器、PDP、岗位、后台写入或Worker恢复。菜单MySQL验证另在组织仓库，完整适用I1–I7继续，无语音转换。
