@@ -71,7 +71,7 @@ async function publish(id:string){
   try{await publishLabelCollection(id);if(disposed||generation!==commandGeneration||!can('iqc:label-collection:publish'))return;message.success("标签集合已发布");await refresh();}
   catch{if(!disposed&&generation===commandGeneration)message.error("发布失败");}finally{saving.value=false;}
 }
-watch(()=>[can('iqc:label-collection:view'),can('iqc:label-collection:detail:view'),can('iqc:label-collection:manage'),can('iqc:label-collection:update'),can('iqc:label-collection:publish'),can('iqc:label-collection:disable'),can('iqc:label:view')],()=>{++listGeneration;++commandGeneration;clearEditor();loading.value=false;collections.value=[];taxonomy.value={categories:[],groups:[],labels:[]};void refresh();},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:label-collection:view'),can('iqc:label-collection:detail:view'),can('iqc:label-collection:manage'),can('iqc:label-collection:update'),can('iqc:label-collection:publish'),can('iqc:label-collection:disable'),can('iqc:label:view')]),()=>{++listGeneration;++commandGeneration;clearEditor();loading.value=false;collections.value=[];taxonomy.value={categories:[],groups:[],labels:[]};void refresh();},{flush:'sync'});
 watch(open,visible=>{if(!visible)clearEditor();});
 onBeforeUnmount(()=>{disposed=true;++listGeneration;++commandGeneration;clearEditor();});
 onMounted(refresh);

@@ -11,9 +11,9 @@ type Capability={id:string;code?:string;name?:string;versionNo:number;allowedToo
 const models=ref<Capability[]>([]);
 const skills=ref<Capability[]>([]),servers=ref<Capability[]>([]),error=ref(''),loading=ref(false);
 let generation=0;
-watch(()=>[props.config.agentReference?.id,props.config.agentReference?.versionNo,canVersions.value,can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read'),can('iqc:sensitive:prompt:read')],async(current,previous)=>{
+watch([()=>props.config.agentReference?.id,()=>props.config.agentReference?.versionNo,()=>canVersions.value,()=>can('iqc:sensitive:conversation:read'),()=>can('iqc:sensitive:pii:read'),()=>can('iqc:sensitive:prompt:read')],async(current,previous)=>{
  const ticket=++generation;skills.value=[];models.value=[];servers.value=[];error.value='';loading.value=false;
- if(previous && (current[0]!==previous[0]||current[1]!==previous[1]) && !props.disabled){delete props.config.skillReference;delete props.config.modelReference;delete props.config.mcpReference;delete props.config.toolName;}
+ if(previous?.length && (current[0]!==previous[0]||current[1]!==previous[1]) && !props.disabled){delete props.config.skillReference;delete props.config.modelReference;delete props.config.mcpReference;delete props.config.toolName;}
  const reference=props.config.agentReference;if(disposed||!canVersions.value||!reference?.id||!reference.versionNo)return;
  loading.value=true;
  try{

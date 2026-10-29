@@ -69,7 +69,7 @@ async function merge(){
   try{await mergeLabelCandidate(item.id,target,"人工确认相似标签");if(disposed||generation!==editorGeneration||!can('iqc:label-candidate:merge'))return;message.success("候选已合并到现有标签");clearEditor();await refresh();}
   catch{if(!disposed&&generation===editorGeneration)message.error("合并失败");}finally{saving.value=false;}
 }
-watch(()=>[can('iqc:label-candidate:view'),can('iqc:label:view'),can('iqc:label-candidate:review'),can('iqc:label-candidate:reject'),can('iqc:label-candidate:merge'),can('iqc:label-candidate:similarities:view')],()=>{++listGeneration;clearEditor();loading.value=false;candidates.value=[];taxonomy.value={categories:[],groups:[],labels:[]};void refresh();},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:label-candidate:view'),can('iqc:label:view'),can('iqc:label-candidate:review'),can('iqc:label-candidate:reject'),can('iqc:label-candidate:merge'),can('iqc:label-candidate:similarities:view')]),()=>{++listGeneration;clearEditor();loading.value=false;candidates.value=[];taxonomy.value={categories:[],groups:[],labels:[]};void refresh();},{flush:'sync'});
 watch(()=>[reviewOpen.value,mergeOpen.value],()=>{if(!reviewOpen.value&&!mergeOpen.value)clearEditor();});
 onBeforeUnmount(()=>{disposed=true;++listGeneration;clearEditor();});
 onMounted(refresh);

@@ -103,6 +103,6 @@ watch(()=>props.modelValue?.directory,directory=>{
   for(const label of directory.labels)if(label && typeof label==='object' && typeof label.id==='string' && typeof label.name==='string')frozenNames[label.id]=label.name;
   names.value=frozenNames;
 },{immediate:true});
-watch(()=>[props.disabled,can('iqc:label:view'),can('iqc:label:detail:view')],()=>{closePicker();names.value={};},{flush:'sync'});
+watch(()=>JSON.stringify([props.disabled,can('iqc:label:view'),can('iqc:label:detail:view')]),()=>{closePicker();names.value={};},{flush:'sync'});
 onBeforeUnmount(()=>{disposed=true;closePicker();names.value={};});
 </script>

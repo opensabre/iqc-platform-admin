@@ -35,9 +35,9 @@ async function loadVersions(){
  catch {if(!disposed&&ticket===versionGeneration&&canVersions.value)error.value='发布版本加载失败，请检查资产状态或权限后重试。';}
  finally {if(!disposed&&ticket===versionGeneration&&canVersions.value)versionLoading.value=false;}
 }
-watch(()=>[props.kind,props.modelValue?.id,canVersions.value] as const,()=>void loadVersions(),{immediate:true,flush:'sync'});
+watch(()=>JSON.stringify([props.kind,props.modelValue?.id,canVersions.value]),()=>void loadVersions(),{immediate:true,flush:'sync'});
 watch(()=>props.modelValue?.versionNo,value=>{const selected=versions.value.find(v=>v.versionNo===value);emit('code',selected?.code||'');emit('valueType',selected?.valueType);});
-watch(()=>[props.kind,canList.value],()=>{++generation;assets.value=[];total.value=0;current.value=1;loading.value=false;error.value='';if(canList.value)void load();},{immediate:true,flush:'sync'});
+watch(()=>JSON.stringify([props.kind,canList.value]),()=>{++generation;assets.value=[];total.value=0;current.value=1;loading.value=false;error.value='';if(canList.value)void load();},{immediate:true,flush:'sync'});
 onBeforeUnmount(()=>{disposed=true;++generation;++versionGeneration;});
 </script>
 <template><div><a-space wrap><a-select :value="modelValue?.id" :options="options" :loading="loading" :disabled="disabled || !canList" style="min-width:260px" show-search option-filter-prop="label" allow-clear placeholder="选择资产" @change="selectAsset"/><a-select :value="modelValue?.versionNo || undefined" :options="versionOptions" :loading="versionLoading" :disabled="disabled || !canVersions || !modelValue?.id" style="min-width:170px" placeholder="选择发布版本" @change="selectVersion"/><a-button size="small" :disabled="disabled || !canList" @click="load(current)">刷新资产</a-button><a-button size="small" :disabled="disabled || !canVersions || !modelValue?.id" @click="loadVersions">刷新版本</a-button></a-space><a-pagination v-if="(kind==='FINDING'||kind==='KNOWLEDGE') && total>20" :current="current" :total="total" :page-size="20" :show-size-changer="false" size="small" @change="load"/><a-alert v-if="error" type="error" :message="error" show-icon/></div></template>
