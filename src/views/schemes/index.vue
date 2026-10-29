@@ -618,7 +618,7 @@ function confirmAvailability(scheme: InspectionScheme) {
   });
 }
 async function openTrials(scheme: InspectionScheme) {
-  if(disposed||!can("iqc:scheme:trial:create"))return;
+  if(disposed||busy.value||(!can("iqc:scheme:trial:create")&&!can("iqc:scheme:trial:view")))return;
   try { trialMax.value = Math.min(20, (draftDefinition(scheme)).runLimits?.maxConversations ?? 20); }
   catch (reason) { fail(reason); return; }
   if (pendingTrial.value && (pendingTrial.value.schemeId !== scheme.id || pendingTrial.value.revision !== scheme.draftRevision))
@@ -632,29 +632,33 @@ async function openTrials(scheme: InspectionScheme) {
   await refreshTrials();
 }
 async function refreshTrials() {
-  if (disposed || !trialTarget.value) return;
+  if (disposed || busy.value || !trialOpen.value || !trialTarget.value || !can("iqc:scheme:trial:view")) return;
   const generation=++trialGeneration;const id=trialTarget.value.id;
   busy.value = true;
-  try { const rows=await listSchemeTrials(id);if(!disposed&&generation===trialGeneration)trials.value=rows; }
-  catch (reason) { if(!disposed&&generation===trialGeneration)fail(reason); } finally { if(!disposed&&generation===trialGeneration)busy.value = false; }
+  try { const rows=await listSchemeTrials(id);if(!disposed&&generation===trialGeneration&&can("iqc:scheme:trial:view"))trials.value=rows; }
+  catch (reason) { if(!disposed&&generation===trialGeneration)fail(reason); } finally { if(!disposed)busy.value = false; }
 }
 function revision(task: InspectionTask) {
   if(task.taskPresentation)return task.taskPresentation.schemaVersion==='iqc-task-presentation-v1'?task.taskPresentation.schemeDraftRevision:undefined;
   try { return JSON.parse(task.ruleSnapshotJson || "{}").schemeSnapshot?.draftRevision; } catch { return undefined; }
 }
 async function selectTrial(id: string) {
-  if(disposed||!trialOpen.value)return;const generation=++trialGeneration;
+  if(disposed||busy.value||!trialOpen.value||!can("iqc:task:detail:view"))return;const generation=++trialGeneration;
   busy.value = true; trial.value = undefined; summary.value = undefined; trialLabelRows.value = undefined;
   reviewed.value = false; inspected.value = false; error.value = "";
   try {
-    const task=await getTask(id);if(disposed||generation!==trialGeneration)return;
-    const report=await getBatchResultSummary(id);if(disposed||generation!==trialGeneration)return;
-    const labels=trialHasLabels(task)?await getTaskLabelResults(id):undefined;if(disposed||generation!==trialGeneration)return;
-    trial.value=task;summary.value=report;trialLabelRows.value=labels;
-  } catch (reason) { fail(reason); } finally { busy.value = false; }
+    const task=await getTask(id);if(disposed||generation!==trialGeneration||!can("iqc:task:detail:view"))return;
+    const readSummary=can("iqc:result:summary:view"),readLabels=trialHasLabels(task)&&can("iqc:result:labels:view");
+    const [report,labels]=await Promise.allSettled([readSummary?getBatchResultSummary(id):Promise.resolve(undefined),readLabels?getTaskLabelResults(id):Promise.resolve(undefined)]);
+    if(disposed||generation!==trialGeneration||!can("iqc:task:detail:view"))return;
+    trial.value=task;
+    if(report.status==='fulfilled'&&can("iqc:result:summary:view"))summary.value=report.value;
+    if(labels.status==='fulfilled'&&can("iqc:result:labels:view"))trialLabelRows.value=labels.value;
+    if(report.status==='rejected'||labels.status==='rejected')error.value="部分试跑结果读取失败，请核对权限后重新读取；未取得的数据不代表零结果。";
+  } catch (reason) { if(!disposed&&generation===trialGeneration)fail(reason); } finally { busy.value = false; }
 }
 async function startTrial() {
-  if (disposed || !trialTarget.value || busy.value) return;
+  if (disposed || !trialOpen.value || !trialTarget.value || busy.value || !can("iqc:scheme:trial:create") || !can("iqc:task:execute")) return;
   const generation=++trialGeneration;
   if (!pendingTrial.value && (!trialIds.value.length || trialIds.value.length > trialMax.value)) {
     error.value = `试跑请选择 1–${trialMax.value} 个会话。`; return;
@@ -669,12 +673,12 @@ async function startTrial() {
   try {
     const created = await trialScheme(attempt.schemeId, attempt.revision, attempt.conversationIds, attempt.requestId,
       attempt.variantCode, attempt.runCount, attempt.confidenceThreshold);
-    if(disposed||generation!==trialGeneration)return;trial.value=created;
+    if(disposed||generation!==trialGeneration||!can("iqc:scheme:trial:create")||!can("iqc:task:execute"))return;trial.value=created;
     pendingTrial.value = undefined;
     trials.value = [trial.value, ...trials.value];
-    const running=await runTask(trial.value.id);if(disposed||generation!==trialGeneration)return;trial.value=running;
+    const running=await runTask(trial.value.id);if(disposed||generation!==trialGeneration||!can("iqc:task:execute"))return;trial.value=running;
     message.success("试跑已提交，请刷新进度并查看结果后发布。");
-  } catch (reason) { fail(reason); } finally { busy.value = false; }
+  } catch (reason) { if(!disposed&&generation===trialGeneration)fail(reason); } finally { busy.value = false; }
 }
 function abandonTrialRequest() {
   pendingTrial.value = undefined;
@@ -691,12 +695,19 @@ function frozenTrialVariant(task: InspectionTask) {
   } catch { return undefined; }
 }
 async function retryStart() {
-  if (!trial.value) return;
+  if (disposed || busy.value || !trialOpen.value || !trial.value || !can("iqc:task:detail:view") || !can("iqc:task:execute")) return;
+  const id=trial.value.id,generation=++trialGeneration;
   busy.value = true; error.value = "";
   try {
-    trial.value = await getTask(trial.value.id);
-    if (trial.value.status === "CREATED") trial.value = await runTask(trial.value.id);
-  } catch (reason) { fail(reason); } finally { busy.value = false; }
+    const current=await getTask(id);
+    if(disposed||generation!==trialGeneration||!can("iqc:task:detail:view")||!can("iqc:task:execute"))return;
+    trial.value=current;
+    if(current.status==="CREATED"){
+      const running=await runTask(id);
+      if(disposed||generation!==trialGeneration||!can("iqc:task:execute"))return;
+      trial.value=running;
+    }
+  } catch (reason) { if(!disposed&&generation===trialGeneration)fail(reason); } finally { busy.value = false; }
 }
 async function publish() {
   if (disposed || busy.value || !can("iqc:scheme:publish") || !trialTarget.value || !trial.value || trial.value.status !== "SUCCEEDED" || !reviewed.value || !inspected.value
@@ -709,6 +720,10 @@ async function publish() {
     trialOpen.value = false; message.success(`已发布 V${result.versionNo}，质检人员可在业务模板中使用。`); await refresh();
   } catch (reason) { if(!disposed&&generation===commandGeneration&&context===trialGeneration&&can("iqc:scheme:publish"))fail(reason); } finally { busy.value = false; }
 }
+watch(()=>JSON.stringify([can("iqc:scheme:trial:create"),can("iqc:scheme:trial:view"),can("iqc:task:detail:view"),can("iqc:task:execute"),can("iqc:result:summary:view"),can("iqc:result:labels:view")]),()=>{
+  ++trialGeneration;trialOpen.value=false;trialTarget.value=undefined;trial.value=undefined;summary.value=undefined;trialLabelRows.value=undefined;
+  trials.value=[];trialIds.value=[];reviewed.value=false;inspected.value=false;
+},{flush:"sync"});
 watch(()=>[can("iqc:scheme:preview"),can("iqc:scheme:publish")],()=>{++commandGeneration;},{flush:"sync"});
 watch(()=>JSON.stringify([can("iqc:scheme:manage"),can("iqc:scheme:versions:view"),can("iqc:scheme:create"),can("iqc:scheme:update"),can("iqc:rule:view"),can("iqc:rule:versions:view"),can("iqc:agent:view"),can("iqc:agent:versions:view"),can("iqc:label:view"),can("iqc:sensitive:conversation:read"),can("iqc:sensitive:pii:read"),can("iqc:sensitive:prompt:read")]),()=>{
   ++listGeneration;++editorGeneration;loading.value=false;schemes.value=[];
@@ -728,7 +743,7 @@ onMounted(refresh);
       <template v-if="column.key === 'origin'">{{ record.sourceSchemeId ? `${record.sourceSchemeName || record.sourceSchemeCode || record.sourceSchemeId} · V${record.sourceVersionNo}` : '独立创建' }}</template>
       <template v-if="column.key === 'availability'"><a-tag :color="record.status === 'ACTIVE' ? 'green' : 'default'">{{ record.status === 'ACTIVE' ? '启用' : record.status === 'DISABLED' ? '已停用' : '状态异常' }}</a-tag></template>
       <a-button v-if="column.key === 'actions' && can('iqc:scheme:versions:view')" type="link" @click="openHistory(record)">发布历史</a-button>
-      <a-space v-if="column.key === 'actions'"><a-button type="link" :disabled="busy || !schemeBodyVisible(record) || !can('iqc:scheme:update')" @click="openEditor(record)">编辑草稿</a-button><a-button type="link" :disabled="busy || record.status !== 'ACTIVE' || !can('iqc:scheme:preview')" @click="check(record)">检查依赖</a-button><a-tag v-if="draftHasLabels(record)" color="blue">联合输出</a-tag><a-tag v-if="draftHasConditions(record)" color="blue">条件适用</a-tag><a-button type="link" :disabled="busy || record.status !== 'ACTIVE'" @click="openTrials(record)">{{ draftHasLabels(record) ? '联合试跑' : draftHasConditions(record) ? '条件试跑' : '试跑与发布' }}</a-button><a-button v-if="can('iqc:scheme:publish')" type="link" :danger="record.status === 'ACTIVE'" :disabled="busy || !['ACTIVE', 'DISABLED'].includes(record.status)" @click="confirmAvailability(record)">{{ record.status === 'DISABLED' ? '恢复模板' : '停用模板' }}</a-button></a-space>
+      <a-space v-if="column.key === 'actions'"><a-button type="link" :disabled="busy || !schemeBodyVisible(record) || !can('iqc:scheme:update')" @click="openEditor(record)">编辑草稿</a-button><a-button type="link" :disabled="busy || record.status !== 'ACTIVE' || !can('iqc:scheme:preview')" @click="check(record)">检查依赖</a-button><a-tag v-if="draftHasLabels(record)" color="blue">联合输出</a-tag><a-tag v-if="draftHasConditions(record)" color="blue">条件适用</a-tag><a-button type="link" :disabled="busy || record.status !== 'ACTIVE' || (!can('iqc:scheme:trial:create')&&!can('iqc:scheme:trial:view'))" @click="openTrials(record)">{{ draftHasLabels(record) ? '联合试跑' : draftHasConditions(record) ? '条件试跑' : '试跑与发布' }}</a-button><a-button v-if="can('iqc:scheme:publish')" type="link" :danger="record.status === 'ACTIVE'" :disabled="busy || !['ACTIVE', 'DISABLED'].includes(record.status)" @click="confirmAvailability(record)">{{ record.status === 'DISABLED' ? '恢复模板' : '停用模板' }}</a-button></a-space>
     </template>
   </a-table>
   <a-drawer v-model:open="editorOpen" destroy-on-close :title="editing ? `编辑草稿 · 修订 ${editing.draftRevision}` : '新建业务方案'" width="1000" :closable="!busy" :mask-closable="!busy" :keyboard="!busy">
@@ -876,13 +891,13 @@ onMounted(refresh);
     <p>本次最多 {{ trialMax }} 个会话，试跑固定串行。</p>
     <ConversationPicker v-model="trialIds" :max="trialMax" :disabled="busy || !!pendingTrial" />
     <a-alert v-if="pendingTrial" :message="`上次创建尚未确认。重试会固定相同请求标识、会话、${pendingTrial.runCount} 轮及策略变体；若需修改，请先放弃并刷新试跑记录。`" type="warning" show-icon />
-    <a-space style="margin: 16px 0"><a-button type="primary" :loading="busy" :disabled="(!trialIds.length && !pendingTrial) || !can('iqc:task:execute')" @click="startTrial">{{ pendingTrial ? '重试创建本次试跑' : '创建并执行当前草稿试跑' }}</a-button><a-button v-if="pendingTrial" :disabled="busy" @click="abandonTrialRequest">放弃本次创建重试</a-button><a-button :disabled="busy" @click="refreshTrials">刷新试跑记录</a-button></a-space>
-    <a-select :value="trial?.id" placeholder="选择已有试跑（保留最近 20 条）" style="width: 100%; margin-bottom: 16px" :disabled="busy"
+    <a-space style="margin: 16px 0"><a-button type="primary" :loading="busy" :disabled="(!trialIds.length && !pendingTrial) || !can('iqc:task:execute') || !can('iqc:scheme:trial:create')" @click="startTrial">{{ pendingTrial ? '重试创建本次试跑' : '创建并执行当前草稿试跑' }}</a-button><a-button v-if="pendingTrial" :disabled="busy" @click="abandonTrialRequest">放弃本次创建重试</a-button><a-button :disabled="busy || !can('iqc:scheme:trial:view')" @click="refreshTrials">刷新试跑记录</a-button></a-space>
+    <a-select :value="trial?.id" placeholder="选择已有试跑（保留最近 20 条）" style="width: 100%; margin-bottom: 16px" :disabled="busy || !can('iqc:task:detail:view')"
       :options="trials.map(t => ({ label: `修订 ${revision(t) ?? '?'} · ${t.status} · ${t.createdTime || t.id}`, value: t.id }))" @change="(id: unknown) => selectTrial(String(id))" />
     <template v-if="trial">
       <a-alert v-if="!trialDisplayKnown(trial)" type="warning" message="试跑展示元数据不完整，不能确认发布；请重新读取或创建有效试跑。"/><p>试跑 {{ trial.id }} · 草稿修订 {{ revision(trial) }} · 状态 {{ trial.status }}</p>
       <p v-if="frozenTrialVariant(trial)">冻结试跑方案：{{ frozenTrialVariant(trial) }}</p>
-      <a-space style="margin-bottom: 16px"><a-button :disabled="busy" @click="selectTrial(trial.id)">刷新进度与结果</a-button><a-button v-if="trial.status === 'CREATED' && can('iqc:task:execute')" :disabled="busy" @click="retryStart">启动已有试跑</a-button><router-link v-if="can('iqc:result:view')" :to="{ path: '/results', query: { taskId: trial.id } }" target="_blank" @click="inspected = true">打开完整结果与证据 ↗</router-link><router-link v-if="trialHasLabels(trial) && can('iqc:result:view')" :to="{ path: '/tasks', query: { taskId: trial.id, view: 'results' } }" target="_blank">查看洞察标签与状态 ↗</router-link></a-space>
+      <a-space style="margin-bottom: 16px"><a-button :disabled="busy || !can('iqc:task:detail:view')" @click="selectTrial(trial.id)">刷新进度与结果</a-button><a-button v-if="trial.status === 'CREATED' && can('iqc:task:execute') && can('iqc:task:detail:view')" :disabled="busy" @click="retryStart">启动已有试跑</a-button><router-link v-if="can('iqc:result:view')" :to="{ path: '/results', query: { taskId: trial.id } }" target="_blank" @click="inspected = true">打开完整结果与证据 ↗</router-link><router-link v-if="trialHasLabels(trial) && can('iqc:result:summary:view') && can('iqc:result:labels:view')" :to="{ path: '/tasks', query: { taskId: trial.id, view: 'results' } }" target="_blank">查看洞察标签与状态 ↗</router-link></a-space>
       <a-table v-if="summary" row-key="conversationId" :data-source="summary.conversations" :columns="trialColumns" size="small" :pagination="false"><template #bodyCell="{ column, record }"><template v-if="column.dataIndex === 'scoreStatus' && trialOnlyLabels(trial)">仅识别标签</template><template v-else-if="column.dataIndex === 'averageScore'">{{ record.averageScore == null ? '—' : record.averageScore }}</template><template v-else-if="column.dataIndex === 'hitCount' && trialOnlyLabels(trial)">—</template></template></a-table>
       <section v-if="trialLabelSummary" style="margin-top: 16px">
         <h3>标签结果覆盖</h3>

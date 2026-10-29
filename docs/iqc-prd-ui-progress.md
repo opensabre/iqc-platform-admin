@@ -423,3 +423,11 @@ Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit
 原62486首修68项通过；最终原43339 terminal0，/tmp/iqc-b-scheme-command-final-20261029.log.exit=0，25项新spec+原history10+availability35共70项3文件通过14.70s，覆盖合法预览/发布、未授权、确认撤回/恢复、迟到回执及原领域回归。原5194 pnpm build terminal0，/tmp/iqc-b-scheme-command-build-20261029.log.exit=0，vue-tsc与Vite通过（Vite2m33s），保留现有Node引擎/chunk提示；diff通过。
 
 本轮未重跑全量，旧550不套新组合；组件受控权限/API与Ant stub，不代表真实岗位/PDP/后台写入。方案试跑记录/详情/汇总/标签读取与任务执行复合授权仍需继续，不把这四入口修复视为全方案或完整I1–I7验收。输入仅已处理会话，无部署/语音处理。
+
+## 2026-10-29 B 方案试跑分权与撤权恢复
+
+基线0c868d1。原57646红测（/tmp/iqc-b-scheme-trial-red-20261029.log.exit=1）原25项通过、新8项失败，复现创建权限越读记录、只读用户打不开记录、目录权限越读详情、详情越读汇总/标签、单一权限创建并执行、无execute重试启动、撤权迟到正文回填。原页面最小修复：trial:create/view分别控制创建/记录，task:detail:view控制详情，summary/labels独立可选读取且失败不冒充零结果；创建执行需create+execute，重试启动需detail+execute，各await后检查当前权限及代际。六项grant变化同步关闭并清结果，保原pending requestId和冻结参数，恢复授权可按同一请求标识重试，不自动执行。
+
+原36687为77通过1失败，试跑watcher数组返回导致publish权限变化误清面板，改为实际权限位字符串比较；原31663随后86项通过、原89143中间构建0。继续补撤权busy断言，原58132真实40通过1失败（/tmp/iqc-b-scheme-trial-busy-red-20261029.log.exit=1）：撤权后列表结束仍忙。保迟到结果拒收，finally释放busy并以入口busy保证单飞；增加重复刷新、恢复授权重读、执行回执撤权及卸载阻止串联。mock统一reset后逐测试重设默认，防一次性响应泄漏。
+
+最终原7489 terminal0，/tmp/iqc-b-scheme-trial-complete-20261029.log.exit=0，3文件89项通过14.48s（本spec44、原history10、availability35）。最终原16036 terminal0，/tmp/iqc-b-scheme-trial-final-build-20261029.log.exit=0，vue-tsc/Vite通过，Vite1m2s，现有引擎/chunk提示保留。diff通过。未重跑全量，旧550不套当前组合；真实Vue/受控API权限与Ant stub不代表真实岗位/PDP、后台成功写或完整I1–I7验收。所有输入已为处理好的会话，语音处理不在范围，无部署或共享SQL修改。
