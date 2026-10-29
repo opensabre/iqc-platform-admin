@@ -463,3 +463,13 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 原65983 vue-tsc --noEmit已terminal0，/tmp/iqc-b-candidate-collection-types-20261029.log.exit=0。因本树已累计方案/结果/共享选择器与候选集合生产组合，启动原14539完整Vitest，/tmp/iqc-b-results-labels-full-ui-20261029.log及.exit，源码继续冻结，完整测试结果另记，未据专项推断全量成功。
 
 原14539完整Vitest已terminal0，/tmp/iqc-b-results-labels-full-ui-20261029.log.exit=0，66文件647项全部通过164.56s。包含本树方案/结果/选择器/候选集合组合，不含A后续eb1258a稳定watch与流水线确认源码。既有Ant stub及happy-dom localhost EPERM日志保留，不能扩为真实浏览器/PDP/后台写入证明。
+
+## 2026-10-29 B 稳定权限监听与流水线确认专项
+
+基线489253c仅定点取A固定a3e8cf1/8e7c0ce/eb1258a为1b28409/8c485da/982aa5a，无dirty读取。新增pipelines/operation-permissions.spec.ts 15项，扩原asset-reference-permissions 3项及labels/operation-permissions 2项，不改生产源码。
+
+共享资产权限相关位不变时不重读目录/历史，Finding同ID换版本不重读且code/valueType来自精确新版本；Skill首次挂载保所有已存capability引用，同值刷新不清父引用。候选批准表单与集合未保存名称/已有成员在等价权限列表替换后保留。流水线availability与普通/force发布分别检查自身权限；确认撤回恢复/证据变化/卸载均不发写，停用固定原ID，发布保原revision/trial/EID/例外原因。无detail权限的合法发布不越读草稿或历史；task:view不能替detail或executions，任务摘要不缓存private快照，轮次只留终态，状态撤权拒迟到并释放busy。同值权限更新保gate/复核确认/EID，原13项请求冻结/重试/卸载/百万分片参数断言保持。
+
+原21006 terminal0，/tmp/iqc-b-stable-watch-pipeline-20261029.log.exit=0，5文件80项18.30s全部通过（新pipeline15+原生命周期13+资产21+标签22+选择器9）。原9113 vue-tsc仍在途，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log及.exit，源码冻结，终态另记。未重跑Vite或全量，旧647仅适用于489253c，不套本次新源。真实Vue/受控API权限与stub，非真实岗位/PDP/后台成功写或完整I1–I7。已处理会话输入不变，无语音转换/framework/共享SQL/部署。
+
+最终原9113 vue-tsc --noEmit terminal0，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log.exit=0，持续跟进原句柄未因安静重启。diff通过，无在途测试/构建。相关生产源码仍仅为A三个固定提交，本批没有修改生产逻辑。
