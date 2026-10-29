@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import {
   approveLabelCandidate,
@@ -26,55 +26,52 @@ const form = ref({ groupId: "", targetRole: "all", weight: 1, comment: "" });
 const mergeTargetId = ref("");
 const similarities = ref<LabelSimilarity[]>([]);
 
-async function refresh() {
-  loading.value = true;
-  try {
-    [candidates.value, taxonomy.value] = await Promise.all([
-      listLabelCandidates(),
-      getLabelTree(),
-    ]);
-  } catch {
-    message.error("候选标签加载失败");
-  } finally {
-    loading.value = false;
-  }
+let disposed=false,listGeneration=0,editorGeneration=0;
+function clearEditor(){++editorGeneration;reviewOpen.value=false;mergeOpen.value=false;selected.value=undefined;similarities.value=[];mergeTargetId.value="";form.value={groupId:"",targetRole:"all",weight:1,comment:""};}
+function pending(item:LabelCandidate,permission:string){return !disposed&&!saving.value&&item.status==='PENDING'&&can(permission);}
+async function refresh(){
+  if(disposed)return;const generation=++listGeneration;loading.value=true;
+  candidates.value=[];taxonomy.value={categories:[],groups:[],labels:[]};
+  try{const [rows,tree]=await Promise.all([can('iqc:label-candidate:view')?listLabelCandidates():Promise.resolve([]),can('iqc:label:view')?getLabelTree().catch(()=>undefined):Promise.resolve(undefined)]);
+    if(disposed||generation!==listGeneration)return;candidates.value=rows;
+    if(tree)taxonomy.value=tree;
+  }catch{if(!disposed&&generation===listGeneration)message.error("候选标签加载失败");}
+  finally{if(!disposed&&generation===listGeneration)loading.value=false;}
 }
-function approve(item: LabelCandidate) {
-  selected.value = item;
-  form.value = {
-    groupId: item.groupId || "",
-    targetRole: "all",
-    weight: 1,
-    comment: "",
-  };
-  reviewOpen.value = true;
+function approve(item:LabelCandidate){
+  if(!pending(item,'iqc:label-candidate:review')||!can('iqc:label:view'))return;
+  clearEditor();selected.value=item;form.value={groupId:item.groupId||"",targetRole:"all",weight:1,comment:""};reviewOpen.value=true;
 }
-async function submit() {
-  if (!selected.value || !form.value.groupId)
-    return void message.warning("请选择标签组");
-  saving.value = true;
-  try {
-    await approveLabelCandidate(selected.value.id, form.value);
-    message.success("候选已转为标签草稿，仍需绑定规则并发布");
-    reviewOpen.value = false;
-    await refresh();
-  } catch {
-    message.error("批准失败");
-  } finally {
-    saving.value = false;
-  }
+async function submit(){
+  const item=selected.value;if(!item||!pending(item,'iqc:label-candidate:review')||!reviewOpen.value||!can('iqc:label:view'))return;
+  if(!form.value.groupId)return void message.warning("请选择标签组");
+  const generation=editorGeneration,request={...form.value};saving.value=true;
+  try{await approveLabelCandidate(item.id,request);if(disposed||generation!==editorGeneration||!can('iqc:label-candidate:review'))return;
+    message.success("候选已转为标签草稿，仍需绑定规则并发布");clearEditor();await refresh();
+  }catch{if(!disposed&&generation===editorGeneration)message.error("批准失败");}finally{saving.value=false;}
 }
-async function reject(item: LabelCandidate) {
-  try {
-    await rejectLabelCandidate(item.id, "人工审核拒绝");
-    message.success("候选已拒绝");
-    await refresh();
-  } catch {
-    message.error("拒绝失败");
-  }
+async function reject(item:LabelCandidate){
+  if(!pending(item,'iqc:label-candidate:reject'))return;const generation=listGeneration;saving.value=true;
+  try{await rejectLabelCandidate(item.id,"人工审核拒绝");if(disposed||generation!==listGeneration||!can('iqc:label-candidate:reject'))return;message.success("候选已拒绝");await refresh();}
+  catch{if(!disposed&&generation===listGeneration)message.error("拒绝失败");}finally{saving.value=false;}
 }
-async function openMerge(item:LabelCandidate){ selected.value=item; mergeTargetId.value=""; similarities.value=[]; mergeOpen.value=true; try { similarities.value=await listCandidateSimilarities(item.id); } catch { message.warning("相似标签建议加载失败，可手动选择"); } }
-async function merge(){ if(!selected.value||!mergeTargetId.value)return void message.warning("请选择合并目标标签"); saving.value=true; try{await mergeLabelCandidate(selected.value.id,mergeTargetId.value,"人工确认相似标签");message.success("候选已合并到现有标签");mergeOpen.value=false;await refresh();}catch{message.error("合并失败");}finally{saving.value=false;} }
+async function openMerge(item:LabelCandidate){
+  if(!pending(item,'iqc:label-candidate:merge')||!can('iqc:label:view'))return;
+  clearEditor();selected.value=item;mergeOpen.value=true;const generation=editorGeneration;
+  if(!can('iqc:label-candidate:similarities:view'))return;
+  try{const rows=await listCandidateSimilarities(item.id);if(!disposed&&generation===editorGeneration&&mergeOpen.value&&can('iqc:label-candidate:similarities:view'))similarities.value=rows;}
+  catch{if(!disposed&&generation===editorGeneration)message.warning("相似标签建议加载失败，可手动选择");}
+}
+async function merge(){
+  const item=selected.value;if(!item||!pending(item,'iqc:label-candidate:merge')||!mergeOpen.value||!can('iqc:label:view'))return;
+  if(!mergeTargetId.value)return void message.warning("请选择合并目标标签");
+  const generation=editorGeneration,target=mergeTargetId.value;saving.value=true;
+  try{await mergeLabelCandidate(item.id,target,"人工确认相似标签");if(disposed||generation!==editorGeneration||!can('iqc:label-candidate:merge'))return;message.success("候选已合并到现有标签");clearEditor();await refresh();}
+  catch{if(!disposed&&generation===editorGeneration)message.error("合并失败");}finally{saving.value=false;}
+}
+watch(()=>[can('iqc:label-candidate:view'),can('iqc:label:view'),can('iqc:label-candidate:review'),can('iqc:label-candidate:reject'),can('iqc:label-candidate:merge'),can('iqc:label-candidate:similarities:view')],()=>{++listGeneration;clearEditor();loading.value=false;candidates.value=[];taxonomy.value={categories:[],groups:[],labels:[]};void refresh();},{flush:'sync'});
+watch(()=>[reviewOpen.value,mergeOpen.value],()=>{if(!reviewOpen.value&&!mergeOpen.value)clearEditor();});
+onBeforeUnmount(()=>{disposed=true;++listGeneration;clearEditor();});
 onMounted(refresh);
 </script>
 
@@ -113,11 +110,11 @@ onMounted(refresh);
         ><template #default="{ record }"
           ><template
             v-if="
-              record.status === 'PENDING' && can('iqc:label-candidate:review')
+              record.status === 'PENDING'
             "
-            ><a-button type="link" @click="approve(record)">批准为草稿</a-button
-            ><a-button type="link" @click="openMerge(record)">合并</a-button
-            ><a-button type="link" danger @click="reject(record)"
+            ><a-button v-if="can('iqc:label-candidate:review') && can('iqc:label:view')" :disabled="saving" type="link" @click="approve(record)">批准为草稿</a-button
+            ><a-button v-if="can('iqc:label-candidate:merge') && can('iqc:label:view')" :disabled="saving" type="link" @click="openMerge(record)">合并</a-button
+            ><a-button v-if="can('iqc:label-candidate:reject')" :disabled="saving" type="link" danger @click="reject(record)"
               >拒绝</a-button
             ></template
           ></template
