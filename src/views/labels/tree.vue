@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { message, Modal } from "ant-design-vue";
 import {
   createInsightLabel,
@@ -28,6 +28,17 @@ import LabelValueEditor from "@/components/LabelValueEditor.vue";
 import type { LabelValueRequest } from "@/api/labels";
 
 const { can } = usePermission();
+type AssetKind='CATEGORY'|'GROUP'|'LABEL';
+let disposed=false,listGeneration=0,detailGeneration=0,editorGeneration=0,commandGeneration=0;
+function resource(type:AssetKind,operation:'create'|'update'|'disable'){
+  return type==='LABEL'?(operation==='create'?'iqc:label:manage':`iqc:label:${operation}`):`iqc:label:${type.toLowerCase()}:${operation}`;
+}
+function canWrite(type:AssetKind,editing:boolean){
+  return can(resource(type,editing?'update':'create'))&&(type!=='LABEL'||can('iqc:label:bindings:update')&&can('iqc:label:values:update')&&(!editing||can('iqc:label:detail:view')));
+}
+function clearSelection(){++detailGeneration;selected.value=undefined;selectedNode.value=undefined;selectedKind.value=undefined;selectedDetail.value=undefined;}
+function closeEditor(){++editorGeneration;open.value=false;editId.value='';hitMappings.value={};form.value={name:'',code:'',parentId:'',description:'',prompt:'',maxChildCount:0,allowAutoExpand:false,targetRole:'all',weight:1,ruleIds:[],values:[]};}
+
 const loading = ref(false),
   keyword = ref(""),
   open = ref(false),
@@ -132,20 +143,15 @@ const treeData = computed(() =>
   }))
 );
 
-async function refresh() {
-  loading.value = true;
-  try {
-    [data.value, rules.value] = await Promise.all([
-      getLabelTree(keyword.value),
-      listRules(),
-    ]);
-  } catch {
-    message.error("标签树加载失败");
-  } finally {
-    loading.value = false;
-  }
+async function refresh(){
+  if(disposed)return;const generation=++listGeneration;loading.value=true;data.value={categories:[],groups:[],labels:[]};rules.value=[];clearSelection();
+  try{const [tree,availableRules]=await Promise.all([can('iqc:label:view')?getLabelTree(keyword.value):Promise.resolve({categories:[],groups:[],labels:[]}),can('iqc:rule:view')?listRules():Promise.resolve([])]);
+    if(disposed||generation!==listGeneration)return;data.value=tree;rules.value=availableRules;
+  }catch{if(!disposed&&generation===listGeneration)message.error('标签树加载失败');}finally{if(!disposed&&generation===listGeneration)loading.value=false;}
 }
 function create(type: "CATEGORY" | "GROUP" | "LABEL") {
+  if(disposed||saving.value||!canWrite(type,false))return;
+  closeEditor();
   editId.value = "";
   kind.value = type;
   form.value = {
@@ -164,18 +170,18 @@ function create(type: "CATEGORY" | "GROUP" | "LABEL") {
   hitMappings.value = {};
   open.value = true;
 }
-async function selectNode(keys: (string | number)[]) {
-  const [type, id] = String(keys[0] || "").split(":");
-  selected.value =
-    type === "LABEL" ? data.value.labels.find((v) => v.id === id) : undefined;
-  selectedKind.value = type as "CATEGORY" | "GROUP" | "LABEL";
-  selectedNode.value = type === "CATEGORY" ? data.value.categories.find(v=>v.id===id) : type === "GROUP" ? data.value.groups.find(v=>v.id===id) : selected.value;
-  selectedDetail.value = selected.value
-    ? await getLabelDetail(selected.value.id)
-    : undefined;
+async function selectNode(keys:(string|number)[]){
+  if(disposed||!can('iqc:label:view'))return;clearSelection();const generation=detailGeneration;
+  const [type,id]=String(keys[0]||'').split(':');
+  selected.value=type==='LABEL'?data.value.labels.find(v=>v.id===id):undefined;
+  selectedKind.value=type as AssetKind;selectedNode.value=type==='CATEGORY'?data.value.categories.find(v=>v.id===id):type==='GROUP'?data.value.groups.find(v=>v.id===id):selected.value;
+  if(!selected.value||!can('iqc:label:detail:view'))return;
+  try{const detail=await getLabelDetail(id);if(disposed||generation!==detailGeneration||selected.value?.id!==id||!can('iqc:label:detail:view'))return;selectedDetail.value=detail;}
+  catch{if(!disposed&&generation===detailGeneration)message.error('标签详情加载失败，请重新选择。');}
 }
 function editSelected() {
-  if (!selectedNode.value || !selectedKind.value) return;
+  if (disposed||saving.value||!selectedNode.value||!selectedKind.value||!canWrite(selectedKind.value,true)||(selectedKind.value==='LABEL'&&!selectedDetail.value)) return;
+  closeEditor();
   const value = selectedNode.value;
   kind.value = selectedKind.value; editId.value = value.id;
   form.value = { name:value.name, code:value.code, parentId:"", description:"description" in value ? value.description || "" : "", prompt:"prompt" in value ? value.prompt || "" : "", maxChildCount:"maxChildCount" in value ? value.maxChildCount : 0, allowAutoExpand:"allowAutoExpand" in value ? value.allowAutoExpand : false, targetRole:"targetRole" in value ? value.targetRole : "all", weight:"weight" in value ? value.weight : 1, ruleIds:selectedDetail.value?.bindings.map(v=>v.ruleId) || [], values:selectedDetail.value?.values.map(v=>({...v})) || [] };
@@ -184,38 +190,50 @@ function editSelected() {
   resetHitMappings();
   open.value = true;
 }
-function disableSelected() {
-  if (!selectedNode.value || !selectedKind.value) return;
-  Modal.confirm({title:`确认停用“${selectedNode.value.name}”？`,content:"分类和群组必须先停用所有有效子项；历史任务仍按快照展示。",async onOk(){ try { if(selectedKind.value==="CATEGORY") await disableLabelCategory(selectedNode.value!.id); else if(selectedKind.value==="GROUP") await disableLabelGroup(selectedNode.value!.id); else await disableInsightLabel(selectedNode.value!.id); message.success("已停用"); selected.value=undefined; selectedNode.value=undefined; await refresh(); } catch { message.error("停用失败，请确认子项状态和权限"); } }});
+function disableSelected(){
+  const node=selectedNode.value,type=selectedKind.value;
+  if(disposed||saving.value||!node||!type||node.status==='DISABLED'||!can(resource(type,'disable')))return;
+  const id=node.id,generation=commandGeneration,permission=resource(type,'disable');
+  Modal.confirm({title:`确认停用“${node.name}”？`,content:'分类和群组必须先停用所有有效子项；历史任务仍按快照展示。',async onOk(){
+    if(disposed||saving.value||generation!==commandGeneration||!can(permission))return;saving.value=true;
+    try{if(type==='CATEGORY')await disableLabelCategory(id);else if(type==='GROUP')await disableLabelGroup(id);else await disableInsightLabel(id);
+      if(disposed||generation!==commandGeneration||!can(permission))return;message.success('已停用');clearSelection();await refresh();
+    }catch{if(!disposed&&generation===commandGeneration)message.error('停用失败，请确认子项状态和权限');}finally{saving.value=false;}
+  }});
 }
 async function save() {
-  if (!form.value.name || !form.value.code)
+  const type=kind.value,id=editId.value,generation=editorGeneration;
+  if(disposed||saving.value||!open.value||!canWrite(type,!!id))return;
+  const request:typeof form.value=JSON.parse(JSON.stringify(form.value));
+  const current=()=>!disposed&&generation===editorGeneration&&canWrite(type,!!id);
+  const continueWrite=()=>{if(current())return true;if(!disposed)message.info('权限或编辑上下文已变化，请重新读取核对；已完成操作不会撤销。');return false;};
+  if (!request.name || !request.code)
     return void message.warning("请填写名称和编码");
   saving.value = true;
   try {
-    if (kind.value === "CATEGORY") {
+    if (type === "CATEGORY") {
       const payload = {
-        name: form.value.name,
-        code: form.value.code,
-        prompt: form.value.prompt,
-        maxChildCount: form.value.maxChildCount,
-        allowAutoExpand: form.value.allowAutoExpand,
+        name: request.name,
+        code: request.code,
+        prompt: request.prompt,
+        maxChildCount: request.maxChildCount,
+        allowAutoExpand: request.allowAutoExpand,
       };
-      if (editId.value) await reviseLabelCategory(editId.value, payload); else await createLabelCategory(payload);
+      if (id) await reviseLabelCategory(id, payload); else await createLabelCategory(payload);
     }
-    else if (kind.value === "GROUP") {
-      if (!form.value.parentId) throw new Error("请选择一级标签");
+    else if (type === "GROUP") {
+      if (!request.parentId) throw new Error("请选择一级标签");
       const payload = {
-        categoryId: form.value.parentId,
-        name: form.value.name,
-        code: form.value.code,
-        description: form.value.description,
-        maxChildCount: form.value.maxChildCount,
-        allowAutoExpand: form.value.allowAutoExpand,
+        categoryId: request.parentId,
+        name: request.name,
+        code: request.code,
+        description: request.description,
+        maxChildCount: request.maxChildCount,
+        allowAutoExpand: request.allowAutoExpand,
       };
-      if (editId.value) await reviseLabelGroup(editId.value, payload); else await createLabelGroup(payload);
+      if (id) await reviseLabelGroup(id, payload); else await createLabelGroup(payload);
     } else {
-      if (!form.value.parentId || !form.value.ruleIds.length)
+      if (!request.parentId || !request.ruleIds.length)
         throw new Error("请选择标签群组和规则");
       if (locatableRules.value.some(rule => {
         const draft = hitMappings.value[rule.id];
@@ -223,37 +241,44 @@ async function save() {
         return draft && (draft.valueCode !== saved.valueCode || draft.rawValue !== saved.rawValue);
       })) throw new Error("命中值已修改但未确认，请先点击“确认命中值”再保存标签");
       const payload = {
-        groupId: form.value.parentId,
-        name: form.value.name,
-        code: form.value.code,
-        description: form.value.description,
-        targetRole: form.value.targetRole,
-        weight: form.value.weight,
+        groupId: request.parentId,
+        name: request.name,
+        code: request.code,
+        description: request.description,
+        targetRole: request.targetRole,
+        weight: request.weight,
       };
-      const label = editId.value ? await reviseInsightLabel(editId.value, payload) : await createInsightLabel(payload);
-      await replaceLabelBindings(label.id, form.value.ruleIds);
-      if (form.value.values.some((value) => !value.valueCode))
-        throw new Error("标签值编码不能为空");
-      await replaceLabelValues(label.id, form.value.values);
+      if (request.values.some(value=>!value.valueCode))throw new Error("标签值编码不能为空");
+      const label = id ? await reviseInsightLabel(id, payload) : await createInsightLabel(payload);
+      if(!continueWrite())return;
+      await replaceLabelBindings(label.id, request.ruleIds);
+      if(!continueWrite())return;
+      await replaceLabelValues(label.id, request.values);
     }
+    if(!continueWrite())return;
     message.success("标签配置已保存");
     open.value = false;
     await refresh();
   } catch (e) {
-    message.error(e instanceof Error ? e.message : "保存失败");
+    if(current())message.error(e instanceof Error ? e.message : "保存失败");
   } finally {
     saving.value = false;
   }
 }
 async function publish(label: InsightLabel) {
+  if(disposed||saving.value||!can('iqc:label:approve')||label.status!=='DRAFT')return;const generation=commandGeneration;saving.value=true;
   try {
     await publishLabel(label.id);
+    if(disposed||generation!==commandGeneration||!can('iqc:label:approve'))return;
     message.success("标签已发布");
     await refresh();
   } catch {
-    message.error("发布失败，请确认已绑定已发布规则");
-  }
+    if(!disposed&&generation===commandGeneration)message.error("发布失败，请确认已绑定已发布规则");
+  }finally{saving.value=false;}
 }
+watch(()=>JSON.stringify(['iqc:label:view','iqc:label:detail:view','iqc:rule:view','iqc:label:manage','iqc:label:update','iqc:label:bindings:update','iqc:label:values:update','iqc:label:disable','iqc:label:approve','iqc:label:category:create','iqc:label:category:update','iqc:label:category:disable','iqc:label:group:create','iqc:label:group:update','iqc:label:group:disable'].map(can)),()=>{++listGeneration;++commandGeneration;clearSelection();closeEditor();data.value={categories:[],groups:[],labels:[]};rules.value=[];loading.value=false;void refresh();},{flush:'sync'});
+watch(open,visible=>{if(!visible)closeEditor();});
+onBeforeUnmount(()=>{disposed=true;++listGeneration;++commandGeneration;clearSelection();closeEditor();});
 onMounted(refresh);
 </script>
 
@@ -264,10 +289,10 @@ onMounted(refresh);
       <h2>标签树</h2>
       <p>标签定义业务含义，判定继续复用已发布规则、DLS 与 LLM。</p>
     </div>
-    <a-space v-if="can('iqc:label:manage')"
-      ><a-button @click="create('CATEGORY')">新建一级标签</a-button
-      ><a-button @click="create('GROUP')">新建群组</a-button
-      ><a-button type="primary" @click="create('LABEL')"
+    <a-space
+      ><a-button v-if="canWrite('CATEGORY',false)" :disabled="saving" @click="create('CATEGORY')">新建一级标签</a-button
+      ><a-button v-if="canWrite('GROUP',false)" :disabled="saving" @click="create('GROUP')">新建群组</a-button
+      ><a-button v-if="canWrite('LABEL',false)" :disabled="saving" type="primary" @click="create('LABEL')"
         >新建标签</a-button
       ></a-space
     >
@@ -334,7 +359,7 @@ onMounted(refresh);
           style="margin-top: 16px"
           @click="publish(selected)"
           >发布标签</a-button
-        ><a-space v-if="selectedNode && can('iqc:label:manage')" style="margin-top:16px"><a-button @click="editSelected">编辑</a-button><a-button v-if="selectedNode.status !== 'DISABLED'" danger @click="disableSelected">停用</a-button></a-space></a-card
+        ><a-space v-if="selectedNode && selectedKind" style="margin-top:16px"><a-button v-if="canWrite(selectedKind,true)" :disabled="saving || (selectedKind==='LABEL' && !selectedDetail)" @click="editSelected">编辑</a-button><a-button v-if="selectedNode.status !== 'DISABLED' && can(resource(selectedKind,'disable'))" :disabled="saving" danger @click="disableSelected">停用</a-button></a-space></a-card
       ></a-col
     ></a-row
   >
