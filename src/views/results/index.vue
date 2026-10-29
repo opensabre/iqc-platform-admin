@@ -28,7 +28,7 @@ interface ResultSuggestion { ruleId?: string; title?: string; content?: string }
 const results = ref<InspectionResult[]>([]), total = ref(0), page = ref(1), pageSize = ref(20), loading = ref(false);
 const resultView = ref<"BUSINESS"|"MESSAGE">("BUSINESS");
 const businessResults = ref<BusinessConversationResult[]>([]);
-let resultRequest = 0;
+let resultRequest = 0, disposed = false, exportGeneration = 0;
 const conversationMessages = ref<any[]>([]), conversationResults = ref<InspectionResult[]>([]);
 const hierarchy = ref<ResultHierarchy>();
 const routeContexts = computed(() => routeContextRows(hierarchy.value?.rules ?? [], businessItems.value));
@@ -45,6 +45,7 @@ watch(detailOpen, (open) => {
   if (!open) { ++detailRequest; clearDetail(); detailLoading.value = false; }
 }, { flush: "sync" });
 onUnmounted(() => {
+  disposed=true;++resultRequest;++exportGeneration;
   ++detailRequest;
   if (highlightResetTimer) window.clearTimeout(highlightResetTimer);
   if (copyResetTimer) window.clearTimeout(copyResetTimer);
@@ -57,6 +58,11 @@ const riskLevels = ref<DictionaryItem[]>([{ value: "HIGH", label: "高风险" },
 const filters = ref({ parentTaskId:undefined as string|undefined,taskId: undefined as string|undefined, agentId: undefined as string|undefined, ownerId: undefined as string|undefined, groupId: undefined as string|undefined, status: undefined as string|undefined, minScore: undefined as number|undefined, maxScore: undefined as number|undefined, speakerRole: undefined as string|undefined, riskLevel: undefined as string|undefined });
 const selectedTaskId = computed({ get: () => filters.value.taskId || "", set: (value: string) => { filters.value.taskId = value.trim() || undefined;if(filters.value.taskId)filters.value.parentTaskId=undefined; } });
 const { can } = usePermission();
+const listPermission=computed(()=>resultView.value==='BUSINESS'?'iqc:result:business:view':'iqc:result:view');
+const canConversation=computed(()=>can('iqc:result:conversation:view')&&can('iqc:result:hierarchy:view'));
+const exportContent=computed(()=>can('iqc:sensitive:conversation:read')&&can('iqc:sensitive:pii:read'));
+const canExport=computed(()=>can('iqc:result:export')&&exportContent.value);
+const canExportLabels=computed(()=>can('iqc:result:labels:export')&&exportContent.value);
 const route = useRoute();
 const router = useRouter();
 
@@ -150,50 +156,57 @@ const conversationRows = computed(() => {
   if (resultView.value === "BUSINESS") return businessResults.value.map(businessConversationRow);
   return groupResultsByTaskAndConversation(results.value).map((row) => {
     const canonical = canonicalSummaries.value[row.taskId]?.conversations.find((item) => item.conversationId === row.conversationId);
-    return canonical ? { ...row, ...canonical } : row;
+    return canonical ? { ...row, ...canonical } : results.value.some(item=>item.taskId===row.taskId&&item.conversationId===row.conversationId&&item.score==null)?{...row,averageScore:null}:row;
   });
 });
 async function refresh() {
+  if(disposed)return;
   const request = ++resultRequest;
   loading.value = true; canonicalSummaries.value = {}; results.value = []; businessResults.value = []; total.value = 0;
+  if(!can(listPermission.value)){loading.value=false;return;}
   const selected = {...filters.value}, view = resultView.value;
   try {
     if (view === "BUSINESS") {
       const result = await listBusinessResults({parentTaskId:selected.parentTaskId,taskId:selected.taskId,scoreStatus:selected.status,
         riskLevel:selected.riskLevel,minScore:selected.minScore,maxScore:selected.maxScore}, {current:page.value,size:pageSize.value});
-      if (request !== resultRequest) return;
+      if (disposed||request !== resultRequest||!can(listPermission.value)) return;
       businessResults.value = result.records; total.value = result.total;
     } else {
       const result = await listResults(selected, {current:page.value,size:pageSize.value});
+      if(disposed||request!==resultRequest||!can("iqc:result:view"))return;
       const ids = [...new Set(result.records.filter(item => item.score == null).map(item => item.taskId))];
-      const summaries = await Promise.all(ids.map(getBatchResultSummary));
-      if (request !== resultRequest) return;
+      const summaries = can("iqc:result:summary:view")?await Promise.all(ids.map(id=>getBatchResultSummary(id).catch(()=>undefined))):[];
+      if (disposed||request !== resultRequest||!can(listPermission.value)) return;
       results.value = result.records; total.value = result.total;
-      canonicalSummaries.value = Object.fromEntries(summaries.map(summary => [summary.taskId,summary]));
+      canonicalSummaries.value = Object.fromEntries(summaries.filter((summary):summary is BatchResultSummary=>!!summary).map(summary => [summary.taskId,summary]));
     }
-  } catch { if (request === resultRequest) message.error("结果或会话评分加载失败，未加载的分数不作推断"); }
-  finally { if (request === resultRequest) loading.value = false; }
+  } catch { if (!disposed&&request === resultRequest) message.error("结果或会话评分加载失败，未加载的分数不作推断"); }
+  finally { if (!disposed&&request === resultRequest) loading.value = false; }
 }
 function changeResultView() { if(filters.value.parentTaskId&&resultView.value!=='BUSINESS'){resultView.value='BUSINESS';return;}filters.value.status = undefined; filters.value.agentId = undefined; page.value = 1; void refresh(); }
 async function changePage(current: number, size: number) { page.value = current; pageSize.value = size; await refresh(); }
 async function showDetail(id: string) {
+  if(disposed||!can("iqc:result:detail:view"))return;
   const request = ++detailRequest;
   clearDetail(); detailLoading.value = true; detailOpen.value = true;
   try {
     const data = await getResultDetail(id);
-    if (request !== detailRequest) return;
+    if (disposed||request !== detailRequest) return;
+    if(!can("iqc:result:detail:view"))return;
     detail.value = data;
   } catch {
-    if (request !== detailRequest) return;
+    if (disposed||request !== detailRequest) return;
     message.error("结果详情加载失败"); detailOpen.value = false;
   } finally { if (request === detailRequest) detailLoading.value = false; }
 }
 async function showConversation(row: Pick<TaskConversationResultSummary, "taskId" | "conversationId"> & { sourceResultId?: string }) {
+  if(disposed||!canConversation.value)return;
   const request = ++detailRequest;
   clearDetail(); detailLoading.value = true; detailOpen.value = true;
   try {
     const [data, structured] = await Promise.all([getConversationResultDetail(row.taskId, row.conversationId), getResultHierarchy(row.taskId, row.conversationId)]);
-    if (request !== detailRequest) return;
+    if (disposed||request !== detailRequest) return;
+    if(!canConversation.value)return;
     if (row.sourceResultId && structured?.conversation.id !== row.sourceResultId) {
       message.warning("该复核对应的结果已被新执行替代，请返回待办刷新或查看原复核历史。");
       detailOpen.value = false; return;
@@ -203,69 +216,52 @@ async function showConversation(row: Pick<TaskConversationResultSummary, "taskId
     detail.value = first ? { result: first, task: data.task || { id: first.taskId, name: `会话 ${row.conversationId}` }, message: conversationMessages.value.find((item: any) => item.id === first.messageId) || conversationMessages.value[0], conversation: data.conversation, summary: data.summary, privacy: data.privacy, taskPresentation: data.taskPresentation }
       : { task: data.task || { name: `会话 ${row.conversationId}` }, conversation: data.conversation, summary: data.summary, privacy: data.privacy, taskPresentation: data.taskPresentation };
   } catch {
-    if (request !== detailRequest) return;
+    if (disposed||request !== detailRequest) return;
     message.error("会话质检明细加载失败"); detailOpen.value = false;
   } finally { if (request === detailRequest) detailLoading.value = false; }
 }
-function showRawConversation(conversationId?: string) { if (!conversationId) return; detailOpen.value = false; conversationDetailId.value = conversationId; conversationDrawerOpen.value = true; }
-async function exportCsv() { try { const response = await exportResults(filters.value); const url = URL.createObjectURL(response.data); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "iqc-results.csv"; anchor.click(); URL.revokeObjectURL(url); } catch { message.error("结果导出失败"); } }
+function showRawConversation(conversationId?: string) { if (disposed||!can("iqc:conversation:detail:view")||!conversationId) return; detailOpen.value = false; conversationDetailId.value = conversationId; conversationDrawerOpen.value = true; }
+function downloadBlob(data:Blob,name:string){
+  const url=URL.createObjectURL(data);
+  try{const anchor=document.createElement("a");anchor.href=url;anchor.download=name;anchor.click();}finally{URL.revokeObjectURL(url);}
+}
+async function exportCsv() {
+  if(disposed||!canExport.value)return;
+  const generation=exportGeneration,request=resultRequest,selected={...filters.value};
+  try{const response=await exportResults(selected);if(disposed||generation!==exportGeneration||request!==resultRequest||!canExport.value)return;downloadBlob(response.data,"iqc-results.csv");}
+  catch{if(!disposed&&generation===exportGeneration)message.error("结果导出失败");}
+}
 function exportBusinessCsv() {
-  const taskId = detail.value?.task?.id;
-  if (!taskId || !businessTask.value || labelOnlyScheme.value || !can("iqc:result:export")) return;
-  Modal.confirm({
-    title: "导出该任务全部业务质检项？",
-    content: "包含任务内所有会话，不受当前消息筛选影响。每行一个质检项；会话最终分不可按行求和，待确认分数留空。最多 50000 行。",
-    async onOk() {
-      try {
-        const response = await exportSchemeResults(taskId);
-        const url = URL.createObjectURL(response.data);
-        try {
-          const anchor = document.createElement("a");
-          anchor.href = url; anchor.download = "iqc-business-results.csv"; anchor.click();
-        } finally { URL.revokeObjectURL(url); }
-      } catch { message.error("业务导出失败，请检查任务权限、结果完整性及 50000 行上限"); }
-    }
+  const taskId=detail.value?.task?.id,request=detailRequest,generation=exportGeneration;
+  const current=()=>!disposed&&generation===exportGeneration&&request===detailRequest&&detail.value?.task?.id===taskId&&canExport.value;
+  if(!taskId||!businessTask.value||labelOnlyScheme.value||!current())return;
+  Modal.confirm({title:"导出该任务全部业务质检项？",content:"包含任务内所有会话，不受当前消息筛选影响。每行一个质检项；会话最终分不可按行求和，待确认分数留空。最多 50000 行。",
+    async onOk(){if(!current())return;try{const response=await exportSchemeResults(taskId);if(current())downloadBlob(response.data,"iqc-business-results.csv");}catch{if(current())message.error("业务导出失败，请检查任务权限、结果完整性及 50000 行上限");}}
   });
 }
-async function exportLabelXlsx() {
-  const taskId = detail.value?.task?.id;
-  if (!taskId || !labelOnlyScheme.value || !can("iqc:result:export")) return;
-  try {
-    const response = await exportTaskLabelResults(taskId);
-    const url = URL.createObjectURL(response.data);
-    try {
-      const anchor = document.createElement("a"); anchor.href = url;
-      anchor.download = "iqc-label-results.xlsx"; anchor.click();
-    } finally { URL.revokeObjectURL(url); }
-  } catch { message.error("标签结果导出失败，请检查任务权限及 50000 行上限"); }
+async function exportLabelXlsx(){
+  const taskId=detail.value?.task?.id,request=detailRequest,generation=exportGeneration;
+  if(disposed||!taskId||!labelOnlyScheme.value||!canExportLabels.value)return;
+  try{const response=await exportTaskLabelResults(taskId);if(disposed||generation!==exportGeneration||request!==detailRequest||detail.value?.task?.id!==taskId||!canExportLabels.value)return;downloadBlob(response.data,"iqc-label-results.xlsx");}
+  catch{if(!disposed&&generation===exportGeneration)message.error("标签结果导出失败，请检查任务权限及 50000 行上限");}
 }
-function openTaskLabels() {
-  const taskId = detail.value?.task?.id;
-  if (taskId && labelOnlyScheme.value && can("iqc:task:view")) {
-    detailOpen.value = false;
-    void router.push({ path: "/tasks", query: { taskId, view: "results", tab: "labels" } });
+function openTaskLabels(){
+  const taskId=detail.value?.task?.id;
+  if(taskId&&labelOnlyScheme.value&&can("iqc:task:view")&&can("iqc:result:summary:view")&&can("iqc:result:labels:view")){
+    detailOpen.value=false;void router.push({path:"/tasks",query:{taskId,view:"results",tab:"labels"}});
   }
 }
-const reviewExporting = ref(false);
-const reviewTaskFinished = computed(() => ["SUCCEEDED", "PARTIAL_FAILED", "FAILED", "CANCELLED"].includes(detail.value?.task?.status));
-function exportTaskReviews() {
-  const taskId = detail.value?.task?.id;
-  if (!taskId || !businessTask.value || !reviewTaskFinished.value || reviewExporting.value || !can("iqc:result:export") || !can("iqc:review:view")) return;
-  Modal.confirm({
-    title: "导出本任务人工复核 ZIP？",
-    content: "覆盖清单包含全部会话；明细仅采用当前结果的最近已完成复核，新待处理轮次另行标明。无结果或未完成复核不会用机器分数补齐。最多 500 会话、50000 项、50 MiB 明细；任务须已结束。",
-    async onOk() {
-      if (reviewExporting.value) return;
-      reviewExporting.value = true;
-      try {
-        const response = await exportTaskBusinessReviews(taskId);
-        const url = URL.createObjectURL(response.data);
-        try {
-          const anchor = document.createElement("a"); anchor.href = url;
-          anchor.download = "iqc-task-reviews.zip"; anchor.click();
-        } finally { URL.revokeObjectURL(url); }
-      } catch { message.error("任务复核导出失败，请检查权限、任务状态、快照及导出上限"); }
-      finally { reviewExporting.value = false; }
+const reviewExporting=ref(false);
+const reviewTaskFinished=computed(()=>["SUCCEEDED","PARTIAL_FAILED","FAILED","CANCELLED"].includes(detail.value?.task?.status));
+function exportTaskReviews(){
+  const taskId=detail.value?.task?.id,request=detailRequest,generation=exportGeneration;
+  const current=()=>!disposed&&generation===exportGeneration&&request===detailRequest&&detail.value?.task?.id===taskId&&canExport.value&&can("iqc:review:view")&&reviewTaskFinished.value;
+  if(!taskId||!businessTask.value||reviewExporting.value||!current())return;
+  Modal.confirm({title:"导出本任务人工复核 ZIP？",content:"覆盖清单包含全部会话；明细仅采用当前结果的最近已完成复核，新待处理轮次另行标明。无结果或未完成复核不会用机器分数补齐。最多 500 会话、50000 项、50 MiB 明细；任务须已结束。",
+    async onOk(){if(reviewExporting.value||!current())return;reviewExporting.value=true;
+      try{const response=await exportTaskBusinessReviews(taskId);if(current())downloadBlob(response.data,"iqc-task-reviews.zip");}
+      catch{if(current())message.error("任务复核导出失败，请检查权限、任务状态、快照及导出上限");}
+      finally{reviewExporting.value=false;}
     }
   });
 }
@@ -273,9 +269,16 @@ function markResult(id:string,type:"CORRECT"|"FALSE_POSITIVE"|"FALSE_NEGATIVE"){
 async function openReview(id:string){try{await requestReview(id,"从结果中心发起");message.success("已进入人工复核队列");}catch{message.error("发起复核失败");}}
 async function saveAsSample(id:string,type:"POSITIVE"|"FALSE_POSITIVE"|"FALSE_NEGATIVE"){try{await createSample(id,{sampleType:type});message.success("已加入样本库");}catch{message.error("样本创建失败");}}
 async function loadDictionaries() { try { const data = await getCachedDictionaries(["iqc_result_status", "iqc_risk_level"]); if (data.iqc_result_status?.length) resultStatuses.value = data.iqc_result_status; if (data.iqc_risk_level?.length) riskLevels.value = data.iqc_risk_level; } catch { /* 治理中心不可用时保留本地展示兜底。 */ } }
+watch(()=>JSON.stringify([can('iqc:result:view'),can('iqc:result:business:view'),can('iqc:result:detail:view'),can('iqc:result:conversation:view'),can('iqc:result:hierarchy:view'),can('iqc:result:summary:view'),can('iqc:result:labels:view'),can('iqc:result:export'),can('iqc:result:labels:export'),can('iqc:review:view'),can('iqc:conversation:detail:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read'),can('iqc:sensitive:prompt:read')]),()=>{
+  ++resultRequest;++detailRequest;++exportGeneration;results.value=[];businessResults.value=[];canonicalSummaries.value={};total.value=0;loading.value=false;
+  detailOpen.value=false;detailLoading.value=false;clearDetail();conversationDrawerOpen.value=false;conversationDetailId.value=undefined;
+  if(!filters.value.parentTaskId&&!can(listPermission.value)&&can("iqc:result:view"))resultView.value="MESSAGE";
+  if(can(listPermission.value))void refresh();
+},{flush:'sync'});
 onMounted(() => {
   if(route.query.parentTaskId!=null)filters.value.parentTaskId=typeof route.query.parentTaskId==='string'?route.query.parentTaskId:'invalid/batch';
   else if (typeof route.query.taskId === "string") filters.value.taskId = route.query.taskId;
+  if(!filters.value.parentTaskId&&!can("iqc:result:business:view")&&can("iqc:result:view"))resultView.value="MESSAGE";
   void refresh(); void loadDictionaries();
   const { taskId, conversationId, sourceResultId } = route.query;
   if (typeof taskId === "string" && typeof conversationId === "string" && typeof sourceResultId === "string")
@@ -284,12 +287,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <a-radio-group v-model:value="resultView" button-style="solid" @change="changeResultView" style="margin-bottom:16px"><a-radio-button value="BUSINESS">业务会话结果</a-radio-button><a-radio-button value="MESSAGE" :disabled="!!filters.parentTaskId">消息观察（兼容）</a-radio-button></a-radio-group>
-  <section class="page-intro"><div><span class="section-kicker">QUALITY RESULTS</span><h2>质检结果</h2><p>先看不满足项与扣分，再追溯判断理由、证据和改进建议。</p></div><a-button v-if="resultView === 'MESSAGE' && can('iqc:result:export')" @click="exportCsv">导出消息观察（兼容）</a-button></section>
+  <a-radio-group v-model:value="resultView" button-style="solid" @change="changeResultView" style="margin-bottom:16px"><a-radio-button value="BUSINESS" :disabled="!can('iqc:result:business:view')">业务会话结果</a-radio-button><a-radio-button value="MESSAGE" :disabled="!!filters.parentTaskId || !can('iqc:result:view')">消息观察（兼容）</a-radio-button></a-radio-group>
+  <a-alert v-if="!can(listPermission)" type="info" message="当前没有此视图的结果读取权限。" style="margin-bottom:16px"/>
+  <section class="page-intro"><div><span class="section-kicker">QUALITY RESULTS</span><h2>质检结果</h2><p>先看不满足项与扣分，再追溯判断理由、证据和改进建议。</p></div><a-button v-if="resultView === 'MESSAGE' && canExport" @click="exportCsv">导出消息观察（兼容）</a-button></section>
   <a-alert v-if="filters.parentTaskId" type="info" :message="`当前查看批次 ${filters.parentTaskId} 的可见分片业务结果，可按风险或分数筛选；列表不是批次总均分。`"><template #action><a-button size="small" @click="resetFilters">清除批次筛选</a-button></template></a-alert>
   <a-card :bordered="false" class="filter-card"><a-form layout="inline"><a-form-item label="任务"><ReviewTaskSelector v-model="selectedTaskId"/></a-form-item><a-form-item v-if="resultView === 'MESSAGE'" label="Agent"><a-input v-model:value="filters.agentId" allow-clear placeholder="Agent ID" style="width:140px"/></a-form-item><a-form-item label="状态"><a-select v-model:value="filters.status" allow-clear style="width:120px"><template v-if="resultView === 'BUSINESS'"><a-select-option value="FINAL">评分已确定</a-select-option><a-select-option value="PENDING">待确认</a-select-option><a-select-option value="NOT_APPLICABLE">不计分</a-select-option></template><a-select-option v-for="item in resultView === 'MESSAGE' ? resultStatuses : []" :key="item.value" :value="item.value">{{item.label}}</a-select-option></a-select></a-form-item><a-form-item label="风险"><a-select v-model:value="filters.riskLevel" allow-clear style="width:110px"><a-select-option v-for="item in riskLevels" :key="item.value" :value="item.value">{{item.label}}</a-select-option></a-select></a-form-item><a-form-item label="分数"><a-input-number v-model:value="filters.minScore" :min="0" :max="100" placeholder="最低"/><span class="range-separator">-</span><a-input-number v-model:value="filters.maxScore" :min="0" :max="100" placeholder="最高"/></a-form-item><a-form-item><a-button type="primary" @click="applyFilters">筛选</a-button><a-button class="reset-button" @click="resetFilters">重置</a-button></a-form-item></a-form></a-card>
 
-  <a-card :bordered="false"><div class="table-hint">{{resultView === "BUSINESS" ? "每个任务/会话只显示当前业务结果；分页按会话计数，结果数为质检项数。待确认不推断分数，标签任务不计分。" : "消息观察兼容视图：分页按历史观察计数，会话合并仅限当前页，不代表完整会话统计。"}}</div><a-table :data-source="conversationRows" :loading="loading" :pagination="false" row-key="rowKey" table-layout="fixed" :scroll="{x:1430}"><a-table-column title="质检任务" :width="190"><template #default="{record}"><a-typography-text :ellipsis="{ tooltip: record.taskName || record.taskId }" :content="record.taskName || record.taskId"/><div v-if="record.taskName" class="task-id-secondary">{{record.taskId}}</div></template></a-table-column><a-table-column title="会话得分" :width="110"><template #default="{record}"><strong>{{record.averageScore == null ? (record.scoreStatus === "NOT_APPLICABLE" ? "不计分" : "—") : Number(record.averageScore).toFixed(2)}}</strong></template></a-table-column><a-table-column :title="resultView === 'BUSINESS' ? '不满足项' : '命中'" data-index="hitCount" :width="80"/><a-table-column title="高风险" :width="90"><template #default="{record}"><a-tag v-if="record.highRiskCount" color="error">{{record.highRiskCount}}</a-tag><span v-else>0</span></template></a-table-column><a-table-column title="异常" data-index="errorCount" :width="80"/><a-table-column title="会话 ID" :width="250"><template #default="{record}"><a-space><a-typography-text :ellipsis="{ tooltip: record.conversationId }" :content="record.conversationId"/><a-tooltip :title="copiedConversationId === record.conversationId ? '已复制' : '复制会话 ID'"><a-button type="link" size="small" class="copy-button" :aria-label="copiedConversationId === record.conversationId ? '已复制会话 ID' : '复制会话 ID'" @click.stop="copyText(record.conversationId, record.conversationId)"><CheckOutlined v-if="copiedConversationId === record.conversationId" class="copy-success"/><CopyOutlined v-else /></a-button></a-tooltip></a-space></template></a-table-column><a-table-column title="会话名称" :width="220"><template #default="{record}"><a-typography-text :ellipsis="{ tooltip: record.sourceFileName }" :content="record.sourceFileName || '—'"/></template></a-table-column><a-table-column title="结果数" data-index="resultCount" :width="90"/><a-table-column title="操作" :width="220" fixed="right"><template #default="{record}"><a-space><a-button type="link" @click="showConversation(record)">本次质检明细</a-button><a-button type="link" @click="showRawConversation(record.conversationId)">原始会话</a-button></a-space></template></a-table-column></a-table><a-pagination v-if="total" v-model:current="page" v-model:page-size="pageSize" :total="total" show-size-changer class="pagination" @change="changePage"/></a-card>
+  <a-card :bordered="false"><div class="table-hint">{{resultView === "BUSINESS" ? "每个任务/会话只显示当前业务结果；分页按会话计数，结果数为质检项数。待确认不推断分数，标签任务不计分。" : "消息观察兼容视图：分页按历史观察计数，会话合并仅限当前页，不代表完整会话统计。"}}</div><a-table :data-source="conversationRows" :loading="loading" :pagination="false" row-key="rowKey" table-layout="fixed" :scroll="{x:1430}"><a-table-column title="质检任务" :width="190"><template #default="{record}"><a-typography-text :ellipsis="{ tooltip: record.taskName || record.taskId }" :content="record.taskName || record.taskId"/><div v-if="record.taskName" class="task-id-secondary">{{record.taskId}}</div></template></a-table-column><a-table-column title="会话得分" :width="110"><template #default="{record}"><strong>{{record.averageScore == null ? (record.scoreStatus === "NOT_APPLICABLE" ? "不计分" : "—") : Number(record.averageScore).toFixed(2)}}</strong></template></a-table-column><a-table-column :title="resultView === 'BUSINESS' ? '不满足项' : '命中'" data-index="hitCount" :width="80"/><a-table-column title="高风险" :width="90"><template #default="{record}"><a-tag v-if="record.highRiskCount" color="error">{{record.highRiskCount}}</a-tag><span v-else>0</span></template></a-table-column><a-table-column title="异常" data-index="errorCount" :width="80"/><a-table-column title="会话 ID" :width="250"><template #default="{record}"><a-space><a-typography-text :ellipsis="{ tooltip: record.conversationId }" :content="record.conversationId"/><a-tooltip :title="copiedConversationId === record.conversationId ? '已复制' : '复制会话 ID'"><a-button type="link" size="small" class="copy-button" :aria-label="copiedConversationId === record.conversationId ? '已复制会话 ID' : '复制会话 ID'" @click.stop="copyText(record.conversationId, record.conversationId)"><CheckOutlined v-if="copiedConversationId === record.conversationId" class="copy-success"/><CopyOutlined v-else /></a-button></a-tooltip></a-space></template></a-table-column><a-table-column title="会话名称" :width="220"><template #default="{record}"><a-typography-text :ellipsis="{ tooltip: record.sourceFileName }" :content="record.sourceFileName || '—'"/></template></a-table-column><a-table-column title="结果数" data-index="resultCount" :width="90"/><a-table-column title="操作" :width="220" fixed="right"><template #default="{record}"><a-space><a-button v-if="canConversation" type="link" @click="showConversation(record)">本次质检明细</a-button><a-button v-if="can('iqc:conversation:detail:view')" type="link" @click="showRawConversation(record.conversationId)">原始会话</a-button></a-space></template></a-table-column></a-table><a-pagination v-if="total" v-model:current="page" v-model:page-size="pageSize" :total="total" show-size-changer class="pagination" @change="changePage"/></a-card>
 
   <a-drawer v-model:open="detailOpen" title="质检结果详情" width="min(860px, calc(100vw - 24px))"><a-spin :spinning="detailLoading"><template v-if="detail">
     <a-alert v-if="contentLimited || piiMasked || withheldContent" type="info" show-icon message="内容读取范围" class="evidence-alert">
@@ -304,13 +308,13 @@ onMounted(() => {
     <section v-if="labelOnlyScheme" class="section-block">
       <h3>画像标签结果</h3>
       <a-alert type="info" show-icon message="本任务仅识别标签，没有质检项或最终分数。标签值中的“否”与“未知”不同，请在任务结果的洞察标签页查看状态、证据和人工修订。"/>
-      <a-button v-if="can('iqc:task:view')" @click="openTaskLabels">查看本任务洞察标签</a-button>
-      <a-button v-if="can('iqc:result:export')" @click="exportLabelXlsx">导出本任务标签 XLSX</a-button>
+      <a-button v-if="can('iqc:task:view') && can('iqc:result:summary:view') && can('iqc:result:labels:view')" @click="openTaskLabels">查看本任务洞察标签</a-button>
+      <a-button v-if="canExportLabels" @click="exportLabelXlsx">导出本任务标签 XLSX</a-button>
     </section>
     <section v-else-if="businessTask" class="section-block">
       <h3>机器质检项与独立评分</h3>
-      <a-button v-if="businessTask && businessItems.length && can('iqc:result:export')" @click="exportBusinessCsv">导出本任务业务质检项 CSV</a-button>
-      <a-button v-if="businessTask && can('iqc:result:export') && can('iqc:review:view')" :loading="reviewExporting" :disabled="reviewExporting || !reviewTaskFinished" title="任务结束后导出覆盖清单与已完成复核明细" @click="exportTaskReviews">导出本任务人工复核 ZIP</a-button>
+      <a-button v-if="businessTask && businessItems.length && canExport" @click="exportBusinessCsv">导出本任务业务质检项 CSV</a-button>
+      <a-button v-if="businessTask && canExport && can('iqc:review:view')" :loading="reviewExporting" :disabled="reviewExporting || !reviewTaskFinished" title="任务结束后导出覆盖清单与已完成复核明细" @click="exportTaskReviews">导出本任务人工复核 ZIP</a-button>
       <a-alert v-if="hierarchy?.conversation.resultStatus === 'PENDING' || !businessScoring" type="warning" show-icon message="存在未评估、错误或待复核的质检项，请先处理后确认结果。"/>
       <a-table :data-source="businessItems" :pagination="false" row-key="itemCode" size="small">
         <a-table-column title="质检项" data-index="name"/>

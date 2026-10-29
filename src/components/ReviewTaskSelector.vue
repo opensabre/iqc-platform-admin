@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { listTasks } from "@/api/tasks";
 import { usePermission } from "@/composables/permission";
 
@@ -13,26 +13,27 @@ const options = ref<{ value: string; label: string }[]>([]);
 const displayedOptions = computed(() => props.modelValue && !options.value.some(option => option.value === props.modelValue)
   ? [{ value: props.modelValue, label: `任务 · ${props.modelValue}` }, ...options.value] : options.value);
 const selectedOption = computed(() => props.modelValue || undefined);
-let searchRequest = 0;
+let searchRequest = 0, disposed=false;
 
 async function search() {
-  if (props.disabled || !can("iqc:task:view")) return;
+  if (disposed || props.disabled || !can("iqc:task:view")) return;
   const request = ++searchRequest;
   searching.value = true; searchError.value = "";
   try {
     const page = await listTasks({ taskType:props.taskType, keyword: keyword.value.trim() || undefined, current: 1, size: 20 });
-    if (request !== searchRequest) return;
+    if (disposed||request !== searchRequest||props.disabled||!can("iqc:task:view")) return;
     options.value = page.records.map(task => ({ value: task.id, label: `${task.name} · ${task.id}` }));
     if (!options.value.length) searchError.value = "未找到任务，请调整名称关键字。";
   } catch {
-    if (request === searchRequest) { options.value = []; searchError.value = "任务搜索失败，请重试。"; }
+    if (!disposed&&request === searchRequest) { options.value = []; searchError.value = "任务搜索失败，请重试。"; }
   } finally {
-    if (request === searchRequest) searching.value = false;
+    if (!disposed&&request === searchRequest) searching.value = false;
   }
 }
-function selectTask(value: string | number | undefined) { if(props.disabled)return;emit("update:modelValue", value == null ? "" : String(value)); }
+function selectTask(value: string | number | undefined) { if(disposed||props.disabled||!can("iqc:task:view"))return;emit("update:modelValue", value == null ? "" : String(value)); }
 function editTaskId(value: string) { if(props.disabled)return;emit("update:modelValue", value); }
-onBeforeUnmount(() => { searchRequest++; });
+watch(()=>[can("iqc:task:view"),props.disabled],()=>{++searchRequest;options.value=[];searching.value=false;searchError.value="";},{flush:"sync"});
+onBeforeUnmount(() => { disposed=true;searchRequest++; });
 </script>
 
 <template>
