@@ -501,3 +501,9 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 原89949 terminal0两文件56项7.58s；补合法新建仅manage无需detail/update、有效reload、撤权恢复旧确认三项，并将reload id捕获为原始值后，原16276 terminal0，/tmp/iqc-b-pipeline-save-complete.log.exit=0，两文件59项13.57s（操作46+原生命周期13）。原67818 pnpm build在途，/tmp/iqc-b-pipeline-save-build.log及.exit，源码测试冻结，不套旧全量647。本批受控Vue/权限/API非真实岗位/PDP/成功业务写；目录/版本读等余项及完整I1–I7继续，仅已处理会话，无framework/共享SQL/部署。
 
 原67818构建已终态：/tmp/iqc-b-pipeline-save-build.log.exit=0，vue-tsc及Vite56.40s通过。原16276两文件59项13.57s终态0，diff通过；无在途测试/构建。按用户要求本小项立即独立PR，不直接覆盖集成分支。
+
+## 2026-10-30 B 流水线目录与版本历史请求生命周期
+
+基线898c14a。原55100 terminal1，/tmp/iqc-b-pipeline-reads-red.log.exit=1，49通过5实际失败：撤权恢复旧目录回填、已读目录不清、卸载后旧refresh/versions仍读、历史回填另一资产。原页面refresh复用generation并检查当前view/disposed，相关grant改变同步失效/清目录与计数/loading，恢复须显式重读；失败计数不沿用旧值。versions返后核对原asset id/historyGeneration/当前versions码与disposed，旧错误不污染新对象，自己的finally只释放原代际。卸载清目录。无API/模型/额外组合权限。
+
+原38480 terminal0，/tmp/iqc-b-pipeline-reads-final.log.exit=0，两文件67项9.82s（operation54+原生命周期13）。包括新授权读取不被旧响应覆盖、目录不替history、history own grant不强加detail/view。未跑B完整build；将按用户要求独立PR并在PR集成基线构建，终态另记。受控Vue/API/权限非真实PDP/浏览器或完整PRD，输入仅处理好的会话，无framework/共享SQL/部署。
