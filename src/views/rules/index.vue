@@ -173,7 +173,7 @@ const expressionHelp = computed(() => {
 });
 
 async function refresh(){
- const ticket=++listGeneration;rules.value=[];readError.value='';
+ const ticket=++listGeneration;rules.value=[];readError.value='';if(disposed||!can('iqc:rule:view')){readError.value='当前未授权读取规则列表';return;}
  try{
   const rows=await listRules();if(disposed||ticket!==listGeneration)return;rules.value=rows.map(protectRule);
   if(versionRule.value){const current=rules.value.find(row=>row.id===versionRule.value?.id);if(!current||rulePayloadRestricted(current)){versionRestricted.value=true;versionForm.value=emptyForm();versions.value=[];++versionGeneration;}}
@@ -187,9 +187,9 @@ async function openRuleFromQuery() {
   else message.warning("未找到对应规则，可能已删除或无权查看");
 }
 async function submit(id: string) {
-  if(disposed)return;
+  if(disposed||!can("iqc:rule:submit"))return;
   try {
-    await submitRule(id);if(disposed)return;
+    await submitRule(id);if(disposed||!can("iqc:rule:submit"))return;
     message.success("规则已提交审批");
     await refresh();
   } catch {
@@ -197,9 +197,9 @@ async function submit(id: string) {
   }
 }
 async function approve(id: string) {
-  if(disposed)return;
+  if(disposed||!can("iqc:rule:approve"))return;
   try {
-    await approveRule(id);if(disposed)return;
+    await approveRule(id);if(disposed||!can("iqc:rule:approve"))return;
     message.success("规则已审批发布");
     await refresh();
   } catch {
@@ -207,9 +207,9 @@ async function approve(id: string) {
   }
 }
 async function reject(id: string) {
-  if(disposed)return;
+  if(disposed||!can("iqc:rule:reject"))return;
   try {
-    await rejectRule(id);if(disposed)return;
+    await rejectRule(id);if(disposed||!can("iqc:rule:reject"))return;
     message.success("规则已驳回");
     await refresh();
   } catch {
@@ -315,7 +315,7 @@ async function runTest() {
   }
 }
 async function openVersions(rule: QualityRule) {
-  if(disposed||versionSaving.value)return;const ticket=++versionGeneration;versions.value=[];versionRestricted.value=rulePayloadRestricted(rule)||typeof rule.expression!=='string'||!rule.expression.trim();
+  if(disposed||versionSaving.value||!can("iqc:rule:versions:view"))return;const ticket=++versionGeneration;versions.value=[];versionRestricted.value=rulePayloadRestricted(rule)||typeof rule.expression!=='string'||!rule.expression.trim();
   versionRule.value = rule;
   versionForm.value = versionRestricted.value?emptyForm():{
     name: rule.name,
@@ -337,15 +337,19 @@ async function openVersions(rule: QualityRule) {
   }
 }
 async function saveVersion() {
-  if(disposed||versionSaving.value||versionRestricted.value||!versionOpen.value||!can("iqc:rule:manage"))return;
+  if(disposed||versionSaving.value||versionRestricted.value||!versionOpen.value||!can("iqc:rule:version:manage")||!can("iqc:rule:versions:view"))return;
   if (!versionRule.value || !versionForm.value.expression)
     return void message.warning("请填写版本配置");
-  const id=versionRule.value.id,requested={...versionForm.value};
+  const id=versionRule.value.id,requested={...versionForm.value},context=versionGeneration,submitRequested=can("iqc:rule:submit");
   versionSaving.value = true;
   try {
-    await createRuleVersion(id,requested);if(disposed)return;
-    await submitRule(id);if(disposed)return;
-    message.success("新版本已创建并提交审批");
+    await createRuleVersion(id,requested);
+    if(disposed||context!==versionGeneration||!versionOpen.value||!can("iqc:rule:version:manage")||!can("iqc:rule:versions:view"))return;
+    if(submitRequested&&can("iqc:rule:submit")){
+      await submitRule(id);if(disposed||context!==versionGeneration||!can("iqc:rule:submit"))return;
+      message.success("新版本已创建并提交审批");
+    }else if(submitRequested)message.info("新版本草稿已创建，审批未提交，请重新读取核对");
+    else message.success("新版本草稿已创建，尚未提交审批");
     const ticket=++versionGeneration;versions.value=[];const rows=await listRuleVersions(id);if(disposed||ticket!==versionGeneration)return;versions.value=rows.map(protectRule);if(rows.some(rulePayloadRestricted)){versionRestricted.value=true;versionForm.value=emptyForm();}
     await refresh();
   } catch {
@@ -384,7 +388,7 @@ async function selectDlsFile(event: Event) {
     dlsImportOpen.value = true;
   } catch {
     if(!disposed&&ticket===importGeneration)message.error("DLS 文件预检失败");
-  } finally { if(!disposed&&ticket===importGeneration)dlsImporting.value = false; }
+  } finally { if(!disposed)dlsImporting.value = false; }
 }
 async function confirmDlsImport() {
   if(disposed||dlsImporting.value||!dlsFile.value||!can("iqc:rule:import"))return;const ticket=++importGeneration;
@@ -395,8 +399,16 @@ async function confirmDlsImport() {
     await refresh();
   } catch {
     if(!disposed&&ticket===importGeneration)message.error("DLS 导入结果未确认，请核对已有来源规则后重试。");
-  } finally { if(!disposed&&ticket===importGeneration)dlsImporting.value = false; }
+  } finally { if(!disposed)dlsImporting.value = false; }
 }
+watch(()=>can('iqc:rule:view'),()=>{void refresh();});
+watch(()=>can('iqc:rule:manage'),allowed=>{if(!allowed)open.value=false;});
+watch(()=>can('iqc:rule:versions:view'),allowed=>{if(!allowed){++versionGeneration;versionOpen.value=false;versions.value=[];versionRule.value=undefined;versionForm.value=emptyForm();}});
+watch(()=>can('iqc:rule:version:manage'),(allowed,previous)=>{if(previous&&!allowed)versionOpen.value=false;});
+watch(()=>can('iqc:rule:submit'),(allowed,previous)=>{if(previous&&!allowed&&versionSaving.value){versionOpen.value=false;message.info('提交权限已变化，请重新读取核对；已完成操作不会撤销');}});
+watch(()=>can('iqc:rule:test'),allowed=>{if(!allowed){++testGeneration;testOpen.value=false;testResult.value=undefined;testContent.value='';testing.value=false;}});
+watch(()=>can('iqc:rule:import'),allowed=>{if(!allowed){++importGeneration;dlsImportOpen.value=false;dlsFile.value=undefined;dlsImportResult.value=undefined;}});
+watch([()=>can('iqc:sensitive:conversation:read'),()=>can('iqc:sensitive:pii:read'),()=>can('iqc:sensitive:prompt:read')],()=>{++versionGeneration;++testGeneration;++importGeneration;versionOpen.value=false;testOpen.value=false;dlsImportOpen.value=false;open.value=false;versions.value=[];versionForm.value=emptyForm();testResult.value=undefined;testContent.value='';dlsFile.value=undefined;dlsImportResult.value=undefined;void refresh();});
 watch(versionOpen,value=>{if(!value){++versionGeneration;versions.value=[];versionRule.value=undefined;versionForm.value=emptyForm();versionRestricted.value=false;}});
 watch(testOpen,value=>{if(!value){++testGeneration;testResult.value=undefined;testContent.value='';testRuleId.value='';testing.value=false;}});
 watch(dlsImportOpen,value=>{if(!value){++importGeneration;dlsImportResult.value=undefined;dlsFile.value=undefined;}});
@@ -462,9 +474,9 @@ onMounted(async () => {
             type="link"
             @click="openTest(record.id)"
             >测试</a-button
-          ><a-button type="link" @click="openVersions(record)">版本</a-button
+          ><a-button v-if="can('iqc:rule:versions:view')" type="link" @click="openVersions(record)">版本</a-button
           ><a-button
-            v-if="record.status === 'DRAFT' && can('iqc:rule:manage')"
+            v-if="record.status === 'DRAFT' && can('iqc:rule:submit')"
             type="link"
             @click="submit(record.id)"
             >提交审批</a-button
@@ -477,7 +489,7 @@ onMounted(async () => {
             >审批通过</a-button
           ><a-button
             v-if="
-              record.status === 'PENDING_APPROVAL' && can('iqc:rule:approve')
+              record.status === 'PENDING_APPROVAL' && can('iqc:rule:reject')
             "
             type="link"
             danger
@@ -705,8 +717,8 @@ onMounted(async () => {
     :title="`规则版本：${versionRule?.name || ''}`"
     width="min(1200px, calc(100vw - 64px))"
     :confirm-loading="versionSaving" :closable="!versionSaving" :mask-closable="!versionSaving" :keyboard="!versionSaving" :ok-button-props="{disabled:versionRestricted}"
-    :footer="can('iqc:rule:manage') ? undefined : null"
-    ok-text="创建并提交新版本"
+    :footer="can('iqc:rule:version:manage') ? undefined : null"
+    :ok-text="can('iqc:rule:submit') ? '创建并提交新版本' : '创建新版本草稿'"
     @ok="saveVersion"
     ><a-alert v-if="versionRestricted" type="info" message="规则正文受限或未提供，未加载新版本编辑器。请核对完整会话、PII及LLM所需Prompt权限后重新读取。"/><a-table
       :data-source="versions"
@@ -722,7 +734,7 @@ onMounted(async () => {
         data-index="deduction" /><a-table-column
         title="风险"
         data-index="riskLevel" /></a-table
-    ><template v-if="can('iqc:rule:manage')&&!versionRestricted"><a-divider /><a-form layout="vertical"
+    ><template v-if="can('iqc:rule:version:manage')&&!versionRestricted"><a-divider /><a-form layout="vertical"
       ><a-form-item label="新版本配置" required>
         <DlsDocumentEditor v-if="versionForm.ruleType === 'DLS'" v-model="versionForm.expression" />
         <a-textarea v-else v-model:value="versionForm.expression" :rows="6" />

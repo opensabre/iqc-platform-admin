@@ -24,29 +24,30 @@ const runtime = ref<AgentRuntimeConfig>(defaults());
 const promptMode=ref(false),promptSourceId=ref(''),promptVersions=ref<IqcInstructionVersion[]>([]),promptLoading=ref(false),promptError=ref('');
 let promptGeneration=0;
 const promptBodyAccess=computed(()=>can('iqc:sensitive:conversation:read')&&can('iqc:sensitive:pii:read')&&can('iqc:sensitive:prompt:read'));
+const canPromptBinding=computed(()=>can('iqc:skill:view')&&can('iqc:skill:versions:view')&&promptBodyAccess.value);
 async function loadPromptVersions(id:string){
  const ticket=++promptGeneration;promptVersions.value=[];promptError.value='';promptLoading.value=false;
- if(!id||!can('iqc:skill:view')||!promptBodyAccess.value)return;
+ if(!id||!can('iqc:skill:versions:view')||!promptBodyAccess.value)return;
  promptLoading.value=true;
  try{const rows=await listInstructionVersions(id);
-  if(disposed||ticket!==promptGeneration||!modalOpen.value||!can('iqc:skill:view')||!promptBodyAccess.value)return;
+  if(disposed||ticket!==promptGeneration||!modalOpen.value||!can('iqc:skill:versions:view')||!promptBodyAccess.value)return;
   promptVersions.value=rows.filter(row=>row.skillId===id&&row.status==='ENABLED'&&!skillPayloadRestricted(row)&&!!row.instructions?.trim()&&row.instructions.length<=8000);
   if(!promptVersions.value.length)promptError.value='没有可用且可读取正文的指令版本。';
  }catch{if(ticket===promptGeneration)promptError.value='指令版本读取失败，请核对权限并重试。';}
  finally{if(ticket===promptGeneration)promptLoading.value=false;}
 }
 function togglePromptMode(enabled:boolean){
- if(disposed||saving.value||!writable.value||runtime.value.schemaVersion!=='3.0')return;
+ if(disposed||saving.value||!writable.value||runtime.value.schemaVersion!=='3.0'||(enabled&&!canPromptBinding.value))return;
  promptMode.value=enabled;++promptGeneration;promptVersions.value=[];promptError.value='';promptLoading.value=false;
  if(!enabled){delete runtime.value.promptAsset;promptSourceId.value='';}
  else if(promptSourceId.value)void loadPromptVersions(promptSourceId.value);
 }
 function choosePromptSource(id:string){
- if(disposed||saving.value||!writable.value||!promptMode.value||!can('iqc:skill:view'))return;
+ if(disposed||saving.value||!writable.value||!promptMode.value||!canPromptBinding.value)return;
  promptSourceId.value=id;delete runtime.value.promptAsset;void loadPromptVersions(id);
 }
 function choosePromptVersion(versionNo:number){
- if(disposed||saving.value||!writable.value||!promptMode.value||!can('iqc:skill:view')||!promptBodyAccess.value)return;
+ if(disposed||saving.value||!writable.value||!promptMode.value||!can('iqc:skill:versions:view')||!promptBodyAccess.value)return;
  const source=promptVersions.value.find(row=>row.skillId===promptSourceId.value&&row.versionNo===versionNo);
  if(!source?.instructions)return;
  runtime.value.systemPrompt=source.instructions;runtime.value.promptAsset={skillId:source.skillId,versionNo:source.versionNo};
@@ -85,14 +86,14 @@ function agentModeName(item:QualityAgent){
 }
 function clearEditor(){++promptGeneration;promptMode.value=false;promptSourceId.value='';promptVersions.value=[];promptError.value='';promptLoading.value=false;selected.value=undefined;form.value={name:'',code:'',description:''};runtime.value=defaults();legacyConfigJson.value=undefined;restricted.value=false;legacy.value=false;models.value=[];mcps.value=[];skills.value=[];ruleSets.value=[];++assetGeneration;assetsLoading.value=false;}
 async function refresh(){
- const ticket=++listGeneration;agents.value=[];error.value='';if(selected.value){modalOpen.value=false;clearEditor();}
+ const ticket=++listGeneration;agents.value=[];error.value='';if(disposed||!can('iqc:agent:view')){modalOpen.value=false;clearEditor();return;}if(selected.value){modalOpen.value=false;clearEditor();}
  try{const rows=await listAgents();if(!disposed&&ticket===listGeneration)agents.value=rows;}
  catch{if(!disposed&&ticket===listGeneration)error.value='Agent重新读取失败，请重试；已完成操作不会撤销。';}
 }
 async function loadAssets() {
   const ticket=++assetGeneration;assetsLoading.value = true;models.value=[];mcps.value=[];skills.value=[];ruleSets.value=[];
   try {
-    const [modelResult, mcpResult, skillResult, ruleSetResult] = await Promise.allSettled([listModelProfiles(), listMcpServers(), listSkills(), runtime.value.schemaVersion === "3.0" ? Promise.resolve([] as QualityRuleSet[]) : listRuleSets()]);
+    const [modelResult, mcpResult, skillResult, ruleSetResult] = await Promise.allSettled([can("iqc:model:view")?listModelProfiles():Promise.resolve([]), can("iqc:mcp:view")?listMcpServers():Promise.resolve([]), can("iqc:skill:view")?listSkills():Promise.resolve([]), runtime.value.schemaVersion === "3.0" || !can("iqc:rule-set:view") ? Promise.resolve([] as QualityRuleSet[]) : listRuleSets()]);
     if(disposed||ticket!==assetGeneration)return;
     if (modelResult.status === "fulfilled") models.value = modelResult.value.filter(item => item.status === "ENABLED");
     if (mcpResult.status === "fulfilled") mcps.value = mcpResult.value.filter(item => item.status === "ENABLED");
@@ -104,9 +105,9 @@ async function loadAssets() {
   } catch { if(!disposed&&ticket===assetGeneration)message.error("关联资产加载失败"); }
   finally { if(!disposed&&ticket===assetGeneration)assetsLoading.value = false; }
 }
-function createNew(){if(saving.value||disposed)return;clearEditor();currentStep.value=0;modalOpen.value=true;void loadAssets();}
+function createNew(){if(saving.value||disposed||!can("iqc:agent:manage"))return;clearEditor();currentStep.value=0;modalOpen.value=true;void loadAssets();}
 function edit(item:QualityAgent){
- if(saving.value||disposed)return;clearEditor();selected.value=item;currentStep.value=0;form.value={name:item.name,code:item.code,description:item.description??''};restricted.value=agentPayloadRestricted(item)||!item.configJson;
+ if(saving.value||disposed||!can("iqc:agent:view"))return;clearEditor();selected.value=item;currentStep.value=0;form.value={name:item.name,code:item.code,description:item.description??''};restricted.value=agentPayloadRestricted(item)||!item.configJson;
  if(!restricted.value)try{runtime.value=parseConfig(item.configJson!);}catch{restricted.value=true;}
  promptMode.value=!!runtime.value.promptAsset;promptSourceId.value=runtime.value.promptAsset?.skillId??'';
  modalOpen.value=true;if(!restricted.value&&legacyConfigJson.value===undefined)void loadAssets();
@@ -133,6 +134,7 @@ async function save() {
    if(!form.value.name.trim()||!form.value.code.trim()){message.warning('请填写名称和编码');return;}
    try{if(JSON.parse(legacyConfigJson.value).schemaVersion!=='1.0')throw Error();}catch{message.warning('内嵌配置须保持原1.0协议及有效JSON');return;}
   }else if (!activeSteps.value.map(item => item.key).every(validateStep)) return;
+  const id=selected.value?.id,permission=id?"iqc:agent:version:manage":"iqc:agent:manage";
   saving.value = true;
   try {
     const config = { ...runtime.value };
@@ -140,20 +142,23 @@ async function save() {
     if (["RULE_THEN_LLM", "LLM_THEN_RULE"].includes(config.mode || "")) { config.mcpServerIds = []; config.skillIds = []; }
     if (config.schemaVersion === "3.0") { delete config.mode; delete config.ruleSetId; }
     const data = { ...form.value, configJson: legacyConfigJson.value??JSON.stringify(config) };
-    if (selected.value) await createAgentVersion(selected.value.id, data); else await createAgent(data);
-    if(disposed)return;
-    message.success(selected.value ? "已创建 Agent 草稿版本" : "Agent 已创建，可继续提交审批"); modalOpen.value = false; await refresh();
+    if (id) await createAgentVersion(id, data); else await createAgent(data);
+    if(disposed||!can(permission))return;
+    message.success(id ? "已创建 Agent 草稿版本" : "Agent 已创建，可继续提交审批"); modalOpen.value = false; await refresh();
   } catch { if(!disposed)message.error("保存失败，请确认权限、配置及所选模型、MCP 和 Skill 仍有效"); }
   finally { if(!disposed)saving.value = false; }
 }
 async function action(id:string,type:string){
- const resources:Record<string,string>={submit:'iqc:agent:submit',approve:'iqc:agent:approve',reject:'iqc:agent:approve',disable:'iqc:agent:disable'};
+ const resources:Record<string,string>={submit:'iqc:agent:submit',approve:'iqc:agent:approve',reject:'iqc:agent:reject',disable:'iqc:agent:disable'};
  if(disposed||saving.value||!resources[type]||!can(resources[type]!))return;saving.value=true;
- try{if(type==='submit')await submitAgent(id);else if(type==='approve')await approveAgent(id);else if(type==='reject')await rejectAgent(id);else await disableAgent(id);if(disposed)return;await refresh();}
+ try{if(type==='submit')await submitAgent(id);else if(type==='approve')await approveAgent(id);else if(type==='reject')await rejectAgent(id);else await disableAgent(id);if(disposed||!can(resources[type]!))return;await refresh();}
  catch{if(!disposed)message.error('操作未确认，请重新读取核对状态。');}finally{if(!disposed)saving.value=false;}
 }
+watch(()=>can('iqc:agent:view'),()=>{void refresh();});
+watch([()=>can('iqc:agent:manage'),()=>can('iqc:agent:version:manage')],([create,version],[oldCreate,oldVersion])=>{if(modalOpen.value&&(selected.value?oldVersion&&!version:oldCreate&&!create))modalOpen.value=false;});
+watch([()=>can('iqc:model:view'),()=>can('iqc:mcp:view'),()=>can('iqc:skill:view'),()=>can('iqc:rule-set:view')],()=>{++assetGeneration;models.value=[];mcps.value=[];skills.value=[];ruleSets.value=[];if(modalOpen.value&&!restricted.value)void loadAssets();});
 watch(canKnowledgeReferences,()=>{agents.value=[];++listGeneration;modalOpen.value=false;clearEditor();},{flush:'sync'});
-watch(()=>can('iqc:skill:view'),()=>{++promptGeneration;promptVersions.value=[];promptLoading.value=false;promptError.value='';if(promptMode.value){modalOpen.value=false;clearEditor();}},{flush:'sync'});
+watch([()=>can('iqc:skill:view'),()=>can('iqc:skill:versions:view')],()=>{++promptGeneration;promptVersions.value=[];promptLoading.value=false;promptError.value='';if(promptMode.value){modalOpen.value=false;clearEditor();}},{flush:'sync'});
 watch(promptBodyAccess,()=>{++promptGeneration;promptVersions.value=[];promptLoading.value=false;agents.value=[];++listGeneration;modalOpen.value=false;clearEditor();},{flush:'sync'});
 watch(modalOpen,value=>{if(!value)clearEditor();});
 onBeforeUnmount(()=>{disposed=true;++listGeneration;agents.value=[];clearEditor();});
@@ -163,7 +168,7 @@ onMounted(() => void refresh());
 <template>
   <section class="page-intro"><div><span class="section-kicker">AGENT WORKSHOP</span><h2>智能体列表</h2><p>通过向导关联模型、MCP 与 Skill，所有变更纳入版本审批。</p></div><a-button v-if="can('iqc:agent:manage')" type="primary" :disabled="saving" @click="createNew">创建 Agent</a-button></section>
   <a-alert v-if="error" type="error" :message="error"/><a-button :disabled="saving" @click="refresh">重新读取</a-button>
-  <a-card :bordered="false"><a-table :data-source="agents" :pagination="false" row-key="id"><a-table-column title="名称" data-index="name"/><a-table-column title="编码" data-index="code"/><a-table-column title="质检模式"><template #default="{record}"><a-tag color="blue">{{agentModeName(record)}}</a-tag></template></a-table-column><a-table-column title="版本" data-index="versionNo"/><a-table-column title="状态" data-index="status"><template #default="{record}"><DictTag code="iqc_agent_status" :value="record.status" :fallback="record.status" tag/></template></a-table-column><a-table-column title="操作" :width="340"><template #default="{record}"><a-button type="link" :disabled="saving" @click="edit(record)">配置</a-button><a-button v-if="record.status==='DRAFT'&&can('iqc:agent:submit')" type="link" :disabled="saving" @click="action(record.id,'submit')">提交</a-button><a-button v-if="record.status==='PENDING_APPROVAL'&&can('iqc:agent:approve')" type="link" :disabled="saving" @click="action(record.id,'approve')">通过</a-button><a-button v-if="record.status==='PENDING_APPROVAL'&&can('iqc:agent:approve')" type="link" :disabled="saving" danger @click="action(record.id,'reject')">驳回</a-button><a-button v-if="record.status==='PUBLISHED'&&can('iqc:agent:disable')" type="link" :disabled="saving" danger @click="action(record.id,'disable')">停用</a-button></template></a-table-column></a-table></a-card>
+  <a-card :bordered="false"><a-table :data-source="agents" :pagination="false" row-key="id"><a-table-column title="名称" data-index="name"/><a-table-column title="编码" data-index="code"/><a-table-column title="质检模式"><template #default="{record}"><a-tag color="blue">{{agentModeName(record)}}</a-tag></template></a-table-column><a-table-column title="版本" data-index="versionNo"/><a-table-column title="状态" data-index="status"><template #default="{record}"><DictTag code="iqc_agent_status" :value="record.status" :fallback="record.status" tag/></template></a-table-column><a-table-column title="操作" :width="340"><template #default="{record}"><a-button type="link" :disabled="saving" @click="edit(record)">配置</a-button><a-button v-if="record.status==='DRAFT'&&can('iqc:agent:submit')" type="link" :disabled="saving" @click="action(record.id,'submit')">提交</a-button><a-button v-if="record.status==='PENDING_APPROVAL'&&can('iqc:agent:approve')" type="link" :disabled="saving" @click="action(record.id,'approve')">通过</a-button><a-button v-if="record.status==='PENDING_APPROVAL'&&can('iqc:agent:reject')" type="link" :disabled="saving" danger @click="action(record.id,'reject')">驳回</a-button><a-button v-if="record.status==='PUBLISHED'&&can('iqc:agent:disable')" type="link" :disabled="saving" danger @click="action(record.id,'disable')">停用</a-button></template></a-table-column></a-table></a-card>
 
   <a-modal v-model:open="modalOpen" :title="selected?`配置新版本：${selected.name}`:'创建 Agent'" width="min(860px, calc(100vw - 32px))" :styles="{body:{maxHeight:'calc(100vh - 190px)',overflowY:'auto',overflowX:'hidden'}}" :confirm-loading="saving" :closable="!saving" :mask-closable="!saving" :keyboard="!saving">
     <a-alert v-if="restricted" type="info" message="配置正文受限或协议无效，未加载编辑器。请核对完整会话、PII、Prompt读取权限后重新读取；可继续按原权限使用已发布版本。"/>
@@ -187,7 +192,7 @@ onMounted(() => void refresh());
 
       <a-form :disabled="!writable||saving" v-show="currentStepKey==='capabilities'" layout="vertical"><div class="wizard-heading"><div><h3>关联扩展能力</h3><p>MCP 提供外部工具，Skill 提供可复用的专业判断流程；均为可选。</p></div></div><a-form-item label="可用 MCP"><a-select v-model:value="runtime.mcpServerIds" mode="multiple" placeholder="不选择则不调用 MCP"><a-select-option v-for="item in mcps" :key="item.id" :value="item.id">{{item.name}} · {{item.transport}}</a-select-option></a-select><template #extra>只展示已启用的 MCP，智能体执行时按授权工具调用。</template><a-button type="link" class="asset-link" @click="openAsset('/agent-mcps')">管理 MCP ↗</a-button></a-form-item><a-form-item label="可用 Skill"><a-select v-model:value="runtime.skillIds" mode="multiple" placeholder="不选择则仅使用提示词"><a-select-option v-for="item in skills" :key="item.id" :value="item.id">{{item.name}} · V{{item.versionNo}}</a-select-option></a-select><template #extra>选择与当前质检场景匹配的专业判断能力。</template><a-button type="link" class="asset-link" @click="openAsset('/agent-skills')">管理 Skill ↗</a-button></a-form-item><a-form-item v-if="runtime.schemaVersion==='3.0'" label="知识库精确版本"><p>只保存引用与摘要，不把私有参考正文复制进共享智能体配置。</p><div v-for="(reference,index) in runtime.knowledgeAssets??[]" :key="index" style="margin:12px 0"><PublishedAssetReference v-if="canKnowledgeReferences" kind="KNOWLEDGE" :model-value="reference.knowledgeBaseId?{id:reference.knowledgeBaseId,versionNo:reference.versionNo}:undefined" :disabled="saving||!writable" @update:model-value="value=>chooseKnowledge(index,value)"/><p>{{reference.knowledgeBaseId||'请选择知识库'}} · v{{reference.versionNo||'未选择'}} · {{reference.contentHash??'保存时核对摘要'}}</p><a-button :disabled="saving||!writable" @click="removeKnowledge(index)">移除引用</a-button></div><a-button v-if="canKnowledgeReferences" :disabled="saving||!writable||(runtime.knowledgeAssets?.length??0)>=4" @click="addKnowledge">添加知识库引用</a-button><a-button v-if="can('iqc:knowledge:view')" type="link" @click="openAsset('/knowledge-bases')">管理知识库 ↗</a-button></a-form-item><a-alert v-if="!mcps.length&&!skills.length" type="info" show-icon message="当前没有已启用的 MCP 或 Skill，可以跳过此步骤，稍后创建新版本关联。"/></a-form>
 
-      <a-form :disabled="!writable||saving" v-show="currentStepKey==='prompt'" layout="vertical"><div class="wizard-heading"><div><h3>设置智能体行为</h3><p>定义智能体的身份、判断边界和输出要求。</p></div></div><a-form-item v-if="runtime.schemaVersion==='3.0'" label="绑定版本化指令"><a-switch :checked="promptMode" @change="togglePromptMode"/><p>选择精确历史版本，指令库更新不会自动更换本 Agent 的提示词。</p></a-form-item><template v-if="promptMode"><a-form-item label="指令来源"><a-select :value="promptSourceId" :disabled="!can('iqc:skill:view')||!promptBodyAccess" :options="skills.map(item=>({value:item.id,label:item.name}))" @change="choosePromptSource"/></a-form-item><a-form-item label="精确版本"><a-select :value="runtime.promptAsset?.versionNo" :loading="promptLoading" :disabled="promptLoading||!can('iqc:skill:view')||!promptBodyAccess" :options="promptVersions.map(item=>({value:item.versionNo,label:`v${item.versionNo} · ${item.name}`}))" @change="choosePromptVersion"/><p v-if="runtime.promptAsset">引用 {{runtime.promptAsset.skillId}} · v{{runtime.promptAsset.versionNo}} · {{runtime.promptAsset.contentHash??'保存时生成摘要'}}</p><a-alert v-if="promptError" type="warning" :message="promptError"/></a-form-item></template><a-form-item label="默认提示词" required><a-textarea v-model:value="runtime.systemPrompt" :disabled="promptMode" :rows="7" :maxlength="8000" show-count/></a-form-item></a-form>
+      <a-form :disabled="!writable||saving" v-show="currentStepKey==='prompt'" layout="vertical"><div class="wizard-heading"><div><h3>设置智能体行为</h3><p>定义智能体的身份、判断边界和输出要求。</p></div></div><a-form-item v-if="runtime.schemaVersion==='3.0'" label="绑定版本化指令"><a-switch :checked="promptMode" :disabled="saving||!writable||(!promptMode&&!canPromptBinding)" @change="togglePromptMode"/><p>选择精确历史版本，指令库更新不会自动更换本 Agent 的提示词。</p></a-form-item><template v-if="promptMode"><a-form-item label="指令来源"><a-select :value="promptSourceId" :disabled="!canPromptBinding" :options="skills.map(item=>({value:item.id,label:item.name}))" @change="choosePromptSource"/></a-form-item><a-form-item label="精确版本"><a-select :value="runtime.promptAsset?.versionNo" :loading="promptLoading" :disabled="promptLoading||!can('iqc:skill:versions:view')||!promptBodyAccess" :options="promptVersions.map(item=>({value:item.versionNo,label:`v${item.versionNo} · ${item.name}`}))" @change="choosePromptVersion"/><p v-if="runtime.promptAsset">引用 {{runtime.promptAsset.skillId}} · v{{runtime.promptAsset.versionNo}} · {{runtime.promptAsset.contentHash??'保存时生成摘要'}}</p><a-alert v-if="promptError" type="warning" :message="promptError"/></a-form-item></template><a-form-item label="默认提示词" required><a-textarea v-model:value="runtime.systemPrompt" :disabled="promptMode" :rows="7" :maxlength="8000" show-count/></a-form-item></a-form>
 
       <a-form :disabled="!writable||saving" v-show="currentStepKey==='confirm'" layout="vertical">
         <div class="wizard-heading"><div><h3>确认配置</h3><p>检查智能体能力；新智能体的执行策略由任务指定。</p></div></div>
