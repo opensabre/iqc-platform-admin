@@ -76,10 +76,24 @@ function availability(row:PublishedPipeline){
   catch{if(!disposed&&ticket===commandGeneration)message.error('设置失败，请刷新核对。');}finally{busy.value=false;}
  }});
 }
-async function executeCommand(){if(disposed||!command.value||busy.value)return;const pending=command.value;busy.value=true;taskError.value='';try{const task=pending.rollout?await createPipelineRolloutTask(pending.assetId,{name:pending.body.name,...(pending.body.selectorAsset?{selectorAsset:{...pending.body.selectorAsset}}:{conversationIds:pending.body.conversationIds??[]}),concurrency:pending.body.concurrency,requestKey:pending.body.requestId!}):await createPipelineTask(pending.assetId,pending.trial,pending.body);if(disposed||command.value!==pending)return;createdTask.value=taskSummary(task);command.value=undefined;if(pending.trial){trialTaskId.value=task.id;trialStatus.value=task.status;}message.success(task.status==='CREATED'?'任务已创建或找到原任务，尚未开始执行':'已找到原任务，保留原执行状态');}catch{if(!disposed&&command.value===pending)taskError.value='创建结果未确认，请使用原请求重试。';}finally{if(!disposed)busy.value=false;}}
-function stopRetry(){if(!command.value||busy.value)return;Modal.confirm({title:'停止重试本次创建？',content:'请先到任务列表核对请求是否已创建任务，再创建新的任务。',onOk(){command.value=undefined;taskError.value='';}});}
+function canCreatePending(pending:NonNullable<typeof command.value>){
+ return can(pending.trial?'iqc:pipeline:execute':'iqc:pipeline:task:create')&&(!pending.rollout||can('iqc:pipeline:rollout:task:create'))&&(!pending.body.bulk||can('iqc:task:execute'));
+}
+async function executeCommand(){
+ const pending=command.value;if(disposed||!pending||busy.value||!canCreatePending(pending)||selected.value?.id!==pending.assetId)return;
+ const ticket=commandGeneration,context=detailGeneration;
+ const current=()=>!disposed&&ticket===commandGeneration&&context===detailGeneration&&command.value===pending&&selected.value?.id===pending.assetId&&canCreatePending(pending);
+ busy.value=true;taskError.value='';
+ try{const task=pending.rollout?await createPipelineRolloutTask(pending.assetId,{name:pending.body.name,...(pending.body.selectorAsset?{selectorAsset:{...pending.body.selectorAsset}}:{conversationIds:pending.body.conversationIds??[]}),concurrency:pending.body.concurrency,requestKey:pending.body.requestId!}):await createPipelineTask(pending.assetId,pending.trial,pending.body);
+  if(!current())return;createdTask.value=taskSummary(task);command.value=undefined;if(pending.trial){trialTaskId.value=task.id;trialStatus.value=task.status;}message.success(task.status==='CREATED'?'任务已创建或找到原任务，尚未开始执行':'已找到原任务，保留原执行状态');
+ }catch{if(current())taskError.value='创建结果未确认，请使用原请求重试。';}finally{if(!disposed)busy.value=false;}
+}
+function stopRetry(){
+ const pending=command.value,ticket=commandGeneration,context=detailGeneration;if(disposed||!pending||busy.value)return;
+ Modal.confirm({title:'停止重试本次创建？',content:'请先到任务列表核对请求是否已创建任务，再创建新的任务。',onOk(){if(disposed||busy.value||ticket!==commandGeneration||context!==detailGeneration||command.value!==pending)return;command.value=undefined;taskError.value='';}});
+}
 function createTask(){
- if(!selected.value||busy.value||command.value||!taskName.value.trim()||selected.value.status!=='ACTIVE')return;
+ if(disposed||!selected.value||busy.value||command.value||!taskName.value.trim()||selected.value.status!=='ACTIVE')return;
  const trial=taskKind.value==='TRIAL',rollout=taskKind.value==='ROLLOUT';
  if(rollout&&selectionMode.value==='SELECTOR'){message.warning('灰度任务请选择会话或已发布选择器');return;}
  if(trial&&(payloadRestricted.value||dirty.value)){message.warning('请先保存草稿');return;}
@@ -97,7 +111,14 @@ function createTask(){
   ...(trial?{expectedRevision:selected.value.draftRevision}:{...(rollout?{}:{versionNo:version.value}),concurrency:concurrency.value})}};
  void executeCommand();
 }
-async function start(){const task=createdTask.value;if(!task||busy.value||startUncertain.value||task.status!=='CREATED'||!can('iqc:task:execute'))return;busy.value=true;try{createdTask.value=taskSummary(await runTask(task.id));if(trialTaskId.value===task.id)trialStatus.value=createdTask.value.status;}catch{startUncertain.value=true;message.error('执行请求未确认，请刷新任务状态后操作。');}finally{busy.value=false;}}
+async function start(){
+ const task=createdTask.value;if(disposed||!task||busy.value||startUncertain.value||task.status!=='CREATED'||!can('iqc:task:execute'))return;
+ const ticket=commandGeneration,context=detailGeneration;
+ const current=()=>!disposed&&ticket===commandGeneration&&context===detailGeneration&&createdTask.value?.id===task.id&&can('iqc:task:execute');
+ busy.value=true;
+ try{const running=await runTask(task.id);if(!current())return;createdTask.value=taskSummary(running);if(trialTaskId.value===task.id)trialStatus.value=createdTask.value.status;}
+ catch{if(current()){startUncertain.value=true;message.error('执行请求未确认，请刷新任务状态后操作。');}}finally{if(!disposed)busy.value=false;}
+}
 async function taskStatus(trial=false){
  if(disposed||!can('iqc:task:detail:view')||busy.value)return;
  const id=trial?trialTaskId.value:createdTask.value?.id;if(!id)return;
@@ -110,6 +131,8 @@ async function taskStatus(trial=false){
 function publish(force=false){const asset=selected.value;if(!asset||busy.value||dirty.value||!trialTaskId.value||!reviewed.value||!gate.value||!can(force?'iqc:pipeline:force:publish':'iqc:pipeline:publish')||!force&&!gate.value.passed)return;let evidence:PublicationEvidence;try{evidence=publicationEvidence();}catch{return;}const reason=forceReason.value.trim();if(force&&!reason){message.warning('管理员例外必须填写原因');return;}const trialId=trialTaskId.value,encoded=JSON.stringify(evidence),ticket=commandGeneration,permission=force?'iqc:pipeline:force:publish':'iqc:pipeline:publish';Modal.confirm({title:`${force?'管理员例外发布':'发布'} ${asset.name} 草稿修订 ${asset.draftRevision}？`,content:force?'未通过的准入项、测量报告和例外原因将保存到不可变版本与审计。':'服务端重新检查试跑、冻结内容与质量/回归阈值。',async onOk(){if(disposed||busy.value||ticket!==commandGeneration||!can(permission))return;let currentEvidence:string;try{currentEvidence=JSON.stringify(publicationEvidence());}catch{message.warning('评测选择已变化，请重新核对');return;}if(selected.value?.id!==asset.id||selected.value.draftRevision!==asset.draftRevision||dirty.value||trialTaskId.value!==trialId||!reviewed.value||currentEvidence!==encoded){message.warning('发布选择已变化，请重新核对');return;}busy.value=true;try{await publishPipeline(asset.id,asset.draftRevision,trialId,true,{...evidence,...(force?{forceReason:reason}:{})},force);if(disposed||ticket!==commandGeneration||!can(permission))return;if(!can('iqc:pipeline:detail:view')){message.success('发布请求已完成，请重新读取发布状态核对。');await versions();await refresh();return;}const refreshed=await getPipeline(asset.id);if(disposed||ticket!==commandGeneration||!can(permission)||!can('iqc:pipeline:detail:view'))return;applyReceipt(refreshed);if(pipelinePayloadRestricted(refreshed))restrictDraft();message.success(force?'管理员例外发布已保存并审计':'不可变版本已通过准入并发布');await versions();await refresh();}catch{if(!disposed&&ticket===commandGeneration)message.error('发布结果未确认，请重新核对试跑、测量准入及管理员权限。');}finally{busy.value=false;}}});}
 function pretty(raw:string|null){try{return raw?JSON.stringify(JSON.parse(raw),null,2):'正文未提供';}catch{return '版本快照格式无效';}}
 watch(open,value=>{if(!value){++detailGeneration;initial.value=undefined;selected.value=undefined;name.value='';code.value='';baseline.value='';payloadRestricted.value=false;resetTask();}});
+// Invalidate receipts on grant changes while retaining the frozen request for an explicit authorized retry.
+watch(()=>JSON.stringify([can('iqc:pipeline:execute'),can('iqc:pipeline:task:create'),can('iqc:pipeline:rollout:task:create'),can('iqc:task:execute')]),()=>{++commandGeneration;},{flush:'sync'});
 // Navigation invalidates pending creation receipts without changing the server task.
 watch(()=>JSON.stringify([can('iqc:task:detail:view'),can('iqc:task:executions:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read'),can('iqc:sensitive:prompt:read')]),()=>{
  ++commandGeneration;++statusGeneration;++qualityGeneration;++regressionGeneration;trialStatus.value='';reviewed.value=false;qualityRounds.value=[];regressionRounds.value=[];qualityExecutionId.value=undefined;regressionExecutionId.value=undefined;invalidateGate();
