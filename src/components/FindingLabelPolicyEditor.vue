@@ -2,7 +2,7 @@
   <section>
     <h3>标签与 Finding 绑定</h3>
     <p>选择当前已发布标签及值定义，并指定来源 Finding。保存时再次核对版本，标签目录随流水线版本冻结。</p>
-    <a-button v-if="can('iqc:label:view')" :disabled="disabled || (modelValue?.bindings.length || 0) >= 100" @click="openPicker">添加已发布标签</a-button>
+    <a-button v-if="canChoose" :disabled="disabled || (modelValue?.bindings.length || 0) >= 100" @click="openPicker">添加已发布标签</a-button>
     <a-card v-for="(binding,index) in modelValue?.bindings || []" :key="`${binding.labelId}:${binding.valueCode}`" size="small" style="margin:8px 0">
       <strong>{{ labelName(binding.labelId) }}</strong> · 标签版本 {{ binding.labelVersion }} · 值 {{ binding.valueCode }}
       <a-form-item label="来源 Finding" style="margin-top:8px">
@@ -14,7 +14,7 @@
       </a-space>
     </a-card>
     <p v-if="!modelValue?.bindings.length">尚未配置标签绑定。</p>
-    <a-modal :open="picker" title="添加已发布标签" :confirm-loading="busy" :ok-button-props="{disabled:disabled || loading || !selected.length}" @ok="addSelected" @cancel="closePicker">
+    <a-modal :open="picker" title="添加已发布标签" :confirm-loading="busy" :ok-button-props="{disabled:disabled || !canChoose || loading || !selected.length}" @ok="addSelected" @cancel="closePicker">
       <p>请只选择具体标签。将添加其值定义，每个值需明确选择来源 Finding；只声明绑定不会自动执行打标动作。</p>
       <a-spin :spinning="loading"><LabelTreeSelector v-if="taxonomy" v-model="selected" :taxonomy="taxonomy" :disabled="disabled || busy" /></a-spin>
       <a-button :disabled="busy || disabled" @click="loadTree">刷新目录</a-button>
@@ -23,7 +23,7 @@
   </section>
 </template>
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { getLabelTree, getLabelDetail, type LabelTree } from '@/api/labels';
 import type { FindingLabelPolicy } from '@/api/pipelines';
 import { usePermission } from '@/composables/permission';
@@ -32,9 +32,10 @@ const props = defineProps<{ modelValue?:FindingLabelPolicy|null; findingCodes:st
 type Binding = FindingLabelPolicy['bindings'][number];
 const emit = defineEmits<{ 'update:modelValue':[value:FindingLabelPolicy|undefined]; action:[binding:Binding] }>();
 const { can } = usePermission();
+const canChoose=computed(()=>can('iqc:label:view')&&can('iqc:label:detail:view'));
 const picker=ref(false),loading=ref(false),busy=ref(false),pickerError=ref('');
 const selected=ref<string[]>([]),taxonomy=ref<LabelTree>(),names=ref<Record<string,string>>({});
-let generation=0;
+let generation=0,disposed=false;
 function labelName(id:string) {
   const directory=props.modelValue?.directory;
   const labels=directory && Array.isArray(directory.labels) ? directory.labels : [];
@@ -48,28 +49,28 @@ function findingOptions(current:string) {
   return options;
 }
 function update(bindings:Binding[]) {
-  if(props.disabled)return;
+  if(disposed||props.disabled)return;
   emit('update:modelValue',bindings.length?{schemaVersion:'iqc-finding-label-policy-v1',bindings}:undefined);
 }
 function changeFinding(index:number,value:string) {if(props.modelValue?.bindings[index]?.findingCode===value)return;update((props.modelValue?.bindings || []).map((binding,i)=>i===index?{...binding,findingCode:value}:{...binding}));}
 function remove(index:number) {update((props.modelValue?.bindings || []).filter((_,i)=>i!==index).map(binding=>({...binding})));}
-function closePicker(){++generation;picker.value=false;loading.value=false;busy.value=false;}
+function closePicker(){++generation;picker.value=false;loading.value=false;busy.value=false;selected.value=[];taxonomy.value=undefined;pickerError.value="";}
 async function loadTree() {
-  if(props.disabled || busy.value || !can('iqc:label:view'))return;
+  if(disposed||props.disabled || busy.value || !can('iqc:label:view'))return;
   const ticket=++generation;loading.value=true;pickerError.value='';taxonomy.value=undefined;
-  try {const tree=await getLabelTree();if(ticket===generation)taxonomy.value=tree;}
-  catch {if(ticket===generation)pickerError.value='标签目录加载失败，请检查查询权限后刷新。';}
-  finally {if(ticket===generation)loading.value=false;}
+  try {const tree=await getLabelTree();if(!disposed&&ticket===generation&&!props.disabled&&can('iqc:label:view'))taxonomy.value=tree;}
+  catch {if(!disposed&&ticket===generation&&!props.disabled&&can('iqc:label:view'))pickerError.value='标签目录加载失败，请检查查询权限后刷新。';}
+  finally {if(!disposed&&ticket===generation&&!props.disabled&&can('iqc:label:view'))loading.value=false;}
 }
-function openPicker(){if(props.disabled)return;selected.value=[];pickerError.value='';picker.value=true;void loadTree();}
+function openPicker(){if(disposed||props.disabled||!canChoose.value)return;selected.value=[];pickerError.value='';picker.value=true;void loadTree();}
 async function addSelected() {
-  if(props.disabled || busy.value || loading.value || !taxonomy.value || !selected.value.length)return;
+  if(disposed||props.disabled||!canChoose.value||!picker.value || busy.value || loading.value || !taxonomy.value || !selected.value.length)return;
   const ids=selected.value.filter(key=>key.startsWith('LABEL:')).map(key=>key.slice(6));
   if(ids.length!==selected.value.length || new Set(ids).size!==ids.length || ids.length>100){pickerError.value='请选择 1 到 100 个具体标签，不能选择分类或群组。';return;}
   const tree=taxonomy.value,ticket=++generation;busy.value=true;pickerError.value='';
   try {
     const details=await Promise.all(ids.map(id=>getLabelDetail(id)));
-    if(ticket!==generation || props.disabled)return;
+    if(disposed||ticket!==generation || props.disabled||!canChoose.value||!picker.value)return;
     const bindings=(props.modelValue?.bindings || []).map(binding=>({...binding}));
     const additions:Binding[]=[],nextNames={...names.value};
     const keys=new Set(bindings.map(binding=>JSON.stringify([binding.labelId,binding.valueCode])));
@@ -93,8 +94,8 @@ async function addSelected() {
     names.value=nextNames;
     if(additions.length)update([...bindings,...additions]);
     closePicker();
-  } catch(failure){if(ticket===generation)pickerError.value=failure instanceof Error && failure.name!=='AxiosError'?failure.message:'标签详情加载失败，请检查查询权限后重试。';}
-  finally {if(ticket===generation)busy.value=false;}
+  } catch(failure){if(!disposed&&ticket===generation&&!props.disabled&&can('iqc:label:view'))pickerError.value=failure instanceof Error && failure.name!=='AxiosError'?failure.message:'标签详情加载失败，请检查查询权限后重试。';}
+  finally {if(!disposed&&ticket===generation&&!props.disabled&&can('iqc:label:view'))busy.value=false;}
 }
 watch(()=>props.modelValue?.directory,directory=>{
   if(!directory || !Array.isArray(directory.labels))return;
@@ -102,6 +103,6 @@ watch(()=>props.modelValue?.directory,directory=>{
   for(const label of directory.labels)if(label && typeof label==='object' && typeof label.id==='string' && typeof label.name==='string')frozenNames[label.id]=label.name;
   names.value=frozenNames;
 },{immediate:true});
-watch(()=>props.disabled,value=>{if(value)closePicker();});
-onBeforeUnmount(()=>{++generation;});
+watch(()=>[props.disabled,can('iqc:label:view'),can('iqc:label:detail:view')],()=>{closePicker();names.value={};},{flush:'sync'});
+onBeforeUnmount(()=>{disposed=true;closePicker();names.value={};});
 </script>
