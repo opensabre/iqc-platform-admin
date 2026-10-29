@@ -6,7 +6,7 @@ import { listSchemes, listSchemeVersions, createScheme, reviseScheme, publishSch
 const state = vi.hoisted(() => ({ manage: true, publish: true, confirm: vi.fn(), success: vi.fn(), error: vi.fn() }));
 vi.mock("ant-design-vue", () => ({ message: { success: state.success, error: state.error }, Modal: { confirm: state.confirm } }));
 vi.mock("@/composables/permission", () => ({ usePermission: () => ({ can: (code: string) =>
-  (code === "iqc:scheme:manage" && state.manage) || (code === "iqc:scheme:publish" && state.publish) }) }));
+  (["iqc:scheme:manage", "iqc:scheme:versions:view"].includes(code) && state.manage) || (code === "iqc:scheme:publish" && state.publish) }) }));
 vi.mock("@/api/schemes", () => ({ listSchemes: vi.fn(), listSchemeVersions: vi.fn(), createScheme: vi.fn(), reviseScheme: vi.fn(),
   publishScheme: vi.fn(), changeSchemeAvailability: vi.fn(), changeSchemeVersionArchive: vi.fn(), previewScheme: vi.fn(), trialScheme: vi.fn(), listSchemeTrials: vi.fn() }));
 vi.mock("../templates/SchemeTaskWizard.vue", () => ({ default: defineComponent({ props: { template: Object, readOnly: Boolean }, setup(props) {
@@ -125,7 +125,7 @@ describe("expert immutable publication history", () => {
     expect(host.textContent).toContain("冻结标准2"); expect(host.textContent).not.toContain("冻结标准9");
     buttons("关闭历史")[0].click(); await settle(); expect(host.textContent).not.toContain("冻结标准2");
   });
-  it("does not offer history without expert maintenance permission", async () => {
+  it("does not offer history when neither list nor history is authorized", async () => {
     state.manage = false; mount(); await settle(); expect(buttons("发布历史")).toHaveLength(0);
     expect(listSchemeVersions).not.toHaveBeenCalled();
   });

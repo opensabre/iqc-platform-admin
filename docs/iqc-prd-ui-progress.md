@@ -401,3 +401,14 @@ Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit
 原83917 terminal0，/tmp/iqc-b-reference-permissions-20261029.log.exit=0，4文件24项通过11.25s（新18+原6）；原77895 vue-tsc terminal0，/tmp/iqc-b-reference-types-20261029.log.exit=0。最终原18992全量terminal0，/tmp/iqc-b-reference-full-ui-20261029.log.exit=0，63文件550项全部通过124.08s，包含规则/Agent固定源及新31项。diff通过，原未stub组件警告保留。
 
 这是当前B快照真实Vue/受控API权限/Ant stub验证，不代表真实浏览器/组织PDP/写入或完整I1–I7验收；不含A尚在开发的方案权限修改。本轮未重跑Vite或部署。只处理既有会话数据，语音生成/转换不在范围。
+
+
+## 2026-10-29 B 方案历史与依赖精确读取专项
+
+基线2d2236b，仅merge固定de5ea70为8412b3b，文档冲突保留双方记录。新增schemes/operation-permissions.spec.ts 16项；旧history.spec.ts明确增加history权限fixture并把无授权用例名称改为list/history均无，原历史/归档/冻结/只读断言保持。未修改生产源码。
+
+验证scheme:manage不代versions:view、历史独立不读目录；创建无依赖权限不请求目录，各Rule/Agent/Label目录独立；旧Rule目录不代检测/条件/阶段版本选择，授权后只选PUBLISHED，旧Agent目录不代历史且授权后只选兼容3.0发布版本；无history时已有规则精确引用保留；撤销依赖或历史清面板并拒迟到；旧保存完成不关闭权限变化后新开的表单；受限草稿不能空替换、同一规则版本冲突仍拒保存。
+
+原66404 terminal0，/tmp/iqc-b-scheme-reference-permissions-20261029.log.exit=0，新增16+原history10+availability35共61项、3文件全部通过9.82s；原46323 vue-tsc terminal0，/tmp/iqc-b-scheme-reference-types-20261029.log.exit=0。diff通过，保留既有未stub组件提示。
+
+真实Vue owning页面、受控API/权限与Ant stub，通过setupState验证，非浏览器/真实岗位/PDP/写入。未重跑全量或Vite，旧550全量不套当前方案新组合。未据本批认定方案所有试跑/导出/发布操作已完成分权；这些及完整I1–I7继续，输入仅已处理会话，无部署/语音处理。
