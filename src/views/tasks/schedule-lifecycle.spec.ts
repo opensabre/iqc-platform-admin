@@ -1,14 +1,16 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {createApp, defineComponent, h, nextTick, type App} from 'vue';
+import {createApp, defineComponent, h, nextTick, reactive, type App} from 'vue';
 import Schedules from './schedules.vue';
 import Subscriptions from './subscriptions.vue';
 
 const mocks = vi.hoisted(() => ({
- list:vi.fn(), get:vi.fn(), create:vi.fn(), update:vi.fn(), publish:vi.fn(), availability:vi.fn(),
+ pipelineList:vi.fn(),pipelineVersions:vi.fn(),list:vi.fn(), get:vi.fn(), create:vi.fn(), update:vi.fn(), publish:vi.fn(), availability:vi.fn(),
  versions:vi.fn(), instances:vi.fn(), preview:vi.fn(), success:vi.fn(), warning:vi.fn(), error:vi.fn(), confirm:vi.fn(),
 }));
 vi.mock('ant-design-vue',()=>({message:{success:mocks.success,warning:mocks.warning,error:mocks.error},Modal:{confirm:mocks.confirm}}));
-vi.mock('@/composables/permission',()=>({usePermission:()=>({can:(key:string)=>!key.startsWith('iqc:pipeline:')&&!key.includes('attempt')})}));
+const access=reactive({denied:[] as string[],pipelineAllowed:false});
+vi.mock('@/composables/permission',()=>({usePermission:()=>({can:(key:string)=>!access.denied.includes(key)&&(access.pipelineAllowed||!key.startsWith('iqc:pipeline:'))&&!key.includes('attempt')})}));
+vi.mock('@/api/pipeline-policies',async original=>({...await original<any>(),listPipelines:mocks.pipelineList,listPipelineVersions:mocks.pipelineVersions}));
 vi.mock('@/api/periodic-schedules',()=>({listSchedules:mocks.list,getSchedule:mocks.get,createSchedule:mocks.create,updateSchedule:mocks.update,publishSchedule:mocks.publish,availabilitySchedule:mocks.availability,scheduleVersions:mocks.versions,scheduleInstances:mocks.instances,previewSchedule:mocks.preview}));
 vi.mock('@/api/event-subscriptions',()=>({listSchedules:mocks.list,getSchedule:mocks.get,createSchedule:mocks.create,updateSchedule:mocks.update,publishSchedule:mocks.publish,availabilitySchedule:mocks.availability,scheduleVersions:mocks.versions,scheduleInstances:mocks.instances}));
 vi.mock('@/components/AutomaticRetryPolicyEditor.vue',()=>({default:{render:()=>null}}));
@@ -21,7 +23,7 @@ function deferred(){let resolve!:(value:any)=>void,reject!:(error:Error)=>void;c
 async function click(label:string){const b=[...host.querySelectorAll('button')].find(x=>x.textContent===label);expect(b,label).toBeDefined();b!.click();await settle();}
 function unmount(){app?.unmount();app=undefined;}
 function resetEffects(){for(const key of ['get','list','versions','instances','success','warning','error'] as const)mocks[key].mockClear();}
-beforeEach(()=>{vi.resetAllMocks();mocks.list.mockResolvedValue({records:[],total:0});mocks.versions.mockResolvedValue([]);mocks.instances.mockResolvedValue({records:[],total:0});});
+beforeEach(()=>{access.pipelineAllowed=false;access.denied=[];vi.resetAllMocks();mocks.pipelineList.mockResolvedValue({records:[],total:0});mocks.pipelineVersions.mockResolvedValue([]);mocks.list.mockResolvedValue({records:[],total:0});mocks.versions.mockResolvedValue([]);mocks.instances.mockResolvedValue({records:[],total:0});});
 afterEach(()=>{unmount();host?.remove();});
 
 for(const kind of ['periodic','subscription'] as const){
@@ -40,6 +42,18 @@ for(const kind of ['periodic','subscription'] as const){
    app.component('ATable',defineComponent({props:['dataSource','columns'],setup(p,{slots}){return()=>h('div',p.dataSource.flatMap((record:any)=>p.columns.map((column:any)=>slots.bodyCell?.({record,column}))));}}));
    app.mount(host);await settle();await click('会话质检');resetEffects();
   }
+  const prefix=kind==='periodic'?'iqc:schedule':'iqc:subscription';
+  function vm(){return (app as any)._instance.setupState;}
+  it('directory revoke and restore clears loaded rows and discards a late response',async()=>{await mount();expect(vm().rows).toHaveLength(1);const slow=deferred();mocks.list.mockReturnValueOnce(slow.promise);const request=vm().refresh();access.denied=[`${prefix}:view`];expect(vm().rows).toEqual([]);expect(vm().total).toBe(0);access.denied=[];slow.resolve({records:[row],total:1});await request;expect(vm().rows).toEqual([]);expect(vm().loading).toBe(false);});
+  it('history revoke and restore discards its late private snapshots',async()=>{await mount();const slow=deferred();mocks.versions.mockReturnValueOnce(slow.promise);const request=vm().details();access.denied=[`${prefix}:versions:view`];access.denied=[];slow.resolve([{snapshotJson:'private'}]);await request;expect(vm().history).toEqual([]);expect(mocks.instances).not.toHaveBeenCalled();});
+  it('instances revoke and restore discards its late response and count',async()=>{await mount();const slow=deferred();mocks.instances.mockReturnValueOnce(slow.promise);const request=vm().details();await settle();access.denied=[`${prefix}:instances:view`];access.denied=[];slow.resolve({records:[{id:'private-task'}],total:1});await request;expect(vm().instances).toEqual([]);expect(vm().instanceTotal).toBe(0);});
+  it('revoking instance access clears already loaded history and instances',async()=>{await mount();mocks.versions.mockResolvedValue([{snapshotJson:'private'}]);mocks.instances.mockResolvedValue({records:[{id:'task'}],total:1});await vm().details();access.denied=[`${prefix}:instances:view`];expect(vm().history).toEqual([]);expect(vm().instances).toEqual([]);expect(vm().instanceTotal).toBe(0);});
+  it('history receipt cannot populate another selected asset or request its instances',async()=>{await mount();const slow=deferred();mocks.versions.mockReturnValueOnce(slow.promise);const request=vm().details();vm().selected={...row,id:'other'};slow.resolve([{snapshotJson:'private'}]);await request;expect(vm().history).toEqual([]);expect(mocks.instances).not.toHaveBeenCalled();});
+  it('pipeline catalog revoke and restore discards its old response',async()=>{await mount();access.pipelineAllowed=true;const slow=deferred();mocks.pipelineList.mockReturnValueOnce(slow.promise);const request=vm().catalogs();access.denied=['iqc:pipeline:view'];access.denied=[];slow.resolve({records:[{id:'p1',status:'ACTIVE'}],total:1});await request;expect(vm().pipelines).toEqual([]);expect(vm().pipelineTotal).toBe(0);expect(vm().pipelineLoading).toBe(false);});
+  it('pipeline version revoke and restore discards its late snapshot',async()=>{await mount();access.pipelineAllowed=true;const slow=deferred();mocks.pipelineVersions.mockReturnValueOnce(slow.promise);const request=vm().versionsForPipeline('p1');access.denied=['iqc:pipeline:versions:view'];access.denied=[];slow.resolve([{versionNo:1,snapshotJson:'private'}]);await request;expect(vm().pipelineVersions).toEqual([]);});
+  it('sensitive revocation clears read lists while retaining the original frozen references',async()=>{await mount();vm().history=[{snapshotJson:'private'}];vm().instances=[{id:'task'}];vm().pipelines=[{id:'p1'}];vm().pipelineVersions=[{versionNo:1}];const before=JSON.stringify(vm().definition);access.denied=['iqc:sensitive:prompt:read'];expect(vm().history).toEqual([]);expect(vm().instances).toEqual([]);expect(vm().pipelines).toEqual([]);expect(vm().pipelineVersions).toEqual([]);expect(JSON.stringify(vm().definition)).toBe(before);});
+  it('an unrelated grant update preserves unsaved edits and loaded read lists',async()=>{await mount();vm().name='Unsaved';vm().history=[{id:'v1'}];const before=JSON.stringify(vm().definition);access.denied=['unrelated:grant'];await settle();expect(vm().name).toBe('Unsaved');expect(vm().history).toEqual([{id:'v1'}]);expect(JSON.stringify(vm().definition)).toBe(before);});
+  it('history and instance grants remain independent',async()=>{await mount();access.denied=[`${prefix}:instances:view`];mocks.versions.mockResolvedValue([{id:'v1'}]);await vm().details();expect(vm().history).toEqual([{id:'v1'}]);expect(mocks.instances).not.toHaveBeenCalled();mocks.versions.mockClear();access.denied=[`${prefix}:versions:view`];mocks.instances.mockResolvedValue({records:[{id:'task'}],total:1});await vm().details();expect(mocks.versions).not.toHaveBeenCalled();expect(vm().instances).toEqual([{id:'task'}]);});
   it('keeps normal save confirmation and reloads the confirmed revision',async()=>{
    await mount();const receipt={...row,draftRevision:2};mocks.update.mockResolvedValue(receipt);mocks.get.mockResolvedValue(receipt);
    await click('保存草稿');expect(mocks.update).toHaveBeenCalledTimes(1);expect(mocks.success).toHaveBeenCalledWith('草稿已保存');
