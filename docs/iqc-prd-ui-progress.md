@@ -412,3 +412,14 @@ Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit
 原66404 terminal0，/tmp/iqc-b-scheme-reference-permissions-20261029.log.exit=0，新增16+原history10+availability35共61项、3文件全部通过9.82s；原46323 vue-tsc terminal0，/tmp/iqc-b-scheme-reference-types-20261029.log.exit=0。diff通过，保留既有未stub组件提示。
 
 真实Vue owning页面、受控API/权限与Ant stub，通过setupState验证，非浏览器/真实岗位/PDP/写入。未重跑全量或Vite，旧550全量不套当前方案新组合。未据本批认定方案所有试跑/导出/发布操作已完成分权；这些及完整I1–I7继续，输入仅已处理会话，无部署/语音处理。
+
+
+## 2026-10-29 B 方案预览及发布确认撤权修复
+
+方案历史专项a1d018b之后审查发现原check没有preview精确权限、availability/archive确认回调未重查publish、publish处理函数未独立核对自身权限。新增红测原61508 terminal1（20项中17通过3失败）实际复现前三条，不依赖改变后台授权。
+
+最小修改原schemes/index.vue：检查依赖按钮与handler使用scheme:preview；停用/恢复、版本归档及发布使用现有scheme:publish。确认捕获原id/revision与操作代际，执行前再次检查当前权限、disposed和busy。权限/相关上下文变化及卸载使旧操作失效；撤权再恢复也不能复用旧确认，已发操作的迟到成功/错误不回写页面，归档刷新后再检查。发布保留成功试跑、原revision、结果检查确认及所有原语义，增加自身权限、busy与trial代际检查。没有改变服务端、数据库或框架；页面检查不替代服务端PDP。
+
+原62486首修68项通过；最终原43339 terminal0，/tmp/iqc-b-scheme-command-final-20261029.log.exit=0，25项新spec+原history10+availability35共70项3文件通过14.70s，覆盖合法预览/发布、未授权、确认撤回/恢复、迟到回执及原领域回归。原5194 pnpm build terminal0，/tmp/iqc-b-scheme-command-build-20261029.log.exit=0，vue-tsc与Vite通过（Vite2m33s），保留现有Node引擎/chunk提示；diff通过。
+
+本轮未重跑全量，旧550不套新组合；组件受控权限/API与Ant stub，不代表真实岗位/PDP/后台写入。方案试跑记录/详情/汇总/标签读取与任务执行复合授权仍需继续，不把这四入口修复视为全方案或完整I1–I7验收。输入仅已处理会话，无部署/语音处理。

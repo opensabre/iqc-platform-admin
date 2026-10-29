@@ -15,7 +15,7 @@ import { summarizeTrialLabels } from "./trial-label-summary";
 import { diffReleasedStandards } from "./history-diff";
 
 const { can } = usePermission();
-let disposed = false, listGeneration = 0, editorGeneration = 0, trialGeneration = 0;
+let disposed = false, listGeneration = 0, editorGeneration = 0, trialGeneration = 0, commandGeneration = 0;
 function schemeBodyVisible(scheme: InspectionScheme) {
   const p = scheme.privacy;
   return !!p && p.policyVersion === "iqc-scheme-draft-read-v1" && p.canonicalPayloadVisible === true
@@ -56,7 +56,7 @@ const historyDiffColumns = [
 ];
 let historyGeneration = 0;
 onBeforeUnmount(() => {
-  disposed = true; historyGeneration++; listGeneration++; editorGeneration++;trialGeneration++;
+  disposed = true; commandGeneration++; historyGeneration++; listGeneration++; editorGeneration++;trialGeneration++;
   schemes.value=[]; historyVersions.value=[]; historyTarget.value=undefined; historyPreview.value=undefined;
   historyCompareBase.value=undefined; historyComparePair.value=undefined; deriveSourceVersion.value=undefined;
   deriveName.value="";deriveCode.value="";deriveDescription.value="";
@@ -104,9 +104,9 @@ function previewHistory(version: ReleasedSchemeVersion) {
 }
 function confirmVersionArchive(version: ReleasedSchemeVersion) {
   const target = historyTarget.value;
-  if (!target || !can("iqc:scheme:publish") || target.activePublishedVersion == null
+  if (disposed || busy.value || !target || !can("iqc:scheme:publish") || target.activePublishedVersion == null
     || version.versionNo >= target.activePublishedVersion) return;
-  const id = target.id, revision = target.draftRevision, archived = !version.archived;
+  const id = target.id, revision = target.draftRevision, archived = !version.archived, generation = commandGeneration;
   Modal.confirm({
     title: `${archived ? '归档' : '恢复'}发布版本 V${version.versionNo}`,
     content: archived
@@ -114,15 +114,19 @@ function confirmVersionArchive(version: ReleasedSchemeVersion) {
       : "恢复后，该历史版本可再次供普通用户查看和创建新任务；它仍是历史版本，不会成为当前发布版本。已有任务和发布指针不变。",
     okText: archived ? "归档版本" : "恢复使用", cancelText: "取消", okButtonProps: { danger: archived },
     async onOk() {
+      if(disposed || busy.value || generation!==commandGeneration || !can("iqc:scheme:publish"))return;
       busy.value = true;
       try {
         await changeSchemeVersionArchive(id, revision, version.versionNo, archived);
+        if(disposed || generation!==commandGeneration || !can("iqc:scheme:publish"))return;
         historyVersions.value = historyVersions.value.map(item => item.versionNo === version.versionNo
           ? { ...item, archived } : item);
         await refresh();
+        if(disposed || generation!==commandGeneration || !can("iqc:scheme:publish"))return;
         historyTarget.value = schemes.value.find(scheme => scheme.id === id) ?? target;
         message.success(archived ? `V${version.versionNo} 已归档；已有任务保持不变。` : `V${version.versionNo} 已恢复为可选历史版本。`);
       } catch (reason) {
+        if(disposed || generation!==commandGeneration || !can("iqc:scheme:publish"))return;
         const detail = reason instanceof Error ? reason.message : "操作失败，请重试。";
         message.error(detail);
         throw reason;
@@ -584,14 +588,16 @@ async function save() {
   } catch (reason) { fail(reason); } finally { busy.value = false; }
 }
 async function check(scheme: InspectionScheme) {
+  if(disposed || busy.value || !can("iqc:scheme:preview"))return;
+  const generation=commandGeneration;
   busy.value = true; error.value = "";
-  try { await previewScheme(scheme.id, scheme.draftRevision); message.success("结构与依赖检查通过，发布前仍需真实试跑。"); }
-  catch (reason) { fail(reason); } finally { busy.value = false; }
+  try { await previewScheme(scheme.id, scheme.draftRevision); if(disposed || generation!==commandGeneration || !can("iqc:scheme:preview"))return; message.success("结构与依赖检查通过，发布前仍需真实试跑。"); }
+  catch (reason) { if(!disposed&&generation===commandGeneration&&can("iqc:scheme:preview"))fail(reason); } finally { busy.value = false; }
 }
 function confirmAvailability(scheme: InspectionScheme) {
-  if (busy.value || !can("iqc:scheme:publish") || !["ACTIVE", "DISABLED"].includes(scheme.status)) return;
+  if (disposed || busy.value || !can("iqc:scheme:publish") || !["ACTIVE", "DISABLED"].includes(scheme.status)) return;
   // Capture the displayed revision: a later refresh must not silently change the confirmed command.
-  const id = scheme.id, revision = scheme.draftRevision, enabled = scheme.status === "DISABLED";
+  const id = scheme.id, revision = scheme.draftRevision, enabled = scheme.status === "DISABLED", generation = commandGeneration;
   Modal.confirm({
     title: `${enabled ? '恢复' : '停用'}业务模板：${scheme.name}`,
     content: enabled
@@ -599,12 +605,14 @@ function confirmAvailability(scheme: InspectionScheme) {
       : "将停用此方案的全部发布版本，阻止新建以及后续启动、重试和恢复。已在执行的调用不会被强制中断；历史结果、复核和导出保留。状态切换后发布新版本需重新试跑。",
     okText: enabled ? "确认恢复" : "确认停用", cancelText: "取消", okButtonProps: { danger: !enabled },
     async onOk() {
+      if(disposed || busy.value || generation!==commandGeneration || !can("iqc:scheme:publish"))return;
       busy.value = true; error.value = "";
       try {
         await changeSchemeAvailability(id, revision, enabled);
+        if(disposed || generation!==commandGeneration || !can("iqc:scheme:publish"))return;
         message.success(enabled ? "模板已恢复；未自动启动任务。" : "模板已停用；历史结果保留。");
         await refresh();
-      } catch (reason) { fail(reason); throw reason; }
+      } catch (reason) { if(disposed || generation!==commandGeneration || !can("iqc:scheme:publish"))return; fail(reason); throw reason; }
       finally { busy.value = false; }
     }
   });
@@ -691,14 +699,17 @@ async function retryStart() {
   } catch (reason) { fail(reason); } finally { busy.value = false; }
 }
 async function publish() {
-  if (!trialTarget.value || !trial.value || trial.value.status !== "SUCCEEDED" || !reviewed.value || !inspected.value
+  if (disposed || busy.value || !can("iqc:scheme:publish") || !trialTarget.value || !trial.value || trial.value.status !== "SUCCEEDED" || !reviewed.value || !inspected.value
     || !trialDisplayKnown(trial.value) || revision(trial.value) !== trialTarget.value.draftRevision) return;
+  const generation=commandGeneration, context=trialGeneration;
   busy.value = true; error.value = "";
   try {
     const result = await publishScheme(trialTarget.value.id, trialTarget.value.draftRevision, trial.value.id, reviewed.value);
+    if(disposed || generation!==commandGeneration || context!==trialGeneration || !can("iqc:scheme:publish"))return;
     trialOpen.value = false; message.success(`已发布 V${result.versionNo}，质检人员可在业务模板中使用。`); await refresh();
-  } catch (reason) { fail(reason); } finally { busy.value = false; }
+  } catch (reason) { if(!disposed&&generation===commandGeneration&&context===trialGeneration&&can("iqc:scheme:publish"))fail(reason); } finally { busy.value = false; }
 }
+watch(()=>[can("iqc:scheme:preview"),can("iqc:scheme:publish")],()=>{++commandGeneration;},{flush:"sync"});
 watch(()=>JSON.stringify([can("iqc:scheme:manage"),can("iqc:scheme:versions:view"),can("iqc:scheme:create"),can("iqc:scheme:update"),can("iqc:rule:view"),can("iqc:rule:versions:view"),can("iqc:agent:view"),can("iqc:agent:versions:view"),can("iqc:label:view"),can("iqc:sensitive:conversation:read"),can("iqc:sensitive:pii:read"),can("iqc:sensitive:prompt:read")]),()=>{
   ++listGeneration;++editorGeneration;loading.value=false;schemes.value=[];
   editorOpen.value=false;editing.value=undefined;form.value=empty();rules.value=[];agents.value=[];versions.value={};agentVersions.value=[];publishedLabels.value=[];
@@ -717,7 +728,7 @@ onMounted(refresh);
       <template v-if="column.key === 'origin'">{{ record.sourceSchemeId ? `${record.sourceSchemeName || record.sourceSchemeCode || record.sourceSchemeId} · V${record.sourceVersionNo}` : '独立创建' }}</template>
       <template v-if="column.key === 'availability'"><a-tag :color="record.status === 'ACTIVE' ? 'green' : 'default'">{{ record.status === 'ACTIVE' ? '启用' : record.status === 'DISABLED' ? '已停用' : '状态异常' }}</a-tag></template>
       <a-button v-if="column.key === 'actions' && can('iqc:scheme:versions:view')" type="link" @click="openHistory(record)">发布历史</a-button>
-      <a-space v-if="column.key === 'actions'"><a-button type="link" :disabled="busy || !schemeBodyVisible(record) || !can('iqc:scheme:update')" @click="openEditor(record)">编辑草稿</a-button><a-button type="link" :disabled="busy || record.status !== 'ACTIVE'" @click="check(record)">检查依赖</a-button><a-tag v-if="draftHasLabels(record)" color="blue">联合输出</a-tag><a-tag v-if="draftHasConditions(record)" color="blue">条件适用</a-tag><a-button type="link" :disabled="busy || record.status !== 'ACTIVE'" @click="openTrials(record)">{{ draftHasLabels(record) ? '联合试跑' : draftHasConditions(record) ? '条件试跑' : '试跑与发布' }}</a-button><a-button v-if="can('iqc:scheme:publish')" type="link" :danger="record.status === 'ACTIVE'" :disabled="busy || !['ACTIVE', 'DISABLED'].includes(record.status)" @click="confirmAvailability(record)">{{ record.status === 'DISABLED' ? '恢复模板' : '停用模板' }}</a-button></a-space>
+      <a-space v-if="column.key === 'actions'"><a-button type="link" :disabled="busy || !schemeBodyVisible(record) || !can('iqc:scheme:update')" @click="openEditor(record)">编辑草稿</a-button><a-button type="link" :disabled="busy || record.status !== 'ACTIVE' || !can('iqc:scheme:preview')" @click="check(record)">检查依赖</a-button><a-tag v-if="draftHasLabels(record)" color="blue">联合输出</a-tag><a-tag v-if="draftHasConditions(record)" color="blue">条件适用</a-tag><a-button type="link" :disabled="busy || record.status !== 'ACTIVE'" @click="openTrials(record)">{{ draftHasLabels(record) ? '联合试跑' : draftHasConditions(record) ? '条件试跑' : '试跑与发布' }}</a-button><a-button v-if="can('iqc:scheme:publish')" type="link" :danger="record.status === 'ACTIVE'" :disabled="busy || !['ACTIVE', 'DISABLED'].includes(record.status)" @click="confirmAvailability(record)">{{ record.status === 'DISABLED' ? '恢复模板' : '停用模板' }}</a-button></a-space>
     </template>
   </a-table>
   <a-drawer v-model:open="editorOpen" destroy-on-close :title="editing ? `编辑草稿 · 修订 ${editing.draftRevision}` : '新建业务方案'" width="1000" :closable="!busy" :mask-closable="!busy" :keyboard="!busy">
