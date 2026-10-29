@@ -473,3 +473,13 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 原21006 terminal0，/tmp/iqc-b-stable-watch-pipeline-20261029.log.exit=0，5文件80项18.30s全部通过（新pipeline15+原生命周期13+资产21+标签22+选择器9）。原9113 vue-tsc仍在途，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log及.exit，源码冻结，终态另记。未重跑Vite或全量，旧647仅适用于489253c，不套本次新源。真实Vue/受控API权限与stub，非真实岗位/PDP/后台成功写或完整I1–I7。已处理会话输入不变，无语音转换/framework/共享SQL/部署。
 
 最终原9113 vue-tsc --noEmit terminal0，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log.exit=0，持续跟进原句柄未因安静重启。diff通过，无在途测试/构建。相关生产源码仍仅为A三个固定提交，本批没有修改生产逻辑。
+
+## 2026-10-29 B 流水线创建重试与启动回执修复
+
+基线be4cc76。原pipelines/operation-permissions.spec.ts加七条实际反例，原29504 terminal1，/tmp/iqc-b-pipeline-command-red-20261029.log.exit=1，原15通过、新7失败：trial/普通/rollout的创建重试不检查当前grant；撤权恢复后迟到创建/运行回执仍采用；卸载后旧start回调仍执行；旧停止重试确认清掉新command。
+
+原pipeline页面最小补canCreatePending复用既有权限：trial需pipeline:execute，普通需pipeline:task:create，rollout需其原普通+rollout双码（核对实际PipelineRolloutTaskController.current），body.bulk仍需task:execute。普通非bulk没有额外强加execute。executeCommand每次发前/返回后核对当前grant、选中asset、pending身份及原详情/command代际；失效回执不清冻结command，重新授权后显式用同一requestId/参数找回原任务，不自动重试/执行。start独立disposed/当前task/execute与代际检查，旧回执/错误不恢复状态；正常超时仍保任务并要求显式状态核对。stopRetry确认绑定原pending身份与上下文，不能清新请求。原三类创建/执行/分片/请求冻结语义保持，无API/数据库/framework变更。
+
+最终原99344 terminal0，/tmp/iqc-b-pipeline-command-final-20261029.log.exit=0，两个文件42项9.14s通过（操作29+原生命周期13）；含原参数精确重试/卸载/分片参数、合法恢复/原状态、rollout双码、bulk冻结检查、普通创建不增execute要求、正常执行超时不自动重发及合法停止重试。原99750 pnpm build仍在途，/tmp/iqc-b-pipeline-command-build-20261029.log及.exit，源码冻结，终态另记。组件受控API/权限/Ant stub非真实岗位/PDP/成功业务写入；初始草稿读取/其它保存入口与完整I1–I7仍需继续。输入仅处理后会话，无语音处理/部署/共享SQL。
+
+原99750 pnpm build 已terminal0，/tmp/iqc-b-pipeline-command-build-20261029.log.exit=0；vue-tsc与Vite成功（Vite56.38s），保留既有chunk体积提示。专项42项终态0与diff检查通过，无在途测试/构建。本批没有重跑全量，不套旧647，初始私有草稿/其它保存与真实PDP等完整验收仍待。
