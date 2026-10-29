@@ -2,8 +2,8 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {createApp,defineComponent,h,nextTick,reactive,type App} from 'vue';
 import Knowledge from './index.vue';
 const mocks=vi.hoisted(()=>({list:vi.fn(),get:vi.fn(),versions:vi.fn(),update:vi.fn()}));
-const access=reactive({allowed:true});
-vi.mock('@/composables/permission',()=>({usePermission:()=>({can:()=>access.allowed})}));
+const access=reactive({allowed:true,denied:[] as string[]});
+vi.mock('@/composables/permission',()=>({usePermission:()=>({can:(code:string)=>access.allowed&&!access.denied.includes(code)})}));
 vi.mock('ant-design-vue',()=>({message:{success:vi.fn(),warning:vi.fn(),error:vi.fn()}}));
 vi.mock('@/api/knowledge',async original=>({...await original<any>(),listKnowledge:mocks.list,getKnowledge:mocks.get,listKnowledgeVersions:mocks.versions,updateKnowledge:mocks.update}));
 let app:App,host:HTMLDivElement;
@@ -22,7 +22,7 @@ async function mount(){
  for(const name of ['AInput','ATextarea'])app.component(name,defineComponent({props:['value'],setup:p=>()=>h('textarea',{value:p.value})}));
  app.mount(host);await settle();await click('详情');
 }
-beforeEach(()=>{access.allowed=true;vi.resetAllMocks();mocks.list.mockResolvedValue({records:[row],total:1});mocks.get.mockResolvedValue(row);mocks.versions.mockResolvedValue([]);});
+beforeEach(()=>{access.allowed=true;access.denied=[];vi.resetAllMocks();mocks.list.mockResolvedValue({records:[row],total:1});mocks.get.mockResolvedValue(row);mocks.versions.mockResolvedValue([]);});
 afterEach(()=>{app?.unmount();host?.remove();});
 it('retains identity and blocks repeat writes after a confirmed save reread fails',async()=>{
  await mount();mocks.update.mockResolvedValue({...row,draftRevision:2,draftConfigJson:null});mocks.get.mockRejectedValue(Error('read failed'));
@@ -35,3 +35,11 @@ it('discards a pending detail body after permission revocation',async()=>{
  access.allowed=false;await settle();expect(host.querySelector('article')).toBeNull();resolve(row);await settle();
  expect(host.querySelector('article')).toBeNull();expect(host.textContent).not.toContain('private reference');
 });
+
+function state(){return (app as any)._instance.setupState;}
+function deferred(){let resolve!:(value:any)=>void;const promise=new Promise<any>(r=>{resolve=r;});return {promise,resolve};}
+it('invalidating a pending detail immediately releases busy before its response',async()=>{const slow=deferred();mocks.get.mockReturnValueOnce(slow.promise);await mount();const vm=state();expect(vm.busy).toBe(true);access.allowed=false;await settle();expect(vm.busy).toBe(false);access.allowed=true;await settle();mocks.get.mockResolvedValueOnce(row);await vm.load(row);expect(vm.documents[0].text).toBe('private reference');slow.resolve({...row,name:'Old'});await settle();expect(vm.name).toBe('Corpus');});
+it('an old detail finally cannot release the next authorized detail request',async()=>{await mount();const vm=state(),old=deferred(),fresh=deferred();mocks.get.mockReturnValueOnce(old.promise);const first=vm.load(row);access.allowed=false;access.allowed=true;mocks.get.mockReturnValueOnce(fresh.promise);const second=vm.load(row);old.resolve(row);await first;expect(vm.busy).toBe(true);fresh.resolve({...row,name:'Fresh'});await second;expect(vm.name).toBe('Fresh');expect(vm.busy).toBe(false);});
+it('an invalidated write finally cannot unlock a new read or refresh its directory',async()=>{await mount();const vm=state(),old=deferred(),fresh=deferred();const first=vm.command('iqc:knowledge:update',()=>old.promise,'kb');access.allowed=false;access.allowed=true;mocks.get.mockReturnValueOnce(fresh.promise);const second=vm.load(row);const reads=mocks.list.mock.calls.length;old.resolve({...row,draftRevision:2});await first;expect(vm.busy).toBe(true);expect(mocks.list).toHaveBeenCalledTimes(reads);fresh.resolve(row);await second;expect(vm.busy).toBe(false);expect(vm.selected.draftRevision).toBe(1);});
+it('a successful write without detail permission clears copies and refreshes the directory',async()=>{await mount();const vm=state();access.denied=['iqc:knowledge:detail:view'];await settle();mocks.get.mockClear();const reads=mocks.list.mock.calls.length;await vm.command('iqc:knowledge:update',async()=>({...row,draftRevision:2}),'kb');await settle();expect(vm.busy).toBe(false);expect(vm.open).toBe(false);expect(vm.selected).toBeUndefined();expect(vm.documents).toEqual([]);expect(mocks.get).not.toHaveBeenCalled();expect(mocks.list).toHaveBeenCalledTimes(reads+1);});
+it('a valid confirmed write rereads its new revision and refreshes once',async()=>{await mount();const vm=state(),reads=mocks.list.mock.calls.length;mocks.get.mockResolvedValueOnce({...row,draftRevision:2});await vm.command('iqc:knowledge:update',async()=>({...row,draftRevision:2}),'kb');await settle();expect(vm.selected.draftRevision).toBe(2);expect(vm.documents[0].text).toBe('private reference');expect(vm.busy).toBe(false);expect(mocks.list).toHaveBeenCalledTimes(reads+1);});
