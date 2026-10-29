@@ -473,3 +473,10 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 原21006 terminal0，/tmp/iqc-b-stable-watch-pipeline-20261029.log.exit=0，5文件80项18.30s全部通过（新pipeline15+原生命周期13+资产21+标签22+选择器9）。原9113 vue-tsc仍在途，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log及.exit，源码冻结，终态另记。未重跑Vite或全量，旧647仅适用于489253c，不套本次新源。真实Vue/受控API权限与stub，非真实岗位/PDP/后台成功写或完整I1–I7。已处理会话输入不变，无语音转换/framework/共享SQL/部署。
 
 最终原9113 vue-tsc --noEmit terminal0，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log.exit=0，持续跟进原句柄未因安静重启。diff通过，无在途测试/构建。相关生产源码仍仅为A三个固定提交，本批没有修改生产逻辑。
+
+
+## 2026-10-30 知识库请求失效与忙碌状态归属
+
+知识库相关权限变动、关闭或卸载已通过原 detailGeneration 清除私有编辑副本；本次同步释放原请求占用的 busy，使重新授权后可重新读取，不必等待已失效网络请求。详情和写后回读的 finally 仅可释放自己仍拥有的状态，旧请求不能解锁新读写或额外重读目录。写操作已确认但无详情读取权限时，仍清理编辑副本并刷新有权读取的目录。
+
+仅修改原页面请求生命周期，不添加接口、模型或权限。Root不写跑测试；构建及协作专项结果分别记录，不据此宣称真实PDP/浏览器/完整PRD验收通过。
