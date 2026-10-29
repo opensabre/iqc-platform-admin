@@ -431,3 +431,13 @@ Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit
 原36687为77通过1失败，试跑watcher数组返回导致publish权限变化误清面板，改为实际权限位字符串比较；原31663随后86项通过、原89143中间构建0。继续补撤权busy断言，原58132真实40通过1失败（/tmp/iqc-b-scheme-trial-busy-red-20261029.log.exit=1）：撤权后列表结束仍忙。保迟到结果拒收，finally释放busy并以入口busy保证单飞；增加重复刷新、恢复授权重读、执行回执撤权及卸载阻止串联。mock统一reset后逐测试重设默认，防一次性响应泄漏。
 
 最终原7489 terminal0，/tmp/iqc-b-scheme-trial-complete-20261029.log.exit=0，3文件89项通过14.48s（本spec44、原history10、availability35）。最终原16036 terminal0，/tmp/iqc-b-scheme-trial-final-build-20261029.log.exit=0，vue-tsc/Vite通过，Vite1m2s，现有引擎/chunk提示保留。diff通过。未重跑全量，旧550不套当前组合；真实Vue/受控API权限与Ant stub不代表真实岗位/PDP、后台成功写或完整I1–I7验收。所有输入已为处理好的会话，语音处理不在范围，无部署或共享SQL修改。
+
+## 2026-10-29 B 结果固定源与共享任务选择器
+
+UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/评测修改或CI线程dirty。复用ReviewTaskSelector.spec.ts，权限fixture改响应式，逐例reset mock，保留原四项深链/名称搜索/手动ID/失败迟到断言；新增撤权恢复拒旧回执、撤权清已读目录且拒旧选择回调、disabled清在途且拒编辑、卸载拒回执/回调、taskType切换拒旧目录五项。
+
+原10206 terminal1，/tmp/iqc-b-task-selector-red-20261029.log.exit=1，8通过1失败，真实复现EVALUATION切到BENCHMARK仍采用旧目录回执。原组件最小修改把taskType纳入同步失效watch，并为手动ID编辑补disposed守卫；保留手动输入/深链ID，不自动搜索或清除父筛选。最终原63056 terminal0，/tmp/iqc-b-task-selector-results-20261029.log.exit=0，选择器9+原结果导航12/路由6/分组3共30项四文件通过16.40s。旧结果导航测试仍有Ant stub及happy-dom尝试localhost:3000的EPERM日志，保留如实记录，不将其视真实浏览器/后台请求成功；本轮选择器API均受控mock。
+
+原17981类型检查终态另记，未计通过前冻结源码。结果页全部精确grant/导出/撤权独立组件专项仍需补，现有导航和工具函数断言不替代该验收；真实PDP/岗位/成功持久化与完整I1–I7仍继续。所有输入为处理好的会话，不做语音处理。
+
+最终原17981 vue-tsc --noEmit terminal0，/tmp/iqc-b-task-selector-types-20261029.log.exit=0，原进程持续跟进至结束，未因安静重启。diff通过，无在途构建；本轮未重跑Vite/全量。

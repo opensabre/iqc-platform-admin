@@ -31,8 +31,8 @@ async function search() {
   }
 }
 function selectTask(value: string | number | undefined) { if(disposed||props.disabled||!can("iqc:task:view"))return;emit("update:modelValue", value == null ? "" : String(value)); }
-function editTaskId(value: string) { if(props.disabled)return;emit("update:modelValue", value); }
-watch(()=>[can("iqc:task:view"),props.disabled],()=>{++searchRequest;options.value=[];searching.value=false;searchError.value="";},{flush:"sync"});
+function editTaskId(value: string) { if(disposed||props.disabled)return;emit("update:modelValue", value); }
+watch(()=>[can("iqc:task:view"),props.disabled,props.taskType],()=>{++searchRequest;options.value=[];searching.value=false;searchError.value="";},{flush:"sync"});
 onBeforeUnmount(() => { disposed=true;searchRequest++; });
 </script>
 

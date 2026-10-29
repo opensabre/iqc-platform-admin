@@ -1,19 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createApp, defineComponent, h, nextTick, ref, type App } from "vue";
+import { createApp, defineComponent, h, nextTick, reactive, ref, type App } from "vue";
 import ReviewTaskSelector from "./ReviewTaskSelector.vue";
 import { listTasks } from "@/api/tasks";
 
 const state = vi.hoisted(() => ({ taskView: true }));
-vi.mock("@/composables/permission", () => ({ usePermission: () => ({ can: (code: string) => code === "iqc:task:view" && state.taskView }) }));
+vi.mock("@/composables/permission", () => ({ usePermission: () => ({ can: (code: string) => code === "iqc:task:view" && access.taskView }) }));
 vi.mock("@/api/tasks", () => ({ listTasks: vi.fn() }));
 
+const access = reactive(state);
+const controls = reactive({ disabled: false, taskType: undefined as string | undefined });
 let app: App, host: HTMLDivElement;
 async function settle() { for (let i = 0; i < 12; i++) { await Promise.resolve(); await nextTick(); } }
 function mount(initialTaskId = "") {
   const taskId = ref(initialTaskId);
   host = document.createElement("div"); document.body.append(host);
   app = createApp(defineComponent({ setup() { return () => h(ReviewTaskSelector, {
-    modelValue: taskId.value, "onUpdate:modelValue": (value: string) => { taskId.value = value; }
+    disabled: controls.disabled, taskType: controls.taskType, modelValue: taskId.value, "onUpdate:modelValue": (value: string) => { taskId.value = value; }
   }); } }));
   app.component("AInputSearch", defineComponent({ props: ["value"], setup(props, { attrs }) { return () => h("div", [
     h("input", { "aria-label": "按任务名称查找", value: props.value,
@@ -33,7 +35,7 @@ function mount(initialTaskId = "") {
 }
 
 describe("review task selector", () => {
-  beforeEach(() => { vi.clearAllMocks(); state.taskView = true; });
+  beforeEach(() => { vi.resetAllMocks(); access.taskView = true; controls.disabled = false; controls.taskType = undefined; });
   afterEach(() => { app?.unmount(); host?.remove(); });
 
   it("keeps a deep-linked ID visibly selected and clearable before searching", async () => {
@@ -60,7 +62,7 @@ describe("review task selector", () => {
   });
 
   it("retains direct ID filtering without task-view permission", async () => {
-    state.taskView = false;
+    access.taskView = false;
     const taskId = mount();
     expect(host.textContent).not.toContain("搜索任务");
     const input = host.querySelector<HTMLInputElement>('input[aria-label="任务 ID 筛选"]')!;
@@ -84,4 +86,45 @@ describe("review task selector", () => {
     expect(host.textContent).toContain("任务搜索失败");
     expect(host.textContent).not.toContain("旧结果");
   });
+
+function selector() { return (app as any)._instance.subTree.component.setupState; }
+function pendingPage() { let resolve!: (value: any) => void; const promise = new Promise<any>(r => { resolve = r; }); return { promise, resolve }; }
+const privatePage = { records: [{ id: "private-task", name: "私有搜索结果" }], total: 1, current: 1, size: 20 };
+
+it("revoking and restoring task directory access rejects the old result and keeps manual ID", async () => {
+  const slow = pendingPage(); vi.mocked(listTasks).mockReturnValueOnce(slow.promise);
+  const taskId = mount("manual-task"); await settle(); const vm = selector(); const request = vm.search();
+  access.taskView = false; await settle(); access.taskView = true; await settle();
+  slow.resolve(privatePage); await request; await settle();
+  expect(vm.options).toEqual([]); expect(vm.searching).toBe(false); expect(taskId.value).toBe("manual-task");
+  expect(host.textContent).not.toContain("私有搜索结果");
+  vi.mocked(listTasks).mockResolvedValueOnce(privatePage as never); await vm.search(); await settle();
+  expect(host.textContent).toContain("私有搜索结果");
+});
+it("revocation clears already loaded search data and blocks a captured selection callback", async () => {
+  vi.mocked(listTasks).mockResolvedValueOnce(privatePage as never); const taskId = mount("manual-task"); await settle();
+  const vm = selector(); await vm.search(); const select = vm.selectTask; access.taskView = false; await settle();
+  select("private-task"); expect(vm.options).toEqual([]); expect(taskId.value).toBe("manual-task");
+  vm.editTaskId("known-other"); expect(taskId.value).toBe("known-other");
+});
+it("disabling during search discards the response and prevents both selection and ID editing", async () => {
+  const slow = pendingPage(); vi.mocked(listTasks).mockReturnValueOnce(slow.promise); const taskId = mount("manual-task"); await settle();
+  const vm = selector(); const request = vm.search(); controls.disabled = true; await settle();
+  slow.resolve(privatePage); await request; vm.selectTask("private-task"); vm.editTaskId("replacement"); await vm.search();
+  expect(listTasks).toHaveBeenCalledOnce(); expect(vm.options).toEqual([]); expect(vm.searching).toBe(false); expect(taskId.value).toBe("manual-task");
+});
+it("unmounting rejects a late search response and selection callback", async () => {
+  const slow = pendingPage(); vi.mocked(listTasks).mockReturnValueOnce(slow.promise); const taskId = mount("manual-task"); await settle();
+  const vm = selector(); const request = vm.search(); app.unmount(); slow.resolve(privatePage); await request;
+  vm.selectTask("private-task"); vm.editTaskId("unmounted-edit"); expect(vm.options).toEqual([]); expect(taskId.value).toBe("manual-task");
+});
+it("changing task type rejects a late result from the previous task directory", async () => {
+  controls.taskType = "EVALUATION"; const slow = pendingPage(); vi.mocked(listTasks).mockReturnValueOnce(slow.promise);
+  const taskId = mount("manual-task"); await settle(); const vm = selector(); const request = vm.search();
+  controls.taskType = "BENCHMARK"; await settle(); slow.resolve(privatePage); await request;
+  expect(vm.options).toEqual([]); expect(taskId.value).toBe("manual-task"); expect(vm.searching).toBe(false);
+  vi.mocked(listTasks).mockResolvedValueOnce(privatePage as never); await vm.search();
+  expect(listTasks).toHaveBeenLastCalledWith({taskType: "BENCHMARK", keyword: undefined, current: 1, size: 20});
+});
+
 });
