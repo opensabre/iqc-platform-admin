@@ -483,3 +483,13 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 最终原99344 terminal0，/tmp/iqc-b-pipeline-command-final-20261029.log.exit=0，两个文件42项9.14s通过（操作29+原生命周期13）；含原参数精确重试/卸载/分片参数、合法恢复/原状态、rollout双码、bulk冻结检查、普通创建不增execute要求、正常执行超时不自动重发及合法停止重试。原99750 pnpm build仍在途，/tmp/iqc-b-pipeline-command-build-20261029.log及.exit，源码冻结，终态另记。组件受控API/权限/Ant stub非真实岗位/PDP/成功业务写入；初始草稿读取/其它保存入口与完整I1–I7仍需继续。输入仅处理后会话，无语音处理/部署/共享SQL。
 
 原99750 pnpm build 已terminal0，/tmp/iqc-b-pipeline-command-build-20261029.log.exit=0；vue-tsc与Vite成功（Vite56.38s），保留既有chunk体积提示。专项42项终态0与diff检查通过，无在途测试/构建。本批没有重跑全量，不套旧647，初始私有草稿/其它保存与真实PDP等完整验收仍待。
+
+## 2026-10-29 B 初始草稿读取权限上下文
+
+基线bf2a3ff。原62987首轮4失败，其中编辑器stub没有release导致合法加载断言污染；仅补既有组件stub expose release后，原25765真实红测terminal1，/tmp/iqc-b-pipeline-draft-red-clean.log.exit=1，30通过4失败（详情撤权恢复迟到、敏感撤权迟到、缓存清除、卸载旧load）。原86083 terminal0为34项，仅operation文件；命令中不存在index.spec.ts，未据此声称生命周期覆盖。
+
+原页面load补disposed/当前详情码、沿用detailGeneration；相关详情/三项敏感权限实际值变化使旧读失效，仅正在detailLoading时释放busy，不释放其它写操作锁。撤权清initial/原canonical draftConfigJson/历史/准入，保公有资产标识和冻结任务请求，重新授权必须显式重读。无关grant变化不清编辑内容；新授权请求能在旧迟到响应前完成且不被覆盖。不新增接口/模型，不改后端/framework。保存回执/旧reload确认仍待独立后续。
+
+原49786 terminal0，/tmp/iqc-b-pipeline-draft-complete.log.exit=0，operation36+原生命周期13共49项8.36s通过。原95437 pnpm build在途，/tmp/iqc-b-pipeline-draft-build.log及.exit，源码/测试冻结；终态另记。受控Vue/API/权限非真实岗位/PDP/后台业务写，完整I1–I7仍active，仅已处理会话输入。
+
+原95437 pnpm build已terminal0且/tmp/iqc-b-pipeline-draft-build.log.exit=0，vue-tsc和Vite通过（时长见原日志），沿原句柄跟进终态，无重启。49项专项及diff通过，无在途测试/构建；未跑最新组合全量，完整验收仍待。
