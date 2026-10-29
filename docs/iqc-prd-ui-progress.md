@@ -381,3 +381,14 @@ Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit
 最终原90437 terminal0，/tmp/iqc-b-conversation-full-ui-final-20261029.log.exit=0，60文件501项全部通过，190.41s，包含新增26项和旧Drawer3项。最终原72129 vue-tsc --noEmit terminal0，/tmp/iqc-b-conversation-types-final-20261029.log.exit=0。既有Ant组件stub警告保留，diff检查通过；本轮未重跑Vite。
 
 证据为实际Vue组件、受控API/权限与Ant stub，不代表真实浏览器/岗位/PDP/后台导入写入/完整I1–I7已通过。用户再次确认所有输入已为处理好的会话；语音转换、ASR/转写生成、音频解码和说话人分离不列待办，既有时间戳、证据及业务字段保留。
+
+
+## 2026-10-29 B 规则与Agent独立操作/历史权限验证
+
+基线a4dead4仅merge固定a6473f8为ffe3dc3；没有取A尚在构建的两个共享引用组件。新增rules/operation-permissions.spec.ts 11项及agents/operation-permissions.spec.ts 20项，复用真实owning Vue页面、受控permission/API、Ant stub和setupState，不修改生产源码。
+
+规则验证manage不替submit/history/version、submit/approve/reject各自独立、历史只读不创建；有版本创建无submit只保存原配置草稿、有submit先创建再提交、中途撤回submit不发第二次写；历史撤权拒迟到正文，受限正文不能空替换；DLS撤权清结果且旧请求完成释放busy，恢复授权可重新预检。Agent验证四操作各自独立；创建不越读可选资产，Model/MCP/Skill各独立，旧rule:view不代legacy rule-set:view；指令目录+历史+三敏感权限复合，筛除异来源/空正文，仅绑定精确来源版本，历史撤权关闭/拒迟到正文；manage不代版本创建，合法version:manage保留原1.0配置保存草稿，受限配置不被默认值替换。
+
+首轮37385为15通过12失败：规则路由mock缺meta，Agent在资产加载未完成时开始绑定产生第二次历史读取。原31234类型终态0后修正route fixture并等待资产完成，未修改生产逻辑。原86737 27项7.53s通过；补六项复合权限与legacy保存后，最终原52064 terminal0，/tmp/iqc-b-rule-agent-operations-complete-20261029.log.exit=0，3文件33项全部通过8.76s（新31+原prompt生命周期2）。最终原83661 vue-tsc terminal0，/tmp/iqc-b-rule-agent-types-final-20261029.log.exit=0，diff通过。保留原Prompt测试Ant未stub警告。
+
+本轮没有重跑全量或Vite；之前501项全量只证明a4dead4组合，不能套在本轮新源。当前专项不是真实浏览器/岗位/PDP/成功持久化或完整I1–I7验收。所有输入为处理好的会话，不增加语音处理。
