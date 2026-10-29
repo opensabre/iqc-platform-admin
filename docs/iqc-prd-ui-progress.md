@@ -370,3 +370,14 @@ Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit
 原26820首14项连既有bulk10/schedule24共48通过。最终原45509 terminal0，`/tmp/iqc-b-task-operation-ui-final-20261029.log.exit=0`，新19+既有34共53项、3文件全部通过，9.99s。原80906 `pnpm build` terminal0，`/tmp/iqc-b-task-operation-ui-build-20261029.log.exit=0`，vue-tsc与Vite通过（Vite41.25s），保留既有引擎版本及chunk提示。diff检查通过。
 
 不使用历史456全量结果冒称新任务组合已跑全量。本批经setupState调用handler、实际受控定时器检查，未证明完整Ant渲染/真实浏览器、PDP、岗位、后台写入或Worker恢复。菜单MySQL验证另在组织仓库，完整适用I1–I7继续，无语音转换。
+
+
+## 2026-10-29 B 已处理会话四入口权限与全量回归
+
+基线b8f8f17，仅merge固定a6975da为eb0fd4c（会话生产de8d687），未包含后续规则/Agent a6473f8。新增conversations/operation-permissions.spec.ts 26项：TXT批量/ZIP独立权限与撤权/卸载迟到回执、文件和元数据快照、六种原校验；archive列表与详情分权；实际共享Drawer安全预览、FULL/PII复合权限、撤权迟到响应与服务器privacy；统计精确权限、pending未知/真实零值/失败/撤权。音频子组件stub，不新增或验证语音处理。
+
+首轮52943为24通过1测试预期错误，修正无授权应隐藏统计卡片并增加pending→真实零用例。原81263全量498通过3失败，均为旧Drawer测试缺少新增权限上下文；仅补detail:view明确fixture，保留原迟到响应、超过24小时精度和零置信度断言，没有删业务断言或放宽生产权限。
+
+最终原90437 terminal0，/tmp/iqc-b-conversation-full-ui-final-20261029.log.exit=0，60文件501项全部通过，190.41s，包含新增26项和旧Drawer3项。最终原72129 vue-tsc --noEmit terminal0，/tmp/iqc-b-conversation-types-final-20261029.log.exit=0。既有Ant组件stub警告保留，diff检查通过；本轮未重跑Vite。
+
+证据为实际Vue组件、受控API/权限与Ant stub，不代表真实浏览器/岗位/PDP/后台导入写入/完整I1–I7已通过。用户再次确认所有输入已为处理好的会话；语音转换、ASR/转写生成、音频解码和说话人分离不列待办，既有时间戳、证据及业务字段保留。

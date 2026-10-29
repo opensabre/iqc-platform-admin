@@ -4,6 +4,7 @@ import { createApp, defineComponent, h, nextTick, reactive, type App } from "vue
 import ConversationDetailDrawer from "./ConversationDetailDrawer.vue";
 import { getConversation, type ConversationDetail } from "@/api/conversations";
 vi.mock("@/api/conversations", () => ({ getConversation: vi.fn() }));
+vi.mock("@/composables/permission", () => ({ usePermission: () => ({ can: (code: string) => code === "iqc:conversation:detail:view" }) }));
 vi.mock("ant-design-vue", () => ({ message: { error: vi.fn() } }));
 let app: App, host: HTMLDivElement;
 const pass = defineComponent({ setup(_, { slots }) { return () => h("div", slots.default?.()); } });
