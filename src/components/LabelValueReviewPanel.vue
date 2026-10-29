@@ -16,6 +16,7 @@ const messages = ref<Array<{ id: string; sequenceNo: number; content: string | n
 const loaded = ref(false), loading = ref(false), busy = ref(false), error = ref("");
 const requestComment = ref(""), comment = ref(""), status = ref<"KNOWN" | "UNKNOWN">(), value = ref<string | number | boolean>();
 const evidence = ref<string[]>([]);
+const evidenceUnavailable=ref(false);
 type Command = { kind: "REQUEST"; id: string; payload: { expectedRevision: number; requestId: string; comment: string } }
   | { kind: "DECIDE"; id: string; payload: { expectedRevision: number; decision: "COMPLETED" | "REJECTED"; labelDecision?: LabelValueDecision; comment: string } };
 const command = ref<Command>();
@@ -55,37 +56,40 @@ function display(value: unknown) { return value === true ? "是" : value === fal
 async function refresh() {
   if (disposed || !can("iqc:review:label:history")) return;
   const ticket = ++generation, id = props.label.id;
-  loaded.value = false; loading.value = true; error.value = "";
+  loaded.value = false; loading.value = true; error.value = "";history.value=[];messages.value=[];evidenceUnavailable.value=false;
   try {
     const [reviews, detail] = await Promise.all([
-      listLabelValueReviews(id), getConversationResultDetail(props.taskId, props.label.conversationId),
+      listLabelValueReviews(id), can("iqc:result:conversation:view")?getConversationResultDetail(props.taskId, props.label.conversationId).catch(()=>undefined):Promise.resolve(undefined),
     ]);
-    if (disposed || ticket !== generation) return;
-    history.value = reviews.map(review=>withheld(review)?{...review,reviewedResultJson:null,requestComment:null,reviewComment:null}:review); messages.value = detail.messages; loaded.value = true;
-  } catch { if (ticket === generation) error.value = "标签复核历史或会话证据加载失败，请刷新后重试。"; }
-  finally { if (ticket === generation) loading.value = false; }
+    if (disposed || ticket !== generation || !can("iqc:review:label:history")) return;
+    history.value = reviews.map(review=>withheld(review)?{...review,reviewedResultJson:null,requestComment:null,reviewComment:null}:review); messages.value = detail?.messages??[];evidenceUnavailable.value=!detail; loaded.value = true;
+  } catch { if (!disposed&&ticket === generation) error.value = "标签复核历史或会话证据加载失败，请刷新后重试。"; }
+  finally { if (!disposed&&ticket === generation) loading.value = false; }
 }
 onBeforeUnmount(()=>{disposed=true;generation++;history.value=[];messages.value=[];command.value=undefined;requestComment.value="";comment.value="";value.value=undefined;evidence.value=[];});
-watch(() => props.label.id, () => {
-  generation++; history.value = []; messages.value = []; loaded.value = false; command.value = undefined;
+watch(() => JSON.stringify([props.label.id,props.taskId,props.label.conversationId,can('iqc:review:label:history'),can('iqc:result:conversation:view'),can('iqc:review:label:create'),can('iqc:review:label:decide'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')]), () => {
+  const interrupted=!!command.value||busy.value;
+  generation++; history.value = []; messages.value = []; loaded.value = false; loading.value=false;command.value = undefined;evidenceUnavailable.value=false;
   requestComment.value = ""; comment.value = ""; status.value = undefined; value.value = undefined; evidence.value = [];
   void refresh();
-}, { immediate: true });
+  if(interrupted&&!disposed)message.info('权限或复核上下文已变化，已发出的操作不会撤销；请重新读取历史核对。');
+}, { immediate: true,flush:'sync' });
 async function submit() {
   const current = command.value;
-  if (disposed || !current || busy.value || !can(current.kind === "REQUEST" ? "iqc:review:label:create" : "iqc:review:label:decide")) return;
+  if (disposed || !current || busy.value || !terminal.value || !can("iqc:review:label:history") || !can(current.kind === "REQUEST" ? "iqc:review:label:create" : "iqc:review:label:decide")) return;
   busy.value = true; error.value = "";
-  const id = props.label.id;
+  const id = props.label.id,ticket=generation;
+  const permission=current.kind === "REQUEST" ? "iqc:review:label:create" : "iqc:review:label:decide";
   try {
     if (current.kind === "REQUEST") await requestLabelValueReview(current.id, current.payload);
     else await decideLabelValueReview(current.id, current.payload);
-    if (disposed || id !== props.label.id) return;
+    if (disposed || ticket!==generation || id !== props.label.id || !can(permission)) return;
     command.value = undefined; requestComment.value = ""; comment.value = ""; evidence.value = [];
     message.success(current.kind === "REQUEST" ? "标签复核已发起" : "标签裁决已保存，机器标签值和评分未被覆盖");
     await refresh();
-    emit("changed");
+    if(!disposed&&id===props.label.id&&can(permission)&&can("iqc:review:label:history"))emit("changed");
   } catch {
-    if (id === props.label.id) error.value = "提交结果未确认，请保持内容不变并重试原提交；若提示版本已变化，请刷新历史。";
+    if (!disposed&&ticket===generation&&id === props.label.id) error.value = "提交结果未确认，请保持内容不变并重试原提交；若提示版本已变化，请刷新历史。";
   } finally { busy.value = false; }
 }
 async function request() {
@@ -96,7 +100,7 @@ async function request() {
 }
 async function decide(rejected: boolean) {
   if (!editable.value || !pending.value || !can("iqc:review:label:decide") || !comment.value.trim()) return;
-  if (!rejected && (!status.value || status.value === "KNOWN" && (value.value === undefined || !evidence.value.length))) return;
+  if (!rejected && (!status.value || status.value === "KNOWN" && (value.value === undefined || !evidence.value.length || evidence.value.some(id=>!messages.value.some(item=>item.id===id))))) return;
   const labelDecision: LabelValueDecision | undefined = rejected ? undefined : {
     status: status.value!, value: status.value === "KNOWN" ? value.value! : null,
     evidenceMessageIds: status.value === "KNOWN" ? [...evidence.value] : [],
@@ -119,6 +123,7 @@ async function decide(rejected: boolean) {
       <a-alert v-if="error" type="error" show-icon :message="error" />
       <a-alert v-if="!terminal" type="info" message="任务结束后才能复核标签值。" />
       <a-alert v-if="contentWithheld" type="info" message="复核正文和评论未展示；轮次及处理状态保留，请取得完整会话及PII读取权限后刷新再裁决。" />
+      <a-alert v-if="evidenceUnavailable" type="info" message="会话证据暂不可读取，复核历史仍可查看；需要消息依据的确定值裁决须先取得权限并刷新。" />
       <a-alert v-if="damaged" type="error" message="历史人工修订无法验证，已停止后续操作，请联系管理员。" />
       <a-spin :spinning="loading">
         <p v-if="latestCompleted">当前有效人工修订：{{ latestCompleted.status === 'KNOWN' ? display(latestCompleted.value) : '未知' }}；机器值仍保留。</p>

@@ -218,6 +218,7 @@ function assetNames(items?: { name?: string; code?: string; versionNo?: number }
   return items?.map((item) => `${item.name || item.code || "未命名"}${item.versionNo ? ` V${item.versionNo}` : ""}`).join("、") || "无";
 }
 const { can } = usePermission();
+const canLabelExport=computed(()=>can("iqc:result:labels:export")&&can("iqc:sensitive:conversation:read")&&can("iqc:sensitive:pii:read"));
 function canQueue(task:InspectionTask,permission:string){return can(permission)&&(task.taskType!=="PIPELINE_BULK"||(can("iqc:task:execute")&&can("iqc:pipeline:task:create")));}
 const statusMap: Record<string, { label: string; color: string }> = {
   WAITING_INPUT: { label: "等待输入", color: "processing" },
@@ -635,9 +636,9 @@ async function refreshReviewedLabels() {
   } catch { message.error("复核已保存，但标签统计刷新失败，请重新打开任务结果"); }
 }
 async function exportLabels(){
-  if(disposed||!batchResult.value||!can("iqc:result:labels:export"))return;
+  if(disposed||!batchResult.value||!canLabelExport.value)return;
   const request=resultRequest,taskId=batchResult.value.taskId;
-  try { const response=await exportTaskLabelResults(taskId);if(disposed||request!==resultRequest||!can("iqc:result:labels:export"))return;const url=URL.createObjectURL(response.data); const link=document.createElement("a"); link.href=url; link.download="iqc-label-results.xlsx"; link.click(); URL.revokeObjectURL(url); }
+  try { const response=await exportTaskLabelResults(taskId);if(disposed||request!==resultRequest||!canLabelExport.value)return;const url=URL.createObjectURL(response.data); const link=document.createElement("a"); link.href=url; link.download="iqc-label-results.xlsx"; link.click(); URL.revokeObjectURL(url); }
   catch { message.error("标签结果导出失败"); }
 }
 async function showConversationResult(conversationId: string, evidenceJson?: string) {
@@ -680,7 +681,7 @@ function annotations(result?: InspectionResult) {
 watch([()=>can("iqc:task:view"),()=>can("iqc:agent:view"),()=>can("iqc:rule:view"),()=>can("iqc:rule-set:view"),()=>can("iqc:conversation:view"),()=>can("iqc:label:view"),()=>can("iqc:label-collection:view")],()=>{tasks.value=[];total.value=0;agents.value=[];rules.value=[];ruleSets.value=[];conversations.value=[];labelTree.value={categories:[],groups:[],labels:[]};labelCollections.value=[];void refresh();});
 watch(()=>can("iqc:task:create"),allowed=>{if(!allowed)modalOpen.value=false;});
 watch([()=>can("iqc:task:detail:view"),()=>can("iqc:task:view"),()=>can("iqc:sensitive:prompt:read"),()=>can("iqc:sensitive:conversation:read"),()=>can("iqc:sensitive:pii:read")],()=>{detailGeneration++;detailOpen.value=false;detail.value=undefined;configurationLoading.value=false;});
-watch([()=>can("iqc:result:summary:view"),()=>can("iqc:result:labels:view"),()=>can("iqc:result:label-insights:view"),()=>can("iqc:result:conversation:view"),()=>can("iqc:sensitive:prompt:read"),()=>can("iqc:sensitive:conversation:read"),()=>can("iqc:sensitive:pii:read")],()=>{resultRequest++;conversationRequest++;resultOpen.value=false;conversationResultOpen.value=false;batchResult.value=undefined;labelResults.value=[];labelInsights.value=undefined;conversationResult.value=undefined;selectedLabelReview.value=undefined;resultLoading.value=false;});
+watch([()=>can("iqc:result:labels:export"),()=>can("iqc:result:summary:view"),()=>can("iqc:result:labels:view"),()=>can("iqc:result:label-insights:view"),()=>can("iqc:result:conversation:view"),()=>can("iqc:sensitive:prompt:read"),()=>can("iqc:sensitive:conversation:read"),()=>can("iqc:sensitive:pii:read")],()=>{resultRequest++;conversationRequest++;resultOpen.value=false;conversationResultOpen.value=false;batchResult.value=undefined;labelResults.value=[];labelInsights.value=undefined;conversationResult.value=undefined;selectedLabelReview.value=undefined;resultLoading.value=false;},{flush:"sync"});
 onMounted(() => {
   void refresh();
   void loadDictionaries();
@@ -1310,7 +1311,7 @@ onBeforeUnmount(() => {
             ></a-table-column
           ></a-table></a-tab-pane><a-tab-pane v-if="can('iqc:result:labels:view')||can('iqc:result:label-insights:view')" key="labels" tab="洞察标签"
         ><a-alert type="info" show-icon message="标签独立于评分。确定结果包括明确否认（否）；未知不等于否，冲突或错误不代表已确定。确定结果率以已生成质检结果的会话为分母，兼容任务沿用命中口径。" style="margin-bottom:12px"/>
-        <a-row v-if="labelInsights" :gutter="12" style="margin-bottom:12px"><a-col :span="8"><a-statistic title="机器确定会话" :value="labelInsights.detectedConversationCount"/></a-col><a-col :span="8"><a-statistic title="机器确定结果率" :value="Number(labelInsights.detectionRate)*100" suffix="%" :precision="2"/></a-col><a-col :span="8"><a-button v-if="can('iqc:result:labels:export')" @click="exportLabels">导出 XLSX</a-button></a-col></a-row>
+        <a-row v-if="labelInsights" :gutter="12" style="margin-bottom:12px"><a-col :span="8"><a-statistic title="机器确定会话" :value="labelInsights.detectedConversationCount"/></a-col><a-col :span="8"><a-statistic title="机器确定结果率" :value="Number(labelInsights.detectionRate)*100" suffix="%" :precision="2"/></a-col><a-col :span="8"><a-button v-if="canLabelExport" @click="exportLabels">导出 XLSX</a-button></a-col></a-row>
         <p v-if="labelInsights?.reviewed">人工有效口径：确定结果会话 {{ labelInsights.reviewed.detectedConversationCount }} / 已生成结果会话 {{ labelInsights.conversationCount }}（{{ (Number(labelInsights.reviewed.detectionRate)*100).toFixed(2) }}%）；已人工修订 {{ labelInsights.reviewed.correctedValueCount }} 条，待复核 {{ labelInsights.reviewed.pendingReviewCount }} 条。未修订的值沿用机器结果，评分不受影响。</p>
         <p v-if="labelRows.length">已返回标签值记录：<a-tag v-for="item in labelStateCounts" :key="item.state">{{ item.name }} {{ item.count }}</a-tag></p>
         <p v-if="selectedLabelConversationId">当前仅显示会话 {{ selectedLabelConversationId }} 的标签值。<a-button type="link" @click="selectedLabelConversationId = undefined">查看全部会话</a-button></p>
