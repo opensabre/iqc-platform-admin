@@ -473,3 +473,8 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 原21006 terminal0，/tmp/iqc-b-stable-watch-pipeline-20261029.log.exit=0，5文件80项18.30s全部通过（新pipeline15+原生命周期13+资产21+标签22+选择器9）。原9113 vue-tsc仍在途，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log及.exit，源码冻结，终态另记。未重跑Vite或全量，旧647仅适用于489253c，不套本次新源。真实Vue/受控API权限与stub，非真实岗位/PDP/后台成功写或完整I1–I7。已处理会话输入不变，无语音转换/framework/共享SQL/部署。
 
 最终原9113 vue-tsc --noEmit terminal0，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log.exit=0，持续跟进原句柄未因安静重启。diff通过，无在途测试/构建。相关生产源码仍仅为A三个固定提交，本批没有修改生产逻辑。
+
+
+## 2026-10-30 Gold组件准确操作与读取
+
+金标load使用样本ID、独立gold:view与会话/PII权限实际值的稳定watch，原样权限刷新不重置未保存标注；敏感变化沿原load同步清副本、失效旧请求，并只重新读取当前授权投影。审核/历史/版本处理函数分别校验gold:review、gold:versions:view、gold:version:view；历史和版本撤权及时清原副本，旧响应不能恢复。标注/审核命令归属独立校验，写权限变化失效旧回执；写后金标详情读取独立检查gold:view。沿用原精确数字、独立审核、组织范围与受限投影，不新增API/表。Root仅构建，不写跑测试；父页面旧放弃确认与真实PDP/浏览器、全部PRD验收另行推进。
