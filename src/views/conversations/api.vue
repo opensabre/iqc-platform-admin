@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import { CheckOutlined, CopyOutlined } from "@ant-design/icons-vue";
 import { getApiConversationStats, type ApiConversationStats } from "@/api/conversations";
+import { usePermission } from "@/composables/permission";
 import { copyToClipboard } from "@/utils/clipboard";
 
+const {can}=usePermission();let disposed=false,generation=0;
 function localDateTime(date: Date) { const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 19); }
 const end = new Date(); const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
 const period = ref<[string, string]>([localDateTime(start), localDateTime(end)]);
@@ -18,12 +20,17 @@ const payload = `{
   "title": "客户账单咨询",
   "employeeId": "user-1001",
   "employeeName": "张三",
-  "employeeGroupId": "sales-east",
+  "employeeGroupId": "sales-east-team",
+  "employeeDepartmentId": "sales-east-department",
+  "customerLevel": "VIP",
+  "complaint": false,
+  "businessFields": {"orderAmount": 199.5, "priorityCustomer": true},
   "customerExternalId": "customer-9001",
   "customerName": "李先生",
   "customerContactMasked": "138****1234",
   "channel": "WECHAT",
   "startedTime": "2026-08-27T10:00:00",
+  "endedTime": "2026-08-27T10:15:00",
   "businessType": "ORDER",
   "businessNo": "ORDER-10001",
   "tags": ["高意向", "账单咨询"],
@@ -38,28 +45,30 @@ const jsCode = computed(() => `await fetch('${endpoint.value}', {
   headers: { Authorization: 'Bearer <access-token>', 'Content-Type': 'application/json' },
   body: JSON.stringify(${payload})
 });`);
-async function loadStats() { loading.value = true; try { stats.value = await getApiConversationStats(period.value[0], period.value[1]); } catch { message.error("接口入库统计加载失败"); } finally { loading.value = false; } }
+async function loadStats() {const request=++generation;stats.value=undefined;if(disposed||!can("iqc:conversation:api-stats:view")){loading.value=false;return;}loading.value=true;try{const result=await getApiConversationStats(period.value[0],period.value[1]);if(!disposed&&request===generation&&can("iqc:conversation:api-stats:view"))stats.value=result;}catch{if(!disposed&&request===generation)message.error("接口入库统计加载失败");}finally{if(!disposed&&request===generation)loading.value=false;}}
 async function copy(value: string) { try { await copyToClipboard(value); copiedValue.value = value; if (copyResetTimer) window.clearTimeout(copyResetTimer); copyResetTimer = window.setTimeout(() => { copiedValue.value = undefined; }, 1600); message.success("已复制"); } catch { message.error("复制失败，请手动选择内容复制"); } }
+watch(()=>can("iqc:conversation:api-stats:view"),()=>{void loadStats();});
+onBeforeUnmount(()=>{disposed=true;generation++;stats.value=undefined;if(copyResetTimer)window.clearTimeout(copyResetTimer);});
 onMounted(loadStats);
 </script>
 
 <template>
   <div class="api-page">
     <section class="page-intro"><div><span>API INTEGRATION</span><h2>接口对接</h2><p>上游系统支持单条或批量实时推送，平台负责幂等入库、批次归档和后续质检。</p></div><a-button @click="copy(endpoint)"><CheckOutlined v-if="copiedValue === endpoint"/><CopyOutlined v-else />{{copiedValue === endpoint ? "已复制" : "复制接口地址"}}</a-button></section>
-    <a-card :bordered="false" class="stats-card">
+    <a-card v-if="can('iqc:conversation:api-stats:view')" :bordered="false" class="stats-card">
       <div class="stats-toolbar"><div><strong>接口入库概览</strong><p>统计来源为 API 的会话，不包含文本上传。</p></div><a-range-picker v-model:value="period" show-time value-format="YYYY-MM-DDTHH:mm:ss" @change="loadStats" /></div>
       <a-spin :spinning="loading"><a-row :gutter="16">
-        <a-col :xs="12" :lg="6"><a-statistic title="入库会话" :value="stats?.conversationCount || 0" suffix="个" /></a-col>
-        <a-col :xs="12" :lg="6"><a-statistic title="消息总量" :value="stats?.messageCount || 0" suffix="条" /></a-col>
-        <a-col :xs="12" :lg="6"><a-statistic title="业务批次" :value="stats?.batchCount || 0" suffix="个" /></a-col>
-        <a-col :xs="12" :lg="6"><a-statistic title="携带外部编号" :value="stats?.externalIdCount || 0" suffix="个" /></a-col>
+        <a-col :xs="12" :lg="6"><a-statistic title="入库会话" :value="stats?.conversationCount ?? '—'" suffix="个" /></a-col>
+        <a-col :xs="12" :lg="6"><a-statistic title="消息总量" :value="stats?.messageCount ?? '—'" suffix="条" /></a-col>
+        <a-col :xs="12" :lg="6"><a-statistic title="业务批次" :value="stats?.batchCount ?? '—'" suffix="个" /></a-col>
+        <a-col :xs="12" :lg="6"><a-statistic title="携带外部编号" :value="stats?.externalIdCount ?? '—'" suffix="个" /></a-col>
       </a-row></a-spin>
     </a-card>
     <a-row :gutter="16">
       <a-col :xs="24" :xl="15"><a-card title="接口契约" :bordered="false">
-        <a-descriptions bordered :column="1" size="small"><a-descriptions-item label="单条地址"><a-space><a-typography-text>{{ endpoint }}</a-typography-text><a-tooltip :title="copiedValue === endpoint ? '已复制' : '复制地址'"><a-button type="link" size="small" class="copy-button" :aria-label="copiedValue === endpoint ? '已复制单条地址' : '复制单条地址'" @click="copy(endpoint)"><CheckOutlined v-if="copiedValue === endpoint" class="copy-success"/><CopyOutlined v-else /></a-button></a-tooltip></a-space></a-descriptions-item><a-descriptions-item label="批量地址"><a-space><a-typography-text>{{ batchEndpoint }}</a-typography-text><a-tooltip :title="copiedValue === batchEndpoint ? '已复制' : '复制地址'"><a-button type="link" size="small" class="copy-button" :aria-label="copiedValue === batchEndpoint ? '已复制批量地址' : '复制批量地址'" @click="copy(batchEndpoint)"><CheckOutlined v-if="copiedValue === batchEndpoint" class="copy-success"/><CopyOutlined v-else /></a-button></a-tooltip></a-space></a-descriptions-item><a-descriptions-item label="方法">POST</a-descriptions-item><a-descriptions-item label="内容类型">application/json</a-descriptions-item><a-descriptions-item label="批量请求体">{ batchNo?: string, conversations: Conversation[] }</a-descriptions-item><a-descriptions-item label="认证">OAuth2 Bearer Token 或平台登录会话；调用方需具备 iqc:conversation:upload</a-descriptions-item><a-descriptions-item label="幂等">externalId 对 API 来源全局幂等；无 externalId 时使用消息 SHA-256 指纹</a-descriptions-item><a-descriptions-item label="限制">单会话最多 5000 条消息；批量最多 100 个会话；单条默认每分钟 120 次</a-descriptions-item></a-descriptions>
+        <a-descriptions bordered :column="1" size="small"><a-descriptions-item label="单条地址"><a-space><a-typography-text>{{ endpoint }}</a-typography-text><a-tooltip :title="copiedValue === endpoint ? '已复制' : '复制地址'"><a-button type="link" size="small" class="copy-button" :aria-label="copiedValue === endpoint ? '已复制单条地址' : '复制单条地址'" @click="copy(endpoint)"><CheckOutlined v-if="copiedValue === endpoint" class="copy-success"/><CopyOutlined v-else /></a-button></a-tooltip></a-space></a-descriptions-item><a-descriptions-item label="批量地址"><a-space><a-typography-text>{{ batchEndpoint }}</a-typography-text><a-tooltip :title="copiedValue === batchEndpoint ? '已复制' : '复制地址'"><a-button type="link" size="small" class="copy-button" :aria-label="copiedValue === batchEndpoint ? '已复制批量地址' : '复制批量地址'" @click="copy(batchEndpoint)"><CheckOutlined v-if="copiedValue === batchEndpoint" class="copy-success"/><CopyOutlined v-else /></a-button></a-tooltip></a-space></a-descriptions-item><a-descriptions-item label="方法">POST</a-descriptions-item><a-descriptions-item label="内容类型">application/json</a-descriptions-item><a-descriptions-item label="批量请求体">{ batchNo?: string, conversations: Conversation[] }</a-descriptions-item><a-descriptions-item label="认证">OAuth2 Bearer Token 或平台登录会话；单条调用需 iqc:conversation:ingest；批量调用需 iqc:conversation:batch-ingest</a-descriptions-item><a-descriptions-item label="幂等">externalId 对 API 来源全局幂等；无 externalId 时使用消息 SHA-256 指纹</a-descriptions-item><a-descriptions-item label="限制">单会话最多 5000 条消息；批量最多 100 个会话；单条默认每分钟 120 次</a-descriptions-item></a-descriptions>
         <a-table class="field-table" :pagination="false" size="small" :data-source="[
-          {name:'externalId',type:'string',required:'建议',note:'上游会话唯一编号'}, {name:'employeeId',type:'string',required:'建议',note:'OpenSabre 用户 ID'}, {name:'employeeName',type:'string',required:'建议',note:'员工姓名历史快照'}, {name:'employeeGroupId',type:'string',required:'否',note:'员工所属部门 ID'}, {name:'customerExternalId',type:'string',required:'建议',note:'CRM 等上游客户编号'}, {name:'customerName',type:'string',required:'否',note:'客户显示名'}, {name:'customerContactMasked',type:'string',required:'否',note:'仅允许脱敏联系方式'}, {name:'channel',type:'string',required:'否',note:'WEB/PHONE/WECHAT/APP 等'}, {name:'startedTime',type:'datetime',required:'否',note:'会话开始时间'}, {name:'businessType/businessNo',type:'string',required:'否',note:'关联订单、工单等业务对象'}, {name:'tags',type:'array',required:'否',note:'业务标签'}, {name:'batchNo',type:'string',required:'否',note:'上游业务批次号'}, {name:'title',type:'string',required:'否',note:'会话标题'}, {name:'messages',type:'array',required:'是',note:'消息数组'}, {name:'messages[].role',type:'string',required:'是',note:'agent/user 等角色'}, {name:'messages[].time',type:'HH:mm:ss',required:'否',note:'相对会话时间'}, {name:'messages[].content',type:'string',required:'是',note:'消息正文'}]" row-key="name">
+          {name:'externalId',type:'string',required:'建议',note:'上游会话唯一编号'}, {name:'employeeId',type:'string',required:'建议',note:'OpenSabre 用户 ID'}, {name:'employeeName',type:'string',required:'建议',note:'员工姓名历史快照'}, {name:'employeeGroupId',type:'string',required:'否',note:'员工所属组织 / 团队 ID；与部门字段独立'}, {name:'employeeDepartmentId',type:'string',required:'否',note:'独立员工部门 ID，最长64字'}, {name:'asrStatus',type:'string',required:'否',note:'仅传上游真实转写状态，最长32字；未知省略，文本上传不代表转写成功'}, {name:'customerLevel',type:'string',required:'否',note:'上游客户等级，最长64字；未知省略'}, {name:'complaint',type:'boolean',required:'否',note:'真实投诉事实；true/false 与省略（未知）不同'}, {name:'businessFields',type:'object',required:'否',note:'最多64项；键以字母开头，含字母/数字/下划线，最长64字；值仅字符串（最多4096字）、有限数值、布尔值或null，总JSON最多65536字节；显式上游清单使用iqcInputManifestVersion=iqc-input-count-manifest-v1、iqcExpectedMessageCount正整数及iqcInputManifestRef引用，三项缺一不可；无版本时不测量完整率'}, {name:'customerExternalId',type:'string',required:'建议',note:'CRM 等上游客户编号'}, {name:'customerName',type:'string',required:'否',note:'客户显示名'}, {name:'customerContactMasked',type:'string',required:'否',note:'仅允许脱敏联系方式'}, {name:'channel',type:'string',required:'否',note:'WEB/PHONE/WECHAT/APP 等'}, {name:'startedTime/endedTime',type:'datetime',required:'否',note:'Asia/Shanghai 本地 ISO 时间（不含时区偏移）；结束不得早于开始'}, {name:'businessType/businessNo',type:'string',required:'否',note:'关联订单、工单等业务对象'}, {name:'tags',type:'array',required:'否',note:'业务标签'}, {name:'batchNo',type:'string',required:'否',note:'上游业务批次号'}, {name:'title',type:'string',required:'否',note:'会话标题'}, {name:'messages',type:'array',required:'是',note:'消息数组'}, {name:'messages[].role',type:'string',required:'是',note:'agent/user 等角色'}, {name:'messages[].time',type:'HH:mm:ss',required:'否',note:'相对会话时间'}, {name:'messages[].content',type:'string',required:'是',note:'消息正文'}, {name:'messages[].startMs/endMs',type:'integer',required:'否',note:'真实转写起止毫秒，须成对、非负且结束不早于开始，最大9007199254740991；未知省略'}, {name:'messages[].confidence',type:'number',required:'否',note:'上游真实置信度0至1，最多6位小数；未知省略'}]" row-key="name">
           <a-table-column title="字段" data-index="name" /><a-table-column title="类型" data-index="type" /><a-table-column title="必填" data-index="required" :width="70" /><a-table-column title="说明" data-index="note" />
         </a-table>
       </a-card></a-col>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import { listTemplates, materializeTemplateRules, type QualityTemplate } from "@/api/templates";
 import { usePermission } from "@/composables/permission";
@@ -15,7 +15,7 @@ const versionHistoryTarget = ref<PublishedTemplate>();
 const versionHistory = ref<PublishedTemplate[]>([]);
 const nextBeforeVersion = ref<number | null>(null);
 const keyword = ref(""), scene = ref<string>();
-let generation = 0;
+let generation = 0, legacyGeneration = 0, disposed = false;
 let historyGeneration = 0;
 const loadError = ref("");
 const activeTab = ref("published");
@@ -72,7 +72,7 @@ function chooseVersion(template: PublishedTemplate, readOnly: boolean) {
   openTemplate(template, readOnly);
 }
 function clearFilters() { keyword.value = ""; scene.value = undefined; }
-onBeforeUnmount(() => { generation++; historyGeneration++; });
+onBeforeUnmount(() => { disposed=true;generation++;historyGeneration++;legacyGeneration++;templates.value=[];selected.value=undefined; });
 
 async function refresh() {
   const request = ++generation;
@@ -91,20 +91,24 @@ async function refresh() {
 }
 
 async function changeTab(key: string | number) {
-  if (key !== "legacy" || templates.value.length) return;
-  try { templates.value = await listTemplates(); }
+  if (disposed || key !== "legacy" || templates.value.length || !can("iqc:template:view")) return;
+  const request=++legacyGeneration;
+  try { const rows=await listTemplates();if(!disposed&&request===legacyGeneration&&can("iqc:template:view"))templates.value=rows; }
   catch { message.error("规则素材加载失败"); }
 }
 
 function showDetail(template: QualityTemplate) {
+  if(disposed||!can("iqc:template:view"))return;
   selected.value = template;
   detailOpen.value = true;
 }
 
 async function createRules(template: QualityTemplate) {
+  if(disposed||creatingId.value||!can("iqc:template:materialize"))return;
   creatingId.value = template.id;
   try {
     const result = await materializeTemplateRules(template.id);
+    if(disposed||!can("iqc:template:materialize"))return;
     message.success(result.created
       ? `已创建 ${result.created} 条规则草稿，${result.existing} 条已存在`
       : `模板中的 ${result.existing} 条规则均已存在`);
@@ -115,6 +119,7 @@ async function createRules(template: QualityTemplate) {
   }
 }
 
+watch(()=>can("iqc:template:view"),allowed=>{if(!allowed){legacyGeneration++;templates.value=[];selected.value=undefined;detailOpen.value=false;if(activeTab.value==="legacy")activeTab.value="published";}else if(activeTab.value==="legacy")void changeTab("legacy");});
 onMounted(refresh);
 </script>
 <template>
@@ -144,7 +149,7 @@ onMounted(refresh);
       <a-empty v-else-if="!loading && !loadError && !filtered.length" description="没有匹配的业务模板，请调整场景或清除筛选。" />
     </a-spin>
   </a-tab-pane>
-  <a-tab-pane v-if="can('iqc:rule:manage')" key="legacy" tab="内置规则素材（专家）">
+  <a-tab-pane v-if="can('iqc:template:view')" key="legacy" tab="内置规则素材（专家）">
   <a-alert message="以下是用于准备规则草稿的素材，不是可直接执行的业务模板。创建规则并发布后，再编入业务方案。" type="info" show-icon style="margin-bottom: 16px" />
   <a-spin :spinning="loading">
     <a-row :gutter="[20, 20]">
@@ -159,7 +164,7 @@ onMounted(refresh);
           <div class="template-card__actions">
             <a-button type="link" @click="showDetail(template)">查看模板</a-button>
             <a-button
-              v-if="can('iqc:rule:manage')"
+              v-if="can('iqc:template:materialize')"
               type="primary"
               size="small"
               :loading="creatingId === template.id"

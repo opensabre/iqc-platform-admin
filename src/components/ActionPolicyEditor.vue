@@ -1,0 +1,123 @@
+<template>
+  <section>
+    <h3>动作策略</h3>
+    <p>动作使用冻结的生产结果；条件缺少事实时保留未知状态，取反不会把未知当成确定。每份结果的重复执行沿原来源幂等键核对。</p>
+    <a-space><a-select v-model:value="newType" :options="actionOptions" :disabled="disabled" style="min-width:220px"/><a-button :disabled="disabled || (modelValue?.actions.length || 0)>=100" @click="add">添加动作</a-button></a-space>
+    <a-card v-for="(action,index) in modelValue?.actions || []" :key="index" size="small" style="margin:12px 0">
+      <strong>{{ actionName(action) }}</strong> · 版本 {{ action.adapterVersion ?? 1 }}
+      <template v-if="editableAction(action)">
+        <a-form layout="vertical">
+          <a-form-item label="动作编码"><a-input :value="action.actionId" :disabled="disabled" @update:value="(value:string)=>patch(index,{actionId:value})"/></a-form-item>
+          <a-form-item label="触发条件"><ActionConditionEditor :model-value="action.condition" :finding-codes="findingCodes" :item-codes="itemCodes" :node-count="conditionCount(action.condition)" :disabled="disabled" @update:model-value="condition=>patch(index,{condition})"/></a-form-item>
+          <a-form-item v-if="action.type==='UPDATE_LABEL'" label="冻结标签值目标"><a-select :value="target(action)" :options="targets(action)" :disabled="disabled" style="min-width:260px" @change="(value:string)=>setTarget(index,value)"/></a-form-item>
+          <template v-if="action.type==='CREATE_RISK_EVENT'">
+            <p>风险等级和证据取实际生产结果；未知或无风险不创建确定风险事件。创建事件不表示风险已处置。</p>
+            <a-form-item label="风险类别编码"><a-input :value="text(action,'category')" :disabled="disabled" :maxlength="64" @update:value="(value:string)=>config(index,{category:value})"/></a-form-item>
+            <a-form-item label="风险标题"><a-input :value="text(action,'title')" :disabled="disabled" :maxlength="128" @update:value="(value:string)=>config(index,{title:value})"/></a-form-item>
+            <a-form-item label="风险描述"><a-textarea :value="text(action,'description')" :disabled="disabled" :maxlength="1000" @update:value="(value:string)=>config(index,{description:value})"/></a-form-item>
+          </template>
+          <template v-if="action.type==='SEND_ALERT'">
+            <p>使用公共通知服务已有场景与模板。参数按发布时配置冻结，不自动读取会话内容；未确认回执需核对，不自动重复发送。</p>
+            <a-form-item label="通知场景编码"><a-input :value="text(action,'sceneCode')" :disabled="disabled" :maxlength="64" @update:value="(value:string)=>config(index,{sceneCode:value})"/></a-form-item>
+            <a-form-item label="通知渠道"><a-select :value="text(action,'channel')" :options="[{value:'SMS',label:'短信'},{value:'EMAIL',label:'邮件'}]" :disabled="disabled" @change="(value:string)=>config(index,{channel:value})"/></a-form-item>
+            <a-form-item label="接收号码或邮件地址"><a-input :value="text(action,'target')" :disabled="disabled" :maxlength="255" @update:value="(value:string)=>config(index,{target:value})"/></a-form-item>
+            <a-form-item label="模板参数">
+              <div v-for="[key,value] in alertArgs(action)" :key="key" style="margin-bottom:8px">
+                <span>{{ key }}</span>
+                <a-textarea :value="value" :disabled="disabled" :maxlength="1000" @update:value="(value:string)=>setAlertArg(index,key,value)"/>
+                <a-button danger :disabled="disabled" @click="removeAlertArg(index,key)">移除参数</a-button>
+              </div>
+              <a-input :value="argumentNames[index] || ''" placeholder="新参数名称" :disabled="disabled || alertArgs(action).length>=50" :maxlength="64" @update:value="(value:string)=>argumentNames[index]=value"/>
+              <a-button :disabled="disabled || alertArgs(action).length>=50" @click="addAlertArg(index)">添加参数</a-button>
+              <a-alert v-if="argumentErrors[index]" type="error" :message="argumentErrors[index]"/>
+            </a-form-item>
+          </template>
+          <template v-if="action.type==='CREATE_REVIEW'">
+            <a-form-item label="复核原因"><a-textarea :value="text(action,'reason')" :disabled="disabled" :maxlength="1000" @update:value="(value:string)=>config(index,{reason:value})"/></a-form-item>
+            <a-form-item label="预期已有复核轮次"><a-input-number :value="number(action,'expectedRevision',0)" :disabled="disabled" :min="0" :max="2147483646" :precision="0" @change="(value:unknown)=>config(index,{expectedRevision:value})"/></a-form-item>
+          </template>
+          <template v-if="isExternalAction(action.type)">
+            <p>选择已配置的接收目的地及精确版本。业务载荷随策略冻结；未确认的回执进入核对，不自动重复发送。</p>
+            <a-form-item label="目的地编码"><a-input :value="text(action,'destinationId')" :disabled="disabled" :maxlength="64" @update:value="(value:string)=>config(index,{destinationId:value})"/></a-form-item>
+            <a-form-item label="目的地版本"><a-input-number :value="number(action,'destinationVersion',1)" :disabled="disabled" :min="1" :max="2147483647" :precision="0" @change="(value:unknown)=>config(index,{destinationVersion:value})"/></a-form-item>
+            <a-form-item label="业务载荷（JSON 对象）"><a-textarea :value="payloadDrafts[index] ?? JSON.stringify(action.configuration.payload,null,2)" :disabled="disabled" :rows="5" @update:value="(value:string)=>setPayload(index,value)"/><a-alert v-if="payloadErrors[index]" type="error" :message="payloadErrors[index]"/></a-form-item>
+          </template>
+          <template v-if="action.type==='ADD_TO_EVALUATION_CANDIDATE'">
+            <a-form-item label="候选生成方式"><a-select :value="action.adapterVersion??1" :options="[{value:1,label:'业务复核完成后沉淀（v1）'},{value:2,label:'自动挖掘待标注候选（v2）'}]" :disabled="disabled" @change="(value:1|2)=>candidateMode(index,value)"/></a-form-item>
+            <template v-if="isMinedCandidateAction(action)">
+              <a-alert type="info" show-icon message="从已提交会话筛选缺失、未知、置信度缺失/不足或观测分歧，不额外调用模型。不判断误报/漏报；候选仍须人工标注与独立审核。需要后台动作执行已启用及当前样本管理权限。"/>
+              <a-form-item label="挖掘事实范围"><a-select :value="miningCodes(action)" mode="multiple" :options="findingCodes.map(code=>({value:code,label:code}))" :disabled="disabled" @change="(value:string[])=>config(index,{findingCodes:value})"/></a-form-item>
+              <a-form-item label="低置信度阈值（0–1精确十进制文本）"><a-input :value="text(action,'threshold')" :maxlength="64" :disabled="disabled" placeholder="0.8" @update:value="(value:string)=>config(index,{threshold:value})"/><p>该数值只是筛选线索，不是正确率保证；缺失置信度也可入池。</p></a-form-item>
+            </template>
+            <template v-else>
+              <p>指定业务复核轮次完成后创建候选；候选仍需原标注和独立审核才能进入金标集。</p>
+              <a-form-item label="样本类型"><a-select :value="text(action,'sampleType')" :options="sampleOptions" :disabled="disabled" @change="(value:string)=>config(index,{sampleType:value})"/></a-form-item>
+              <a-form-item label="来源业务复核轮次"><a-input-number :value="number(action,'reviewRevision',1)" :disabled="disabled" :min="1" :max="2147483647" :precision="0" @change="(value:unknown)=>config(index,{reviewRevision:value})"/></a-form-item>
+            </template>
+            <a-form-item label="候选名称（可选）"><a-input :value="text(action,'name')" :disabled="disabled" :maxlength="128" @update:value="(value:string)=>optional(index,'name',value)"/></a-form-item>
+            <a-form-item label="样本标签（可选）"><a-select :value="tags(action)" mode="tags" :disabled="disabled" @change="(value:string[])=>config(index,{tags:value})"/></a-form-item>
+          </template>
+          <AutomaticRetryPolicyEditor :model-value="action.retry" :disabled="disabled" @update:model-value="retry=>patch(index,{retry})"/>
+          <a-form-item label="失败处理"><a-select :value="action.failureHandling" :options="[{value:'RECORD_ONLY',label:'仅记录'},{value:'ESCALATE_REVIEW',label:'确认失败后升级业务复核'}]" :disabled="disabled" @change="(value:'RECORD_ONLY'|'ESCALATE_REVIEW')=>patch(index,{failureHandling:value})"/></a-form-item>
+          <p>升级复核在确认失败且重试结束后进行；已有待处理复核时等待。未知回执仍需核对，不自动重发；未尝试的超期和阻塞不自动升级。</p>
+        </a-form>
+      </template>
+      <p v-else>此类型、版本或失败政策的原配置保持只读：{{ action.actionId }}。最多尝试 {{ action.retry?.maximumAttempts ?? 1 }} 次。</p>
+      <a-button danger :disabled="disabled" @click="remove(index)">移除动作</a-button>
+    </a-card>
+    <p v-if="!modelValue?.actions.length">未配置动作。</p>
+  </section>
+</template>
+<script setup lang="ts">
+import { ref } from 'vue';
+import type {ActionPolicy,FindingLabelPolicy} from '@/api/pipelines';
+import {always,conditionCount,editableAction,isMinedCandidateAction,isExternalAction,parseExternalActionPayload,supportedActionNames,type PolicyAction} from '@/api/action-policy-editor';
+import ActionConditionEditor from './ActionConditionEditor.vue';
+import AutomaticRetryPolicyEditor from './AutomaticRetryPolicyEditor.vue';
+const props=defineProps<{modelValue?:ActionPolicy|null;labels?:FindingLabelPolicy|null;findingCodes:string[];itemCodes:string[];disabled?:boolean}>();
+const emit=defineEmits<{'update:modelValue':[value:ActionPolicy]}>();
+const newType=ref<keyof typeof supportedActionNames>('SAVE_RESULT');
+const actionOptions=Object.entries(supportedActionNames).map(([value,label])=>({value,label}));
+const argumentNames=ref<Record<number,string>>({}),argumentErrors=ref<Record<number,string>>({});
+const payloadDrafts=ref<Record<number,string>>({}),payloadErrors=ref<Record<number,string>>({});
+function setPayload(index:number,value:string){
+  if(props.disabled)return;payloadDrafts.value[index]=value;
+  try{config(index,{payload:parseExternalActionPayload(value)});payloadErrors.value[index]='';}
+  catch(error){config(index,{payload:value});payloadErrors.value[index]=error instanceof Error?error.message:'业务载荷无效';}
+}
+const sampleOptions=[{value:'POSITIVE',label:'正样本'},{value:'NEGATIVE',label:'负样本'},{value:'FALSE_POSITIVE',label:'误报'},{value:'FALSE_NEGATIVE',label:'漏报'}];
+function miningCodes(action:PolicyAction){return Array.isArray(action.configuration.findingCodes)?action.configuration.findingCodes.filter((value):value is string=>typeof value==='string'):[];}
+function candidateMode(index:number,version:1|2){
+ if(props.disabled)return;const action=props.modelValue?.actions[index];if(!action||action.type!=='ADD_TO_EVALUATION_CANDIDATE'||version===(action.adapterVersion??1))return;
+ const configuration:Record<string,unknown>=version===2?{findingCodes:[],threshold:'0.8'}:{sampleType:'POSITIVE',reviewRevision:1};
+ for(const key of ['name','tags'])if(Object.hasOwn(action.configuration,key))configuration[key]=action.configuration[key];
+ patch(index,{adapterVersion:version,configuration});
+}
+function actionName(action:PolicyAction){return Object.hasOwn(supportedActionNames,action.type)?supportedActionNames[action.type as keyof typeof supportedActionNames]:action.type;}
+function update(actions:PolicyAction[]){if(!props.disabled)emit('update:modelValue',{schemaVersion:'iqc-action-policy-v1',actions});}
+function patch(index:number,value:Partial<PolicyAction>){if(props.disabled)return;update((props.modelValue?.actions||[]).map((action,i)=>i===index?{...action,...value}:action));}
+function config(index:number,value:Record<string,unknown>){const action=props.modelValue?.actions[index];if(action)patch(index,{configuration:{...action.configuration,...value}});}
+function optional(index:number,key:string,value:string){const action=props.modelValue?.actions[index];if(!action)return;const configuration={...action.configuration};if(value.trim())configuration[key]=value;else delete configuration[key];patch(index,{configuration});}
+function text(action:PolicyAction,key:string){return typeof action.configuration[key]==='string'?String(action.configuration[key]):'';}
+function number(action:PolicyAction,key:string,fallback:number){return action.configuration[key]===undefined?fallback:typeof action.configuration[key]==='number'?action.configuration[key] as number:undefined;}
+function tags(action:PolicyAction){return Array.isArray(action.configuration.tags)?action.configuration.tags.filter((value):value is string=>typeof value==='string'):[];}
+function alertArgs(action:PolicyAction):[string,string][]{const args=action.configuration.args;return args && typeof args==='object' && !Array.isArray(args)?Object.entries(args).map(([key,value])=>[key,typeof value==='string'?value:'']):[];}
+function setAlertArg(index:number,key:string,value:string){const action=props.modelValue?.actions[index];if(action)config(index,{args:{...action.configuration.args as Record<string,unknown>,[key]:value}});}
+function removeAlertArg(index:number,key:string){const action=props.modelValue?.actions[index];if(!action)return;const args={...action.configuration.args as Record<string,unknown>};delete args[key];config(index,{args});}
+function addAlertArg(index:number){
+  if(props.disabled)return;const action=props.modelValue?.actions[index],key=argumentNames.value[index]||'';
+  if(!action || alertArgs(action).length>=50)return;
+  if(!/^[A-Za-z0-9_]{1,64}$/.test(key) || alertArgs(action).some(([existing])=>existing===key)){argumentErrors.value[index]='名称须为1到64位字母、数字或下划线，且不能重复';return;}
+  setAlertArg(index,key,'');argumentNames.value[index]='';argumentErrors.value[index]='';
+}
+function target(action:PolicyAction){return typeof action.configuration.labelId==='string' && typeof action.configuration.valueCode==='string'?JSON.stringify([action.configuration.labelId,action.configuration.valueCode]):undefined;}
+function targets(action:PolicyAction){const values=(props.labels?.bindings || []).map(binding=>({value:JSON.stringify([binding.labelId,binding.valueCode]),label:`${binding.labelId} / ${binding.valueCode} · v${binding.labelVersion}`}));const selected=target(action);if(selected && !values.some(value=>value.value===selected))values.unshift({value:selected,label:'原目标（当前绑定中不存在）'});return values;}
+function setTarget(index:number,value:string){const binding=(props.labels?.bindings||[]).find(item=>JSON.stringify([item.labelId,item.valueCode])===value);if(binding)patch(index,{configuration:{labelId:binding.labelId,valueCode:binding.valueCode}});}
+function add(){
+  if(props.disabled)return;const actions=props.modelValue?.actions || [];if(actions.length>=100)return;
+  let id=1;while(actions.some(action=>action.actionId===`action_${id}`))id++;
+  const configuration:Record<string,unknown>=isExternalAction(newType.value)?{destinationId:'',destinationVersion:1,payload:{}}:newType.value==='SEND_ALERT'?{sceneCode:'',channel:'EMAIL',target:'',args:{}}:newType.value==='CREATE_RISK_EVENT'?{category:'',title:'',description:''}:newType.value==='CREATE_REVIEW'?{reason:'',expectedRevision:0}:newType.value==='ADD_TO_EVALUATION_CANDIDATE'?{sampleType:'POSITIVE',reviewRevision:1}:{};
+  update([...actions,{actionId:`action_${id}`,type:newType.value,adapterVersion:1,condition:['CREATE_RISK_EVENT','SEND_ALERT'].includes(newType.value)?{kind:'RISK_AT_LEAST',code:null,value:'LOW',children:[]}:always(),idempotency:'PRODUCTION_SOURCE_V1',retry:null,failureHandling:'RECORD_ONLY',configuration}]);
+}
+function remove(index:number){argumentNames.value={};argumentErrors.value={};payloadDrafts.value={};payloadErrors.value={};update((props.modelValue?.actions||[]).filter((_,i)=>i!==index));}
+</script>

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, defineComponent, h, nextTick, type App } from "vue";
 import Catalog from "./index.vue";
 import { listPublishedTemplates, type PublishedTemplate } from "@/api/schemes";
-import { listTemplates } from "@/api/templates";
+import { listTemplates, materializeTemplateRules } from "@/api/templates";
+import { message } from "ant-design-vue";
 const state = vi.hoisted(() => ({ permissions: ["iqc:scheme:view", "iqc:scheme:use", "iqc:conversation:view", "iqc:task:execute"] }));
 vi.mock("@/composables/permission", () => ({ usePermission: () => ({ can: (code: string) => state.permissions.includes(code) }) }));
 vi.mock("ant-design-vue", () => ({ message: { success: vi.fn(), error: vi.fn() } }));
@@ -66,4 +67,27 @@ describe("business template catalog", () => {
   it("does not fetch the catalog without viewing permission", async () => {
     state.permissions = []; mount(); await settle(); expect(listPublishedTemplates).not.toHaveBeenCalled(); expect(host.textContent).toContain("暂无业务模板查看权限");
   });
+  it("legacy view and old rule manage allow preview but cannot materialize", async () => {
+    state.permissions = ["iqc:template:view", "iqc:rule:manage"]; mount(); await settle();
+    const vm=(app as any)._instance.setupState;const legacy={id:"legacy",name:"Legacy"};
+    vm.showDetail(legacy);expect(vm.detailOpen).toBe(true);
+    await vm.createRules(legacy);expect(materializeTemplateRules).not.toHaveBeenCalled();
+  });
+  it("materializes only with the exact new operation permission", async () => {
+    state.permissions = ["iqc:template:view", "iqc:template:materialize"];
+    vi.mocked(materializeTemplateRules).mockResolvedValue({created:2,existing:0} as any);
+    mount();await settle();const vm=(app as any)._instance.setupState;
+    await vm.createRules({id:"legacy"});expect(materializeTemplateRules).toHaveBeenCalledWith("legacy");
+    expect(message.success).toHaveBeenCalled();
+  });
+  it("does not announce late materialization success after write permission revocation", async () => {
+    state.permissions = ["iqc:template:view", "iqc:template:materialize"];
+    let resolve!:(result:any)=>void;
+    vi.mocked(materializeTemplateRules).mockReturnValueOnce(new Promise(done=>resolve=done));
+    mount();await settle();const vm=(app as any)._instance.setupState;
+    const pending=vm.createRules({id:"legacy"});state.permissions=["iqc:template:view"];
+    resolve({created:2,existing:0});await pending;expect(message.success).not.toHaveBeenCalled();
+    expect(vm.creatingId).toBe("");
+  });
+
 });

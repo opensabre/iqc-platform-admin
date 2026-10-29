@@ -50,4 +50,17 @@ describe("business review queue", () => {
     button("查询业务复核").click(); await settle();
     expect(host.textContent).toContain("待办加载失败"); expect(button("打开结果")).toBeUndefined();
   });
+  it.each(["INVALID", "UNKNOWN_STAGE"])("keeps %s stages history-only", async stage => {
+    vi.mocked(listBusinessReviewQueue).mockResolvedValue({ records: [{ ...item, stage: stage as BusinessReviewQueueItem["stage"] }], current: 1, size: 20, total: 1 });
+    mount(); await settle(); expect(host.textContent).toContain("阶段数据损坏");
+    expect(button("打开结果").disabled).toBe(true); button("打开结果").click(); await settle();
+    expect(state.push).not.toHaveBeenCalled(); await button("复核历史").click(); await settle();
+    expect(host.textContent).toContain("history:canonical:true");
+  });
+  it.each([["SECOND_REVIEW", "二审"], ["ARBITRATION", "仲裁"]] as const)("opens current %s results", async (stage,label) => {
+    vi.mocked(listBusinessReviewQueue).mockResolvedValue({ records: [{ ...item, stage }], current: 1, size: 20, total: 1 });
+    mount(); await settle(); expect(host.textContent).toContain(label); expect(button("打开结果").disabled).toBe(false);
+    button("打开结果").click(); await settle(); expect(state.push).toHaveBeenCalledTimes(1);
+  });
+
 });

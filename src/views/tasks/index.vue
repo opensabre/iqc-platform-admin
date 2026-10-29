@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import type {AutomaticRetryState} from '@/api/automatic-retry';
+import AutomaticRetryPanel from '@/components/AutomaticRetryPanel.vue';
+import ModelGatewayCalls from '@/components/ModelGatewayCalls.vue';
+import TriggerAttemptHistory from '@/components/TriggerAttemptHistory.vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { message, Modal } from "ant-design-vue";
 import { useRouter } from "vue-router";
 import {
   cancelTask,
   createTask,
   getTask,
+  getTaskConfiguration,
   listTasks,
   runTask,
   pauseTask,
@@ -77,6 +82,10 @@ const labelTree = ref<LabelTree>({ categories: [], groups: [], labels: [] });
 const labelCollections = ref<LabelCollection[]>([]);
 const detailOpen = ref(false);
 const detail = ref<InspectionTask>();
+const configurationLoading=ref(false);let detailGeneration=0;
+watch(detailOpen,open=>{if(!open){++detailGeneration;detail.value=undefined;configurationLoading.value=false;}});
+onBeforeUnmount(()=>{++detailGeneration;detail.value=undefined;});
+function updateRetryDetail(value:AutomaticRetryState){if(!detail.value)return;detail.value={...detail.value,retryPolicyHash:value.policyHash??undefined,automaticRetryEnabled:value.enabled,retryNotBeforeUtc:value.nextRetryAtUtc??undefined,retryError:value.error??undefined};}
 const resultOpen = ref(false),
   conversationResultOpen = ref(false),
   resultLoading = ref(false);
@@ -94,15 +103,16 @@ function showConversationLabels(conversationId: string) {
   selectedLabelConversationId.value = conversationId;
   resultTab.value = "labels";
 }
-const labelStateCounts = computed(() => ["KNOWN", "UNKNOWN", "CONFLICT", "ERROR", "HIT"].map(state => ({
-  state, name: ({ KNOWN: "确定", UNKNOWN: "未知", CONFLICT: "冲突", ERROR: "错误", HIT: "兼容命中" } as Record<string, string>)[state],
+const labelStateCounts = computed(() => ["KNOWN", "UNKNOWN", "CONFLICT", "ERROR", "NOT_EVALUATED", "HIT"].map(state => ({
+  state, name: ({ KNOWN: "确定", UNKNOWN: "未知", CONFLICT: "冲突", ERROR: "错误", NOT_EVALUATED: "未评估", HIT: "兼容命中" } as Record<string, string>)[state],
   count: labelRows.value.filter(row => row.presentation.state === state).length,
 })));
 const labelInsights = ref<LabelInsightSummary>();
 const conversationResult = ref<ConversationResultDetail>();
 const taskStatuses = ref<DictionaryItem[]>([]);
-const filters = ref({ keyword: "", status: undefined as string | undefined, taskType: undefined as string | undefined });
+const filters = ref({ keyword: "", status: undefined as string | undefined, taskType: undefined as string | undefined, parentTaskId:undefined as string|undefined });
 let pollingTimer: number | undefined;
+let disposed=false,listGeneration=0,pollGeneration=0,conversationRequest=0,polling=false;
 const form = ref({
   name: "",
   taskType: "BATCH" as "BATCH" | "SCHEDULED" | "SAMPLE",
@@ -164,6 +174,7 @@ function parseSnapshot<T>(value?: string | T): T | undefined {
     return undefined;
   }
 }
+const detailSnapshotsVisible=computed(()=>!detail.value?.privacy||detail.value.privacy.policyVersion==='iqc-task-read-v1'&&detail.value.privacy.snapshotsVisible===true&&detail.value.privacy.canReadFull===true&&detail.value.privacy.canReadPii===true&&detail.value.privacy.canReadPrompt===true);
 const detailAgent = computed(() =>
   parseSnapshot<TaskAgentSnapshot>(detail.value?.agentSnapshotJson)
 );
@@ -207,7 +218,12 @@ function assetNames(items?: { name?: string; code?: string; versionNo?: number }
   return items?.map((item) => `${item.name || item.code || "未命名"}${item.versionNo ? ` V${item.versionNo}` : ""}`).join("、") || "无";
 }
 const { can } = usePermission();
+const canLabelExport=computed(()=>can("iqc:result:labels:export")&&can("iqc:sensitive:conversation:read")&&can("iqc:sensitive:pii:read"));
+function canQueue(task:InspectionTask,permission:string){return can(permission)&&(task.taskType!=="PIPELINE_BULK"||(can("iqc:task:execute")&&can("iqc:pipeline:task:create")));}
 const statusMap: Record<string, { label: string; color: string }> = {
+  WAITING_INPUT: { label: "等待输入", color: "processing" },
+  TRIGGER_EXPIRED: { label: "触发已过期", color: "default" },
+  TRIGGER_CONFLICT: { label: "触发内容冲突", color: "error" },
   CREATED: { label: "待处理", color: "default" },
   QUEUED: { label: "排队中", color: "processing" },
   SCHEDULED: { label: "等待调度", color: "processing" },
@@ -222,6 +238,15 @@ const statusMap: Record<string, { label: string; color: string }> = {
   NO_DATA: { label: "无匹配数据", color: "default" },
   CANCELLED: { label: "已取消", color: "default" },
 };
+const statusOptions = computed(() => {
+  const options = [...taskStatuses.value];
+  for (const [value, presentation] of Object.entries(statusMap)) {
+    if (!options.some(item => item.value === value)) options.push({ value, label: presentation.label });
+  }
+  return options;
+});
+function triggerSourceLabel(value?: string) { return value === 'API' ? 'API 接入' : value === 'EVENT' ? '事件接入' : value || '—'; }
+function budgetWaitReason(code?:string|null){const reasons:Record<string,string>={MODEL_TOKEN_BUDGET_EXHAUSTED:'Token预算不足',MODEL_COST_BUDGET_EXHAUSTED:'金额预算不足',MODEL_BUDGET_QUARANTINED:'模型预算核定范围失效，需处理隔离',MODEL_BUDGET_BOUND_UNVERIFIED:'上下文、部署或输出限制尚未核定',MODEL_COST_BUDGET_PRICE_UNVERIFIED:'模型价格尚未核定'};return code?reasons[code]??'预算条件需管理员核对':'预算条件需管理员核对';}
 function statusLabel(status: string) {
   return (
     taskStatuses.value.find((item) => item.value === status)?.label ||
@@ -239,21 +264,23 @@ async function loadDictionaries() {
 }
 
 async function refresh() {
-  loading.value = true;
+  if(disposed)return;
+  const request=++listGeneration;loading.value = true;
   try {
     const [taskPage, agentList, ruleList, ruleSetList, conversationPage, taxonomy, collections] =
       await Promise.all([
-        listTasks({ current: page.value, size: pageSize.value, ...filters.value }),
-        listAgents().catch(() => {
+        can("iqc:task:view")?listTasks({ current: page.value, size: pageSize.value, ...filters.value }):Promise.resolve({records:[],total:0}),
+        can("iqc:agent:view")?listAgents().catch(() => {
           message.warning("智能体列表不可用，仍可创建纯规则任务");
           return [] as QualityAgent[];
-        }),
-        listRules(),
-        listRuleSets(),
-        listConversations({ current: 1, size: 100 }),
-        getLabelTree(),
-        listLabelCollections(),
+        }):Promise.resolve([]),
+        can("iqc:rule:view")?listRules():Promise.resolve([]),
+        can("iqc:rule-set:view")?listRuleSets():Promise.resolve([]),
+        can("iqc:conversation:view")?listConversations({ current: 1, size: 100 }):Promise.resolve({records:[]}),
+        can("iqc:label:view")?getLabelTree():Promise.resolve({categories:[],groups:[],labels:[]}),
+        can("iqc:label-collection:view")?listLabelCollections():Promise.resolve([]),
       ]);
+    if(disposed||request!==listGeneration)return;
     tasks.value = taskPage.records;
     total.value = taskPage.total;
     agents.value = agentList.filter((item) => item.status === "PUBLISHED");
@@ -265,29 +292,33 @@ async function refresh() {
     labelTree.value = taxonomy;
     labelCollections.value = collections.filter((item) => item.status === "PUBLISHED");
   } catch {
-    message.error("任务列表加载失败");
+    if(!disposed&&request===listGeneration)message.error("任务列表加载失败");
   } finally {
-    loading.value = false;
+    if(!disposed&&request===listGeneration)loading.value = false;
   }
 }
 async function poll() {
+  if(disposed||loading.value||polling||!can("iqc:task:view"))return;
+  const epoch=listGeneration,request=++pollGeneration;
   if (
     !tasks.value.some((item) =>
-      ["SCHEDULED", "MATERIALIZING", "QUEUED", "RUNNING", "PAUSE_REQUESTED", "CANCEL_REQUESTED"].includes(item.status)
+      ["WAITING_INPUT", "SCHEDULED", "MATERIALIZING", "QUEUED", "RUNNING", "PAUSE_REQUESTED", "CANCEL_REQUESTED"].includes(item.status)
     )
   )
     return;
+  polling=true;
   try {
     const result = await listTasks({
       current: page.value,
       size: pageSize.value,
       ...filters.value,
     });
+    if(disposed||epoch!==listGeneration||request!==pollGeneration||!can("iqc:task:view"))return;
     tasks.value = result.records;
     total.value = result.total;
   } catch {
     /* 刷新失败不打断正在执行的任务 */
-  }
+  } finally { polling=false; }
 }
 async function changePage(current: number, size: number) {
   page.value = current;
@@ -299,21 +330,49 @@ async function search() {
   await refresh();
 }
 async function resetFilters() {
-  filters.value = { keyword: "", status: undefined, taskType: undefined };
+  filters.value = { keyword: "", status: undefined, taskType: undefined, parentTaskId:undefined };
   await search();
 }
+async function showBulkChildren(id:string){
+  if(!can('iqc:task:view'))return;
+  filters.value={keyword:'',status:undefined,taskType:undefined,parentTaskId:id};page.value=1;detailOpen.value=false;
+  await refresh();
+}
+function bulkProgressText(task:InspectionTask):string {
+  const progress=task.taskPresentation?.bulk;
+  if(!progress||progress.schemaVersion!=='iqc-bulk-presentation-v1'||!/^\d{1,19}$/.test(progress.scannedConversations)||!/^\d{1,19}$/.test(progress.selectedConversations)||!Number.isSafeInteger(progress.scannedPages)||progress.scannedPages<0||typeof progress.scanComplete!=='boolean')return '扫描进度暂不可用，请刷新详情';
+  const scanned=BigInt(progress.scannedConversations),selected=BigInt(progress.selectedConversations);
+  if(selected>scanned||scanned>9223372036854775807n)return '扫描进度暂不可用，请刷新详情';
+  return `已扫描 ${scanned} 个候选会话，已选中 ${selected} 个会话；${progress.scanComplete?'扫描已完成，任务状态仍以分片处理结果为准':'扫描尚未完成'}`;
+}
 function taskTypeLabel(taskType?: string) {
+  if(taskType === "PIPELINE_BULK") return "全量分片批次";
+  if(taskType === "PIPELINE_EVALUATION") return "固定数据集评测";
+  if(taskType === "PIPELINE_TRIAL") return "流水线试跑";
+  if(taskType === "PIPELINE") return "流水线质检";
   return taskType === "SCHEDULED" ? "定时筛选" : taskType === "SAMPLE" ? "随机抽样" : "立即批量";
 }
 async function showDetail(id: string) {
+  if(disposed||!can("iqc:task:detail:view"))return;
+  const ticket=++detailGeneration;detail.value=undefined;configurationLoading.value=false;
   try {
-    detail.value = await getTask(id);
-    detailOpen.value = true;
-  } catch {
-    message.error("任务详情加载失败");
-  }
+    const row=await getTask(id);if(disposed||ticket!==detailGeneration||!can("iqc:task:detail:view"))return;
+    detail.value=row;detailOpen.value=true;
+  } catch {if(ticket===detailGeneration)message.error("任务详情加载失败");}
 }
+async function readConfiguration(){
+  const current=detail.value;if(disposed||!current||configurationLoading.value||!can("iqc:task:view")||!can("iqc:sensitive:prompt:read"))return;
+  const ticket=++detailGeneration;configurationLoading.value=true;
+  detail.value={...current,agentSnapshotJson:undefined,ruleSnapshotJson:undefined,labelScopeSnapshotJson:undefined,autoExpandPrompt:undefined,
+    privacy:{policyVersion:'iqc-task-read-v1',snapshotsVisible:false,canReadFull:false,canReadPii:false,canReadPrompt:false,withheldFields:['agentSnapshotJson','ruleSnapshotJson','labelScopeSnapshotJson','autoExpandPrompt']}};
+  try{const row=await getTaskConfiguration(current.id);
+    if(ticket===detailGeneration&&detailOpen.value&&detail.value?.id===current.id)detail.value=row;
+  }catch{if(ticket===detailGeneration&&detailOpen.value)message.error('冻结配置读取失败，请核对当前任务、完整会话、PII及Prompt权限。');}
+  finally{if(ticket===detailGeneration)configurationLoading.value=false;}
+}
+
 function openCreate() {
+  if(disposed||creating.value||!can("iqc:task:create"))return;
   const recent = localStorage.getItem("iqc-last-conversation-id");
   form.value = {
     name: "",
@@ -407,6 +466,7 @@ function openSnapshotRule(rule: TaskRuleSnapshot) {
   openRelated(`${path}?ruleId=${encodeURIComponent(rule.id)}`);
 }
 async function submit() {
+  if(disposed||creating.value||!can("iqc:task:create"))return;
   if (![1, 2].every(validateStep)) return;
   creating.value = true;
   try {
@@ -469,6 +529,7 @@ async function submit() {
   }
 }
 function conversationCount(task: InspectionTask) {
+  if(task.taskPresentation)return task.taskPresentation.schemaVersion==='iqc-task-presentation-v1'?task.taskPresentation.conversationCount??'未知':'未知';
   try {
     return task.conversationIdsJson
       ? JSON.parse(task.conversationIdsJson).length
@@ -480,11 +541,13 @@ function conversationCount(task: InspectionTask) {
   }
 }
 async function cancel(id: string) {
+  if(disposed||!can("iqc:task:cancel"))return;
   Modal.confirm({
     title: "确认取消任务？",
     content:
-      "待处理、排队中或执行中的任务可以取消；执行中的任务会在当前消息完成后停止。",
+      "取消后停止后续执行和自动重试；执行中的任务在当前处理完成后停止，已失败的历史执行记录保留。",
     async onOk() {
+      if(disposed||!can("iqc:task:cancel"))return;
       await cancelTask(id);
       message.success("任务已取消");
       await refresh();
@@ -492,6 +555,8 @@ async function cancel(id: string) {
   });
 }
 async function run(id: string) {
+  if(disposed||!can("iqc:task:execute"))return;
+  const task=tasks.value.find(row=>row.id===id);if(task&&!canQueue(task,"iqc:task:execute"))return;
   try {
     await runTask(id);
     message.success("任务已进入执行队列");
@@ -501,25 +566,37 @@ async function run(id: string) {
   }
 }
 async function pause(id: string) {
+  if(disposed||!can("iqc:task:pause"))return;
   try { await pauseTask(id); message.success("已提交暂停请求，将在当前处理单元结束后暂停"); await refresh(); }
   catch { message.error("任务暂停失败"); }
 }
 async function resume(id: string) {
+  if(disposed||!can("iqc:task:resume"))return;
+  const task=tasks.value.find(row=>row.id===id);if(task&&!canQueue(task,"iqc:task:resume"))return;
   try { await resumeTask(id); message.success("任务已恢复执行"); await refresh(); }
   catch { message.error("任务恢复失败"); }
 }
 async function reprioritize(task: InspectionTask, offset:number) {
+  if(disposed||!can("iqc:task:priority"))return;
   try { await changeTaskPriority(task.id, (task.queuePriority || 0) + offset); message.success("任务优先级已调整"); await refresh(); }
   catch { message.error("当前状态不能调整优先级"); }
 }
 function removeTask(task:InspectionTask) {
-  Modal.confirm({ title:"确认删除任务？", content:"仅逻辑删除任务入口，历史结果和审计记录仍会保留。", async onOk(){ await deleteTask(task.id); message.success("任务已删除"); await refresh(); } });
+  if(disposed||!can("iqc:task:delete"))return;
+  if(task.taskPresentation?.bulkShard){message.info('分片需从父批次统一清理');return;}
+  Modal.confirm({ title:task.taskType==='PIPELINE_BULK'?'确认清理整个批次？':'确认删除任务？', content:task.taskType==='PIPELINE_BULK'?'将统一隐藏父任务及全部终态分片入口，保留历史结果和审计。若仍有运行或暂停的分片，请先取消批次并等待回收。':'仅逻辑删除任务入口，历史结果和审计记录仍会保留。', async onOk(){ if(disposed||!can("iqc:task:delete"))return;await deleteTask(task.id); message.success("任务已删除"); await refresh(); } });
 }
 let resultRequest = 0;
 async function showResults(id: string, labelResultId?: string, openLabels = false) {
-  const request = ++resultRequest;
+  if(disposed)return;
+  const request=++resultRequest;conversationRequest++;
+  let task = tasks.value.find(row => row.id === id);
+  if (!task&&can("iqc:task:detail:view")) { try { task = await getTask(id); } catch { message.error("任务加载失败"); return; } }
+  if(disposed||request!==resultRequest)return;
+  if (task?.taskType === "PIPELINE_EVALUATION") { if(!can("iqc:evaluation:report:view"))return;await router.push({path:"/evaluation/tasks",query:{taskId:id}}); return; }
+  if(!can("iqc:result:summary:view"))return;
   selectedLabelReview.value = undefined;
-  resultTab.value = openLabels ? "labels" : "inspection";
+  resultTab.value = openLabels&&can("iqc:result:labels:view") ? "labels" : "inspection";
   selectedLabelConversationId.value = undefined;
   batchResult.value = undefined;
   labelResults.value = [];
@@ -528,18 +605,18 @@ async function showResults(id: string, labelResultId?: string, openLabels = fals
   try {
     const results = await Promise.all([
       getBatchResultSummary(id),
-      getTaskLabelResults(id),
-      getTaskLabelInsights(id),
+      can("iqc:result:labels:view")?getTaskLabelResults(id):Promise.resolve([]),
+      can("iqc:result:label-insights:view")?getTaskLabelInsights(id):Promise.resolve(undefined),
     ]);
-    if (request !== resultRequest) return;
+    if (disposed||request !== resultRequest||!can("iqc:result:summary:view")) return;
     [batchResult.value, labelResults.value, labelInsights.value] = results;
     resultOpen.value = true;
-    if (labelResultId) {
+    if (labelResultId && can("iqc:result:labels:view")) {
       resultTab.value = "labels";
       const label = labelResults.value.find(row => row.id === labelResultId);
-      if (label && can("iqc:review:view")) selectedLabelReview.value = label;
+      if (label && can("iqc:review:label:history")) selectedLabelReview.value = label;
       else message.warning("该标签值已不属于当前任务结果，或当前账号没有复核查看权限");
-    }
+    } else if(labelResultId) message.warning("当前未授权读取标签结果");
   } catch {
     if (request === resultRequest) message.error("批次结果加载失败");
   } finally {
@@ -548,10 +625,10 @@ async function showResults(id: string, labelResultId?: string, openLabels = fals
 }
 async function refreshReviewedLabels() {
   if (!batchResult.value) return;
-  const taskId = batchResult.value.taskId;
+  const taskId = batchResult.value.taskId,request=resultRequest;
   try {
-    const [rows, insights] = await Promise.all([getTaskLabelResults(taskId), getTaskLabelInsights(taskId)]);
-    if (batchResult.value?.taskId !== taskId) return;
+    const [rows, insights] = await Promise.all([can("iqc:result:labels:view")?getTaskLabelResults(taskId):Promise.resolve([]), can("iqc:result:label-insights:view")?getTaskLabelInsights(taskId):Promise.resolve(undefined)]);
+    if (disposed||request!==resultRequest||batchResult.value?.taskId !== taskId) return;
     labelResults.value = rows;
     labelInsights.value = insights;
     const selected = selectedLabelReview.value;
@@ -559,19 +636,23 @@ async function refreshReviewedLabels() {
   } catch { message.error("复核已保存，但标签统计刷新失败，请重新打开任务结果"); }
 }
 async function exportLabels(){
-  if(!batchResult.value)return;
-  try { const response=await exportTaskLabelResults(batchResult.value.taskId); const url=URL.createObjectURL(response.data); const link=document.createElement("a"); link.href=url; link.download="iqc-label-results.xlsx"; link.click(); URL.revokeObjectURL(url); }
+  if(disposed||!batchResult.value||!canLabelExport.value)return;
+  const request=resultRequest,taskId=batchResult.value.taskId;
+  try { const response=await exportTaskLabelResults(taskId);if(disposed||request!==resultRequest||!canLabelExport.value)return;const url=URL.createObjectURL(response.data); const link=document.createElement("a"); link.href=url; link.download="iqc-label-results.xlsx"; link.click(); URL.revokeObjectURL(url); }
   catch { message.error("标签结果导出失败"); }
 }
 async function showConversationResult(conversationId: string, evidenceJson?: string) {
-  if (!batchResult.value) return;
+  if (disposed||!batchResult.value||!can("iqc:result:conversation:view")) return;
+  const request=++conversationRequest,taskId=batchResult.value.taskId;
+  conversationResult.value=undefined;
   resultLoading.value = true;
   try {
-    conversationResult.value = await getConversationResultDetail(
-      batchResult.value.taskId,
+    const row = await getConversationResultDetail(
+      taskId,
       conversationId
     );
-    conversationResultOpen.value = true;
+    if(disposed||request!==conversationRequest||batchResult.value?.taskId!==taskId||!can("iqc:result:conversation:view"))return;
+    conversationResult.value=row;conversationResultOpen.value = true;
     if (evidenceJson) {
       try {
         const messageId = JSON.parse(evidenceJson)?.[0]?.messageId;
@@ -581,7 +662,7 @@ async function showConversationResult(conversationId: string, evidenceJson?: str
   } catch {
     message.error("会话质检明细加载失败");
   } finally {
-    resultLoading.value = false;
+    if(request===conversationRequest)resultLoading.value = false;
   }
 }
 function resultFor(messageId: string): InspectionResult | undefined {
@@ -597,6 +678,10 @@ function annotations(result?: InspectionResult) {
     return [];
   }
 }
+watch([()=>can("iqc:task:view"),()=>can("iqc:agent:view"),()=>can("iqc:rule:view"),()=>can("iqc:rule-set:view"),()=>can("iqc:conversation:view"),()=>can("iqc:label:view"),()=>can("iqc:label-collection:view")],()=>{tasks.value=[];total.value=0;agents.value=[];rules.value=[];ruleSets.value=[];conversations.value=[];labelTree.value={categories:[],groups:[],labels:[]};labelCollections.value=[];void refresh();});
+watch(()=>can("iqc:task:create"),allowed=>{if(!allowed)modalOpen.value=false;});
+watch([()=>can("iqc:task:detail:view"),()=>can("iqc:task:view"),()=>can("iqc:sensitive:prompt:read"),()=>can("iqc:sensitive:conversation:read"),()=>can("iqc:sensitive:pii:read")],()=>{detailGeneration++;detailOpen.value=false;detail.value=undefined;configurationLoading.value=false;});
+watch([()=>can("iqc:result:labels:export"),()=>can("iqc:result:summary:view"),()=>can("iqc:result:labels:view"),()=>can("iqc:result:label-insights:view"),()=>can("iqc:result:conversation:view"),()=>can("iqc:sensitive:prompt:read"),()=>can("iqc:sensitive:conversation:read"),()=>can("iqc:sensitive:pii:read")],()=>{resultRequest++;conversationRequest++;resultOpen.value=false;conversationResultOpen.value=false;batchResult.value=undefined;labelResults.value=[];labelInsights.value=undefined;conversationResult.value=undefined;selectedLabelReview.value=undefined;resultLoading.value=false;},{flush:"sync"});
 onMounted(() => {
   void refresh();
   void loadDictionaries();
@@ -612,6 +697,7 @@ onMounted(() => {
   pollingTimer = window.setInterval(poll, 3000);
 });
 onBeforeUnmount(() => {
+  disposed=true;listGeneration++;pollGeneration++;resultRequest++;conversationRequest++;
   if (pollingTimer) window.clearInterval(pollingTimer);
 });
 </script>
@@ -633,12 +719,12 @@ onBeforeUnmount(() => {
       </a-form-item>
       <a-form-item label="状态">
         <a-select v-model:value="filters.status" allow-clear placeholder="全部状态" style="width: 140px">
-          <a-select-option v-for="item in taskStatuses" :key="item.value" :value="item.value">{{ item.label }}</a-select-option>
+          <a-select-option v-for="item in statusOptions" :key="item.value" :value="item.value">{{ item.label }}</a-select-option>
         </a-select>
       </a-form-item>
       <a-form-item label="任务类型">
         <a-select v-model:value="filters.taskType" allow-clear placeholder="全部类型" style="width: 140px">
-          <a-select-option value="BATCH">立即批量</a-select-option>
+          <a-select-option value="PIPELINE_BULK">全量分片批次</a-select-option><a-select-option value="BATCH">立即批量</a-select-option>
           <a-select-option value="SAMPLE">随机抽样</a-select-option>
           <a-select-option value="SCHEDULED">定时筛选</a-select-option>
         </a-select>
@@ -650,6 +736,7 @@ onBeforeUnmount(() => {
     </a-form>
   </a-card>
   <a-card :bordered="false" class="tasks-card">
+    <a-alert v-if="filters.parentTaskId" type="info" :message="`当前显示批次 ${filters.parentTaskId} 的可见分片`"><template #action><a-button size="small" @click="resetFilters">返回全部任务</a-button></template></a-alert>
     <a-table
       :data-source="tasks"
       :loading="loading"
@@ -671,13 +758,22 @@ onBeforeUnmount(() => {
       <a-table-column key="status" title="状态" :width="120"
         ><template #default="{ record }"
           ><a-tag :color="statusMap[record.status]?.color">{{
-            statusLabel(record.status)
+            record.status==='PAUSED'&&record.modelBudgetWaitCode?'预算等待':statusLabel(record.status)
           }}</a-tag></template
         ></a-table-column
       >
+      <a-table-column key="trigger" title="接入事件" :width="230">
+        <template #default="{ record }"><template v-if="record.triggerSource || record.triggerEventId">
+          <div>{{ triggerSourceLabel(record.triggerSource) }}</div>
+          <a-typography-text :ellipsis="{ tooltip: record.triggerEventId }">{{ record.triggerEventId || '—' }}</a-typography-text>
+          <div v-if="record.triggerError"><a-typography-text type="warning" :ellipsis="{ tooltip: record.triggerError }">{{ record.triggerError }}</a-typography-text></div>
+          <div v-else-if="record.status==='WAITING_INPUT'">等待接入会话</div>
+          <div v-if="record.triggerRetryNotBeforeUtc">最早重试 UTC：{{ record.triggerRetryNotBeforeUtc }}</div>
+        </template><span v-else>—</span></template>
+      </a-table-column>
       <a-table-column key="progress" title="进度" :width="220"
         ><template #default="{ record }"
-          ><a-progress
+          ><span v-if="record.taskType==='PIPELINE_BULK'">逐片协调，详情查看扫描进度</span><a-progress v-else
             :percent="
               record.totalMessages
                 ? Math.round(
@@ -695,18 +791,18 @@ onBeforeUnmount(() => {
       />
       <a-table-column key="actions" title="操作" :width="250"
         ><template #default="{ record }"
-          ><a-button type="link" @click="showDetail(record.id)">详情</a-button
+          ><a-button v-if="record.taskType==='PIPELINE_BULK'&&can('iqc:task:view')" type="link" @click="showBulkChildren(record.id)">查看分片</a-button><a-button v-if="record.taskType==='PIPELINE_BULK'&&can('iqc:result:business:view')" type="link" @click="router.push({path:'/results',query:{parentTaskId:record.id}})">批次结果</a-button><a-button v-if="can('iqc:task:detail:view')" type="link" @click="showDetail(record.id)">详情</a-button
           ><a-button
-            v-if="['CREATED','SCHEDULED','QUEUED','PAUSED'].includes(record.status) && can('iqc:task:execute')"
+            v-if="['CREATED','SCHEDULED','QUEUED','PAUSED'].includes(record.status) && can('iqc:task:priority')"
             type="link" @click="reprioritize(record, 1)">提权</a-button
           ><a-button
-            v-if="['CREATED','SCHEDULED','QUEUED','PAUSED'].includes(record.status) && can('iqc:task:execute')"
+            v-if="['CREATED','SCHEDULED','QUEUED','PAUSED'].includes(record.status) && can('iqc:task:priority')"
             type="link" @click="reprioritize(record, -1)">降权</a-button
           ><a-button
             v-if="
-              ['SUCCEEDED', 'PARTIAL_FAILED', 'FAILED'].includes(
+              record.taskType !== 'PIPELINE_BULK' && ['SUCCEEDED', 'PARTIAL_FAILED', 'FAILED'].includes(
                 record.status
-              ) && can('iqc:result:view')
+              ) && (record.taskType === 'PIPELINE_EVALUATION' ? can('iqc:evaluation:report:view') : can('iqc:result:summary:view'))
             "
             type="link"
             @click="showResults(record.id)"
@@ -714,28 +810,28 @@ onBeforeUnmount(() => {
           ><a-button
             v-if="
               ['CREATED', 'FAILED', 'PARTIAL_FAILED'].includes(record.status) &&
-              can('iqc:task:execute')
+              canQueue(record,'iqc:task:execute')
             "
             type="link"
             @click="run(record.id)"
             >{{
-              ["FAILED", "PARTIAL_FAILED"].includes(record.status)
+              record.taskType==='PIPELINE_BULK' ? '重新汇总' : ["FAILED", "PARTIAL_FAILED"].includes(record.status)
                 ? "重试"
                 : "执行"
             }}</a-button
           ><a-button
-            v-if="record.status === 'RUNNING' && can('iqc:task:execute')"
+            v-if="['RUNNING','QUEUED'].includes(record.status) && can('iqc:task:pause')"
             type="link"
             @click="pause(record.id)"
             >暂停</a-button
           ><a-button
-            v-if="record.status === 'PAUSED' && can('iqc:task:execute')"
+            v-if="record.status === 'PAUSED' && canQueue(record,'iqc:task:resume')"
             type="link"
             @click="resume(record.id)"
             >恢复</a-button
           ><a-button
             v-if="
-              ['CREATED', 'QUEUED', 'RUNNING', 'PAUSE_REQUESTED', 'PAUSED'].includes(record.status) &&
+              ['WAITING_INPUT', 'CREATED', 'QUEUED', 'RUNNING', 'PAUSE_REQUESTED', 'PAUSED', 'FAILED', 'PARTIAL_FAILED'].includes(record.status) &&
               can('iqc:task:cancel')
             "
             type="link"
@@ -743,7 +839,7 @@ onBeforeUnmount(() => {
             @click="cancel(record.id)"
             >取消</a-button
           ><a-button
-            v-if="['SUCCEEDED','PARTIAL_FAILED','FAILED','NO_DATA','CANCELLED'].includes(record.status) && can('iqc:task:delete')"
+            v-if="!record.taskPresentation?.bulkShard && ['SUCCEEDED','PARTIAL_FAILED','FAILED','NO_DATA','CANCELLED','TRIGGER_EXPIRED','TRIGGER_CONFLICT'].includes(record.status) && can('iqc:task:delete')"
             type="link" danger @click="removeTask(record)">删除</a-button
           ></template
         ></a-table-column
@@ -1056,7 +1152,7 @@ onBeforeUnmount(() => {
   </a-modal>
   <a-drawer v-model:open="detailOpen" title="质检任务详情" width="min(820px, calc(100vw - 24px))"
     ><template v-if="detail"
-      ><a-divider orientation="left">任务概况</a-divider
+      ><a-alert v-if="detail.status==='PAUSED'&&detail.modelBudgetWaitCode" type="warning" message="任务因模型预算等待而暂停。请管理员核对额度或核定声明后使用原恢复操作；保留当前执行轮次和已完成工作项，不增加重试轮次。" :description="`原因：${budgetWaitReason(detail.modelBudgetWaitCode)}`" style="margin-bottom:16px"/><ModelGatewayCalls v-if="detailOpen" :key="`model-calls:${detail.id}`" :task-id="detail.id"/><TriggerAttemptHistory v-if="detailOpen && (detail.triggerSource || detail.retryPolicyHash)" kind="TASK" :parent-id="detail.id"/><AutomaticRetryPanel v-if="detailOpen&&detail.taskType==='PIPELINE'" :key="detail.id" :task="detail" @updated="updateRetryDetail"/><a-divider orientation="left">任务概况</a-divider
       ><a-descriptions bordered :column="1"
         ><a-descriptions-item label="任务名称">{{
           detail.name
@@ -1064,12 +1160,12 @@ onBeforeUnmount(() => {
         ><a-descriptions-item label="任务类型">{{ taskTypeLabel(detail.taskType) }}</a-descriptions-item
         ><a-descriptions-item label="状态"
           ><a-tag :color="statusMap[detail.status]?.color">{{
-            statusMap[detail.status]?.label || detail.status
+            detail.status==='PAUSED'&&detail.modelBudgetWaitCode?'预算等待':statusLabel(detail.status)
           }}</a-tag></a-descriptions-item
         ><a-descriptions-item label="会话/并发"
           >{{ conversationCount(detail) }} 个 /
           {{ detail.concurrencyLimit }}</a-descriptions-item
-        ><a-descriptions-item label="进度"
+        ><a-descriptions-item v-if="detail.taskType==='PIPELINE_BULK'" label="扫描进度">{{ bulkProgressText(detail) }}</a-descriptions-item><a-descriptions-item v-else label="进度"
           ><a-progress
             :percent="
               detail.totalMessages
@@ -1078,7 +1174,7 @@ onBeforeUnmount(() => {
                   )
                 : 0
             " /></a-descriptions-item
-        ><a-descriptions-item label="消息统计"
+        ><a-descriptions-item v-if="detail.taskType!=='PIPELINE_BULK'" label="消息统计"
           >总数 {{ detail.totalMessages }}，已处理
           {{ detail.processedMessages }}，失败
           {{ detail.failedMessages }}</a-descriptions-item
@@ -1091,7 +1187,16 @@ onBeforeUnmount(() => {
         ><a-descriptions-item label="创建时间">{{
           detail.createdTime || "—"
         }}</a-descriptions-item></a-descriptions
-      ><a-divider orientation="left">创建时执行策略与 Agent 配置</a-divider
+      ><template v-if="detail.triggerSource || detail.triggerEventId">
+        <a-divider orientation="left">接入事件</a-divider><a-descriptions bordered :column="1">
+          <a-descriptions-item label="来源">{{ triggerSourceLabel(detail.triggerSource) }}</a-descriptions-item>
+          <a-descriptions-item label="事件 ID">{{ detail.triggerEventId || '—' }}</a-descriptions-item>
+          <a-descriptions-item v-if="detail.triggerError || detail.status==='WAITING_INPUT'" label="等待或未完成原因">{{ detail.privacy?.withheldFields?.includes('triggerError') ? '接入原因未展示' : detail.triggerError || '等待接入会话' }}</a-descriptions-item>
+          <a-descriptions-item v-if="detail.triggerRetryNotBeforeUtc" label="最早重试 UTC">{{ detail.triggerRetryNotBeforeUtc }}</a-descriptions-item>
+          <a-descriptions-item v-if="detail.triggerPayloadHash" label="输入指纹">{{ detail.triggerPayloadHash }}</a-descriptions-item>
+          <a-descriptions-item v-if="detail.triggerRequestHash" label="请求指纹">{{ detail.triggerRequestHash }}</a-descriptions-item>
+        </a-descriptions>
+      </template><a-button v-if="can('iqc:task:view')&&can('iqc:sensitive:prompt:read')" :loading="configurationLoading" @click="readConfiguration">读取冻结配置与 Prompt</a-button><a-alert v-if="!detailSnapshotsVisible" type="info" show-icon message="创建时冻结配置受权限限制，当前未展示；不能据此判断该任务没有规则或 Agent。" class="snapshot-tip"/><template v-if="detailSnapshotsVisible"><a-divider orientation="left">创建时执行策略与 Agent 配置</a-divider
       ><a-alert type="info" show-icon message="以下内容来自任务创建时的不可变快照，后续修改 Agent 不会影响这里。" class="snapshot-tip"/>
       <a-descriptions bordered :column="1">
         <a-descriptions-item label="Agent">{{ detailAgent?.name || "—" }}<span v-if="detailAgent?.code"> · {{ detailAgent.code }}</span></a-descriptions-item>
@@ -1140,7 +1245,7 @@ onBeforeUnmount(() => {
           <pre v-if="item.expression" class="snapshot-text snapshot-expression">{{ item.expression }}</pre>
           <a-empty v-else description="该规则快照没有配置内容" :image-style="{ height: '36px' }" />
         </a-collapse-panel>
-      </a-collapse>
+      </a-collapse></template>
       ></template
     ></a-drawer
   >
@@ -1200,25 +1305,27 @@ onBeforeUnmount(() => {
             ><template #default="{ record }"
               ><a-button
                 type="link"
-                @click="showConversationResult(record.conversationId)"
+                v-if="can('iqc:result:conversation:view')" @click="showConversationResult(record.conversationId)"
                 >查看明细</a-button
               ></template
             ></a-table-column
-          ></a-table></a-tab-pane><a-tab-pane key="labels" tab="洞察标签"
+          ></a-table></a-tab-pane><a-tab-pane v-if="can('iqc:result:labels:view')||can('iqc:result:label-insights:view')" key="labels" tab="洞察标签"
         ><a-alert type="info" show-icon message="标签独立于评分。确定结果包括明确否认（否）；未知不等于否，冲突或错误不代表已确定。确定结果率以已生成质检结果的会话为分母，兼容任务沿用命中口径。" style="margin-bottom:12px"/>
-        <a-row v-if="labelInsights" :gutter="12" style="margin-bottom:12px"><a-col :span="8"><a-statistic title="机器确定会话" :value="labelInsights.detectedConversationCount"/></a-col><a-col :span="8"><a-statistic title="机器确定结果率" :value="Number(labelInsights.detectionRate)*100" suffix="%" :precision="2"/></a-col><a-col :span="8"><a-button v-if="can('iqc:result:export')" @click="exportLabels">导出 XLSX</a-button></a-col></a-row>
+        <a-row v-if="labelInsights" :gutter="12" style="margin-bottom:12px"><a-col :span="8"><a-statistic title="机器确定会话" :value="labelInsights.detectedConversationCount"/></a-col><a-col :span="8"><a-statistic title="机器确定结果率" :value="Number(labelInsights.detectionRate)*100" suffix="%" :precision="2"/></a-col><a-col :span="8"><a-button v-if="canLabelExport" @click="exportLabels">导出 XLSX</a-button></a-col></a-row>
         <p v-if="labelInsights?.reviewed">人工有效口径：确定结果会话 {{ labelInsights.reviewed.detectedConversationCount }} / 已生成结果会话 {{ labelInsights.conversationCount }}（{{ (Number(labelInsights.reviewed.detectionRate)*100).toFixed(2) }}%）；已人工修订 {{ labelInsights.reviewed.correctedValueCount }} 条，待复核 {{ labelInsights.reviewed.pendingReviewCount }} 条。未修订的值沿用机器结果，评分不受影响。</p>
         <p v-if="labelRows.length">已返回标签值记录：<a-tag v-for="item in labelStateCounts" :key="item.state">{{ item.name }} {{ item.count }}</a-tag></p>
         <p v-if="selectedLabelConversationId">当前仅显示会话 {{ selectedLabelConversationId }} 的标签值。<a-button type="link" @click="selectedLabelConversationId = undefined">查看全部会话</a-button></p>
         <p v-if="labelInsights?.coverageValueCount">新版标签值状态率（已生成 {{ labelInsights.coverageValueCount }} 条为分母；不含兼容命中与未产出的值）：
           未知 {{ ((labelInsights.coverageStatusCounts?.UNKNOWN || 0) / labelInsights.coverageValueCount * 100).toFixed(1) }}% ·
           冲突 {{ ((labelInsights.coverageStatusCounts?.CONFLICT || 0) / labelInsights.coverageValueCount * 100).toFixed(1) }}% ·
-          识别失败 {{ ((labelInsights.coverageStatusCounts?.ERROR || 0) / labelInsights.coverageValueCount * 100).toFixed(1) }}%
+          识别失败 {{ ((labelInsights.coverageStatusCounts?.ERROR || 0) / labelInsights.coverageValueCount * 100).toFixed(1) }}% ·
+          未评估 {{ ((labelInsights.coverageStatusCounts?.NOT_EVALUATED || 0) / labelInsights.coverageValueCount * 100).toFixed(1) }}%
         </p>
         <p v-if="labelInsights?.reviewed?.coverageValueCount">人工有效口径下的新版标签值状态率（已生成 {{ labelInsights.reviewed.coverageValueCount }} 条为分母；未修订沿用机器值）：
           未知 {{ ((labelInsights.reviewed.coverageStatusCounts?.UNKNOWN || 0) / labelInsights.reviewed.coverageValueCount * 100).toFixed(1) }}% ·
           冲突 {{ ((labelInsights.reviewed.coverageStatusCounts?.CONFLICT || 0) / labelInsights.reviewed.coverageValueCount * 100).toFixed(1) }}% ·
-          识别失败 {{ ((labelInsights.reviewed.coverageStatusCounts?.ERROR || 0) / labelInsights.reviewed.coverageValueCount * 100).toFixed(1) }}%
+          识别失败 {{ ((labelInsights.reviewed.coverageStatusCounts?.ERROR || 0) / labelInsights.reviewed.coverageValueCount * 100).toFixed(1) }}% ·
+          未评估 {{ ((labelInsights.reviewed.coverageStatusCounts?.NOT_EVALUATED || 0) / labelInsights.reviewed.coverageValueCount * 100).toFixed(1) }}%
         </p>
         <a-table v-if="visibleLabelRows.length" :data-source="visibleLabelRows" row-key="id" :pagination="false" size="small" :scroll="{x:1000}">
           <a-table-column title="会话 ID" data-index="conversationId" :ellipsis="true"/>
@@ -1233,16 +1340,25 @@ onBeforeUnmount(() => {
               <div v-for="(candidate, index) in record.presentation.candidates" :key="index" style="margin-bottom:12px">
                 <div>候选 {{ index + 1 }}：{{ candidate.value }}</div>
                 <div v-for="(quote, quoteIndex) in candidate.evidence" :key="quoteIndex" style="white-space:pre-wrap;overflow-wrap:anywhere">
-                  “{{ quote.text }}”<a-button type="link" @click="showConversationResult(record.conversationId, JSON.stringify([{messageId:quote.messageId}]))">定位原文</a-button>
+                  “{{ quote.text }}”<a-button v-if="quote.messageId" type="link" @click="showConversationResult(record.conversationId, JSON.stringify([{messageId:quote.messageId}]))">定位原文</a-button>
                 </div>
                 <small style="overflow-wrap:anywhere">来源结果：{{ candidate.source }}</small>
               </div>
             </details>
           </template></a-table-column>
-          <a-table-column title="来源" data-index="generationSource" :width="90"/>
+          <a-table-column title="来源" :width="220"><template #default="{record}">
+            <div>{{ record.generationSource === 'PIPELINE_FINDING' ? '流水线分析事实' : record.generationSource }}</div>
+            <details v-if="record.findingSource"><summary>查看标签来源</summary>
+              <p style="overflow-wrap:anywhere">Finding：{{ record.findingSource.findingCode }}</p>
+              <p style="overflow-wrap:anywhere">执行轮次：{{ record.findingSource.executionId }}</p>
+              <p style="overflow-wrap:anywhere">原动作：{{ record.findingSource.actionExecutionId }}</p>
+              <p style="overflow-wrap:anywhere">冻结输入 SHA256：{{ record.findingSource.inputHash }}</p>
+              <p style="overflow-wrap:anywhere">标签投影 SHA256：{{ record.findingSource.projectionHash }}</p>
+            </details>
+          </template></a-table-column>
           <a-table-column title="置信度" :width="90"><template #default="{record}">{{ record.confidence ?? '—' }}</template></a-table-column>
           <a-table-column title="会话" :width="90"><template #default="{record}"><a-button type="link" @click="showConversationResult(record.conversationId, record.evidenceJson)">查看会话</a-button></template></a-table-column>
-          <a-table-column title="人工复核" :width="90"><template #default="{record}"><a-button v-if="can('iqc:review:view') && record.presentation.valid && record.presentation.state !== 'HIT'" type="link" @click="selectedLabelReview = record">查看/复核</a-button><span v-else>—</span></template></a-table-column>
+          <a-table-column title="人工复核" :width="90"><template #default="{record}"><a-button v-if="can('iqc:review:label:history') && record.presentation.valid && record.presentation.state !== 'HIT'" type="link" @click="selectedLabelReview = record">查看/复核</a-button><span v-else>—</span></template></a-table-column>
         </a-table>
         <a-empty v-else :description="selectedLabelConversationId ? '该会话未返回标签值' : '该任务没有生成标签结果'" :image-style="{height:'40px'}"/></a-tab-pane></a-tabs
         ></template

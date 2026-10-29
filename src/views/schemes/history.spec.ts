@@ -6,7 +6,7 @@ import { listSchemes, listSchemeVersions, createScheme, reviseScheme, publishSch
 const state = vi.hoisted(() => ({ manage: true, publish: true, confirm: vi.fn(), success: vi.fn(), error: vi.fn() }));
 vi.mock("ant-design-vue", () => ({ message: { success: state.success, error: state.error }, Modal: { confirm: state.confirm } }));
 vi.mock("@/composables/permission", () => ({ usePermission: () => ({ can: (code: string) =>
-  (code === "iqc:scheme:manage" && state.manage) || (code === "iqc:scheme:publish" && state.publish) }) }));
+  (["iqc:scheme:manage", "iqc:scheme:versions:view"].includes(code) && state.manage) || (code === "iqc:scheme:publish" && state.publish) }) }));
 vi.mock("@/api/schemes", () => ({ listSchemes: vi.fn(), listSchemeVersions: vi.fn(), createScheme: vi.fn(), reviseScheme: vi.fn(),
   publishScheme: vi.fn(), changeSchemeAvailability: vi.fn(), changeSchemeVersionArchive: vi.fn(), previewScheme: vi.fn(), trialScheme: vi.fn(), listSchemeTrials: vi.fn() }));
 vi.mock("../templates/SchemeTaskWizard.vue", () => ({ default: defineComponent({ props: { template: Object, readOnly: Boolean }, setup(props) {
@@ -14,7 +14,7 @@ vi.mock("../templates/SchemeTaskWizard.vue", () => ({ default: defineComponent({
 } }) }));
 const scheme = (id = "s"): InspectionScheme => ({ id, name: `当前草稿${id}`, code: id, businessScene: "销售",
   draftRevision: 7, activePublishedVersion: 3, draftConfigJson: "{}", status: "ACTIVE" });
-const version = (versionNo: number): ReleasedSchemeVersion => ({ versionNo, sourceDraftRevision: 2, sourceTrialTaskId: "trial-old", contentHash: "hash-old",
+const version = (versionNo: number): ReleasedSchemeVersion => ({ privacy: { policyVersion: "iqc-scheme-template-read-v1", canonicalPayloadVisible: true, canReadFull: true, canReadPii: true, canReadPrompt: true, withheldFields: [] }, versionNo, sourceDraftRevision: 2, sourceTrialTaskId: "trial-old", contentHash: "hash-old",
   snapshot: { name: `冻结标准${versionNo}`, code: "sales", businessScene: "销售", dependencies: { executionMode: "RULE_ONLY" },
     definition: { schemaVersion: "iqc-scheme-v2", agent: null, items: [],
       scoring: { version: "iqc-score-v2", mode: "DEDUCTION", baseScore: 100, passingScore: 75, items: [] } } } });
@@ -61,7 +61,7 @@ describe("expert immutable publication history", () => {
   });
   it("archives and restores only superseded versions while preserving the current release", async () => {
     vi.mocked(listSchemeVersions).mockResolvedValue({ versions: [version(3), version(2)], nextBeforeVersion: null });
-    vi.mocked(changeSchemeVersionArchive).mockImplementation(async (_id, _revision, versionNo, archived) => ({ ...version(versionNo), archived }));
+    vi.mocked(changeSchemeVersionArchive).mockImplementation(async (_id, _revision, versionNo, archived) => ({ schemeId: _id, versionNo, contentHash: version(versionNo).contentHash, archived }));
     mount(); await settle(); buttons("发布历史")[0].click(); await settle();
     expect(buttons("归档版本")).toHaveLength(1);
     buttons("归档版本")[0].click();
@@ -125,7 +125,7 @@ describe("expert immutable publication history", () => {
     expect(host.textContent).toContain("冻结标准2"); expect(host.textContent).not.toContain("冻结标准9");
     buttons("关闭历史")[0].click(); await settle(); expect(host.textContent).not.toContain("冻结标准2");
   });
-  it("does not offer history without expert maintenance permission", async () => {
+  it("does not offer history when neither list nor history is authorized", async () => {
     state.manage = false; mount(); await settle(); expect(buttons("发布历史")).toHaveLength(0);
     expect(listSchemeVersions).not.toHaveBeenCalled();
   });

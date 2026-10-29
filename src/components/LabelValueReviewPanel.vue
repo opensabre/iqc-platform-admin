@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { message } from "ant-design-vue";
 import type { LabelResult } from "@/api/results";
 import { getConversationResultDetail } from "@/api/results";
@@ -12,19 +12,22 @@ const props = defineProps<{ label: LabelResult; taskId: string; taskStatus: stri
 const emit = defineEmits<{ locate: [messageId: string]; changed: [] }>();
 const { can } = usePermission();
 const history = ref<LabelValueReview[]>([]);
-const messages = ref<Array<{ id: string; sequenceNo: number; content: string; speakerRole: string }>>([]);
+const messages = ref<Array<{ id: string; sequenceNo: number; content: string | null; speakerRole: string }>>([]);
 const loaded = ref(false), loading = ref(false), busy = ref(false), error = ref("");
 const requestComment = ref(""), comment = ref(""), status = ref<"KNOWN" | "UNKNOWN">(), value = ref<string | number | boolean>();
 const evidence = ref<string[]>([]);
+const evidenceUnavailable=ref(false);
 type Command = { kind: "REQUEST"; id: string; payload: { expectedRevision: number; requestId: string; comment: string } }
   | { kind: "DECIDE"; id: string; payload: { expectedRevision: number; decision: "COMPLETED" | "REJECTED"; labelDecision?: LabelValueDecision; comment: string } };
 const command = ref<Command>();
-let generation = 0;
+let generation = 0, disposed = false;
+function withheld(review: LabelValueReview) { const p=review.privacy;return !!p&&(p.policyVersion!=="iqc-label-review-read-v1"||!p.canonicalPayloadVisible||!p.canReadFull||!p.canReadPii); }
+const contentWithheld=computed(()=>history.value.some(withheld));
 const machine = computed(() => presentLabel(props.label));
 const valueType = computed(() => {
   try {
-    const payload = JSON.parse(props.label.valueJson || "null") as { schemaVersion?: string; valueType?: string } | null;
-    return payload?.schemaVersion === "iqc-label-result-v2" ? payload.valueType : undefined;
+    const payload = JSON.parse(props.label.valueJson || "null") as { schemaVersion?: string; valueType?: string; binding?: { valueType?: string } } | null;
+    return payload?.schemaVersion === "iqc-label-finding-projection-v1" ? payload.binding?.valueType : payload?.schemaVersion === "iqc-label-result-v2" ? payload.valueType : undefined;
   } catch { return undefined; }
 });
 const eligible = computed(() => machine.value.valid && machine.value.state !== "HIT"
@@ -34,7 +37,7 @@ const pending = computed(() => history.value.find(item => item.status === "PENDI
 const revision = computed(() => Math.max(0, ...history.value.map(item => item.reviewRevision)));
 const rounds = computed(() => history.value.map(review => {
   let projection: { sourceLabelResultId: string; status: "KNOWN" | "UNKNOWN"; value: unknown; evidenceMessageIds: string[] } | undefined;
-  if (review.status === "COMPLETED") {
+  if (review.status === "COMPLETED" && !withheld(review)) {
     try {
       const parsed = JSON.parse(review.reviewedResultJson || "null");
       if (!parsed || parsed.sourceLabelResultId !== props.label.id || !["KNOWN", "UNKNOWN"].includes(parsed.status)
@@ -44,56 +47,60 @@ const rounds = computed(() => history.value.map(review => {
   }
   return { review, projection };
 }));
-const damaged = computed(() => rounds.value.some(row => row.review.status === "COMPLETED" && !row.projection));
+const damaged = computed(() => rounds.value.some(row => row.review.status === "COMPLETED" && !withheld(row.review) && !row.projection));
 const latestCompleted = computed(() => rounds.value.find(row => row.review.status === "COMPLETED")?.projection);
-const editable = computed(() => loaded.value && eligible.value && terminal.value && !loading.value && !busy.value && !command.value && !damaged.value);
+const editable = computed(() => loaded.value && eligible.value && terminal.value && !loading.value && !busy.value && !command.value && !damaged.value && !contentWithheld.value);
 const messageOptions = computed(() => messages.value.map(item => ({ value: item.id,
-  label: `#${item.sequenceNo} ${item.speakerRole} ${item.content.slice(0, 80)}` })));
+  label: `#${item.sequenceNo} ${item.speakerRole} ${(item.content == null ? "正文未展示" : item.content.slice(0, 80))}` })));
 function display(value: unknown) { return value === true ? "是" : value === false ? "否" : value == null ? "—" : String(value); }
 async function refresh() {
-  if (!can("iqc:review:view")) return;
+  if (disposed || !can("iqc:review:label:history")) return;
   const ticket = ++generation, id = props.label.id;
-  loaded.value = false; loading.value = true; error.value = "";
+  loaded.value = false; loading.value = true; error.value = "";history.value=[];messages.value=[];evidenceUnavailable.value=false;
   try {
     const [reviews, detail] = await Promise.all([
-      listLabelValueReviews(id), getConversationResultDetail(props.taskId, props.label.conversationId),
+      listLabelValueReviews(id), can("iqc:result:conversation:view")?getConversationResultDetail(props.taskId, props.label.conversationId).catch(()=>undefined):Promise.resolve(undefined),
     ]);
-    if (ticket !== generation) return;
-    history.value = reviews; messages.value = detail.messages; loaded.value = true;
-  } catch { if (ticket === generation) error.value = "标签复核历史或会话证据加载失败，请刷新后重试。"; }
-  finally { if (ticket === generation) loading.value = false; }
+    if (disposed || ticket !== generation || !can("iqc:review:label:history")) return;
+    history.value = reviews.map(review=>withheld(review)?{...review,reviewedResultJson:null,requestComment:null,reviewComment:null}:review); messages.value = detail?.messages??[];evidenceUnavailable.value=!detail; loaded.value = true;
+  } catch { if (!disposed&&ticket === generation) error.value = "标签复核历史或会话证据加载失败，请刷新后重试。"; }
+  finally { if (!disposed&&ticket === generation) loading.value = false; }
 }
-watch(() => props.label.id, () => {
-  generation++; history.value = []; messages.value = []; loaded.value = false; command.value = undefined;
+onBeforeUnmount(()=>{disposed=true;generation++;history.value=[];messages.value=[];command.value=undefined;requestComment.value="";comment.value="";value.value=undefined;evidence.value=[];});
+watch(() => JSON.stringify([props.label.id,props.taskId,props.label.conversationId,can('iqc:review:label:history'),can('iqc:result:conversation:view'),can('iqc:review:label:create'),can('iqc:review:label:decide'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')]), () => {
+  const interrupted=!!command.value||busy.value;
+  generation++; history.value = []; messages.value = []; loaded.value = false; loading.value=false;command.value = undefined;evidenceUnavailable.value=false;
   requestComment.value = ""; comment.value = ""; status.value = undefined; value.value = undefined; evidence.value = [];
   void refresh();
-}, { immediate: true });
+  if(interrupted&&!disposed)message.info('权限或复核上下文已变化，已发出的操作不会撤销；请重新读取历史核对。');
+}, { immediate: true,flush:'sync' });
 async function submit() {
   const current = command.value;
-  if (!current || busy.value || !can(current.kind === "REQUEST" ? "iqc:review:create" : "iqc:review:decide")) return;
+  if (disposed || !current || busy.value || !terminal.value || !can("iqc:review:label:history") || !can(current.kind === "REQUEST" ? "iqc:review:label:create" : "iqc:review:label:decide")) return;
   busy.value = true; error.value = "";
-  const id = props.label.id;
+  const id = props.label.id,ticket=generation;
+  const permission=current.kind === "REQUEST" ? "iqc:review:label:create" : "iqc:review:label:decide";
   try {
     if (current.kind === "REQUEST") await requestLabelValueReview(current.id, current.payload);
     else await decideLabelValueReview(current.id, current.payload);
-    if (id !== props.label.id) return;
+    if (disposed || ticket!==generation || id !== props.label.id || !can(permission)) return;
     command.value = undefined; requestComment.value = ""; comment.value = ""; evidence.value = [];
     message.success(current.kind === "REQUEST" ? "标签复核已发起" : "标签裁决已保存，机器标签值和评分未被覆盖");
     await refresh();
-    emit("changed");
+    if(!disposed&&id===props.label.id&&can(permission)&&can("iqc:review:label:history"))emit("changed");
   } catch {
-    if (id === props.label.id) error.value = "提交结果未确认，请保持内容不变并重试原提交；若提示版本已变化，请刷新历史。";
+    if (!disposed&&ticket===generation&&id === props.label.id) error.value = "提交结果未确认，请保持内容不变并重试原提交；若提示版本已变化，请刷新历史。";
   } finally { busy.value = false; }
 }
 async function request() {
-  if (!editable.value || pending.value || !can("iqc:review:create") || !requestComment.value.trim()) return;
+  if (!editable.value || pending.value || !can("iqc:review:label:create") || !requestComment.value.trim()) return;
   command.value = { kind: "REQUEST", id: props.label.id,
     payload: { expectedRevision: revision.value, requestId: crypto.randomUUID(), comment: requestComment.value.trim() } };
   await submit();
 }
 async function decide(rejected: boolean) {
-  if (!editable.value || !pending.value || !can("iqc:review:decide") || !comment.value.trim()) return;
-  if (!rejected && (!status.value || status.value === "KNOWN" && (value.value === undefined || !evidence.value.length))) return;
+  if (!editable.value || !pending.value || !can("iqc:review:label:decide") || !comment.value.trim()) return;
+  if (!rejected && (!status.value || status.value === "KNOWN" && (value.value === undefined || !evidence.value.length || evidence.value.some(id=>!messages.value.some(item=>item.id===id))))) return;
   const labelDecision: LabelValueDecision | undefined = rejected ? undefined : {
     status: status.value!, value: status.value === "KNOWN" ? value.value! : null,
     evidenceMessageIds: status.value === "KNOWN" ? [...evidence.value] : [],
@@ -109,22 +116,24 @@ async function decide(rejected: boolean) {
   <section aria-label="标签值复核">
     <p>机器结果：{{ machine.title }} · {{ machine.value }}。人工修订独立保存，不覆盖机器标签值或评分。</p>
     <a-alert v-if="!eligible" type="info" message="此标签值不是有效的新版冻结结果，暂不能人工修订。" />
-    <a-alert v-else-if="!can('iqc:review:view')" type="info" message="没有查看标签复核的权限。" />
+    <a-alert v-else-if="!can('iqc:review:label:history')" type="info" message="没有查看标签复核的权限。" />
     <template v-else>
       <a-space><a-button :disabled="loading || busy || !!command" @click="refresh">刷新复核历史</a-button>
         <a-button v-if="command" :loading="busy" :disabled="busy" @click="submit">重试原提交</a-button></a-space>
       <a-alert v-if="error" type="error" show-icon :message="error" />
       <a-alert v-if="!terminal" type="info" message="任务结束后才能复核标签值。" />
+      <a-alert v-if="contentWithheld" type="info" message="复核正文和评论未展示；轮次及处理状态保留，请取得完整会话及PII读取权限后刷新再裁决。" />
+      <a-alert v-if="evidenceUnavailable" type="info" message="会话证据暂不可读取，复核历史仍可查看；需要消息依据的确定值裁决须先取得权限并刷新。" />
       <a-alert v-if="damaged" type="error" message="历史人工修订无法验证，已停止后续操作，请联系管理员。" />
       <a-spin :spinning="loading">
         <p v-if="latestCompleted">当前有效人工修订：{{ latestCompleted.status === 'KNOWN' ? display(latestCompleted.value) : '未知' }}；机器值仍保留。</p>
-        <a-form v-if="loaded && !pending && can('iqc:review:create')" layout="vertical">
+        <a-form v-if="loaded && !pending && can('iqc:review:label:create')" layout="vertical">
           <a-form-item label="申请原因"><a-textarea v-model:value="requestComment" :maxlength="1000" :rows="2" :disabled="!editable" /></a-form-item>
           <a-button type="primary" :disabled="!editable || !requestComment.trim()" @click="request">发起标签复核</a-button>
         </a-form>
         <a-card v-if="pending" size="small" :title="`第 ${pending.reviewRevision} 轮 · 待复核`">
           <p>申请原因：{{ pending.requestComment }}</p>
-          <a-form v-if="can('iqc:review:decide')" layout="vertical">
+          <a-form v-if="can('iqc:review:label:decide')" layout="vertical">
             <a-form-item label="人工状态"><a-select v-model:value="status" :disabled="!editable" :options="[{ value: 'KNOWN', label: '确定' }, { value: 'UNKNOWN', label: '未知' }]" /></a-form-item>
             <a-form-item v-if="status === 'KNOWN'" :label="`人工值（${valueType}）`">
               <a-select v-if="valueType === 'BOOLEAN'" v-model:value="value" :disabled="!editable" :options="[{ value: true, label: '是' }, { value: false, label: '否' }]" />

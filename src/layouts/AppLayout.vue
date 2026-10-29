@@ -29,6 +29,8 @@ const menuItems: MenuItem[] = [
     { key: "conversations-list", path: "/conversations/list", label: "会话列表", permission: "iqc:conversation:view" },
     { key: "conversations-upload", path: "/conversations/upload", label: "文本上传", permission: "iqc:conversation:view" },
   ] },
+  { key: "event-subscriptions", path: "/tasks/subscriptions", label: "事件订阅", icon: OrderedListOutlined, permission: "iqc:subscription:view" },
+  { key: "periodic-schedules", path: "/tasks/schedules", label: "周期调度", icon: OrderedListOutlined, permission: "iqc:schedule:view" },
   { key: "tasks", path: "/tasks", label: "质检任务", icon: OrderedListOutlined, permission: "iqc:task:view" },
   { key: "labels", label: "标签管理", icon: TagsOutlined, children: [
     { key: "labels-tree", path: "/labels/tree", label: "标签树", permission: "iqc:label:view" },
@@ -36,7 +38,9 @@ const menuItems: MenuItem[] = [
     { key: "labels-candidates", path: "/labels/candidates", label: "候选标签", permission: "iqc:label-candidate:view" },
   ] },
   { key: "results", path: "/results", label: "质检结果", icon: CheckCircleOutlined, permission: "iqc:result:view" },
+  { key: "risk-events", path: "/risk-events", label: "风险中心", icon: CheckCircleOutlined, permission: "iqc:risk:center:view" },
   { key: "quality-operations", path: "/quality-operations", label: "质量运营", icon: CheckCircleOutlined, permission: "iqc:review:view" },
+  { key: "knowledge-bases", path: "/knowledge-bases", label: "知识库", icon: FileTextOutlined, permission: "iqc:knowledge:view" },
   { key: "agents", label: "智能体管理", icon: ClusterOutlined, children: [
     { key: "agents-list", path: "/agents", label: "智能体列表", permission: "iqc:agent:view" },
     { key: "agent-models", path: "/agent-models", label: "模型配置", permission: "iqc:model:view" },
@@ -50,6 +54,10 @@ const menuItems: MenuItem[] = [
     { key: "rules-test", path: "/rules/test-center", label: "测试中心", permission: "iqc:rule:test" },
     { key: "rules-approvals", path: "/rules/approvals", label: "审批与发布", permission: "iqc:rule:approve" },
   ] },
+  { key: "pipelines", path: "/pipelines", label: "检测流水线", icon: ClusterOutlined, permission: "iqc:pipeline:view" },
+  { key: "findings", path: "/findings", label: "事实语义目录", icon: FileTextOutlined, permission: "iqc:finding:view" },
+  { key: "evaluation-tasks", path: "/evaluation/tasks", label: "固定数据集评测", icon: FileTextOutlined, permission: "iqc:evaluation:report:view" },
+  { key: "evaluation-datasets", path: "/evaluation/datasets", label: "评测数据集", icon: FileTextOutlined, permission: "iqc:dataset:view" },
   { key: "templates", path: "/templates", label: "模板中心", icon: FileTextOutlined, permission: "iqc:template:view" },
   { key: "settings", path: "/settings", label: "系统设置", icon: SettingOutlined, permission: "iqc:settings:view" },
   { key: "audit-logs", path: "/audit-logs", label: "操作日志", icon: FileTextOutlined, permission: "iqc:settings:view" },
@@ -57,8 +65,12 @@ const menuItems: MenuItem[] = [
 const iconMap: Record<string, unknown> = { audit: AuditOutlined, dashboard: BarChartOutlined, message: CommentOutlined, schedule: OrderedListOutlined, "file-search": CheckCircleOutlined, robot: ClusterOutlined, setting: SettingOutlined, book: FileTextOutlined, "file-text": FileTextOutlined };
 const routePaths = new Set(router.getRoutes().map((record) => `/${String(record.path).replace(/^\//, "")}`));
 const canonicalLabels: Record<string, string> = {
+  "/tasks/subscriptions": "事件订阅",
+  "/tasks/schedules": "周期调度",
+  "/evaluation/tasks": "固定数据集评测",
+  "/evaluation/datasets": "评测数据集",
   "/dashboard": "睿检总览", "/profile": "个人中心", "/conversations/api": "接口对接", "/conversations/list": "会话列表", "/conversations/upload": "文本上传",
-  "/tasks": "质检任务", "/labels/tree": "标签树", "/labels/collections": "标签集合", "/labels/candidates": "候选标签", "/results": "质检结果", "/agents": "智能体列表", "/agent-models": "模型配置",
+  "/pipelines": "检测流水线", "/findings": "事实语义目录", "/tasks": "质检任务", "/labels/tree": "标签树", "/labels/collections": "标签集合", "/labels/candidates": "候选标签", "/results": "质检结果", "/risk-events": "风险中心", "/agents": "智能体列表", "/agent-models": "模型配置",
   "/agent-mcps": "MCP 管理", "/agent-skills": "Skill 管理", "/rules/library": "规则库", "/rules/conversation": "会话规则",
   "/rules/sets": "规则集", "/rules/test-center": "测试中心", "/rules/approvals": "审批与发布",
   "/templates": "模板中心", "/settings": "系统设置", "/audit-logs": "操作日志",

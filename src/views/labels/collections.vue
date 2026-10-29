@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { message, Modal } from "ant-design-vue";
 import {
   createLabelCollection,
@@ -25,66 +25,55 @@ const loading = ref(false),
 const checkedKeys = ref<string[]>([]);
 const editId = ref("");
 const form = ref({ name: "", code: "", description: "" });
-async function refresh() {
-  loading.value = true;
-  try {
-    [collections.value, taxonomy.value] = await Promise.all([
-      listLabelCollections(),
-      getLabelTree(),
-    ]);
-  } catch {
-    message.error("标签集合加载失败");
-  } finally {
-    loading.value = false;
-  }
+let disposed=false,listGeneration=0,editorGeneration=0,commandGeneration=0;
+function clearEditor(){++editorGeneration;open.value=false;editId.value="";form.value={name:"",code:"",description:""};checkedKeys.value=[];}
+async function refresh(){
+  if(disposed)return;const generation=++listGeneration;loading.value=true;collections.value=[];taxonomy.value={categories:[],groups:[],labels:[]};
+  try{const [rows,tree]=await Promise.all([can('iqc:label-collection:view')?listLabelCollections():Promise.resolve([]),can('iqc:label:view')?getLabelTree().catch(()=>undefined):Promise.resolve(undefined)]);
+    if(disposed||generation!==listGeneration)return;collections.value=rows;if(tree)taxonomy.value=tree;
+  }catch{if(!disposed&&generation===listGeneration)message.error("标签集合加载失败");}finally{if(!disposed&&generation===listGeneration)loading.value=false;}
 }
-function create() {
-  editId.value = "";
-  form.value = { name: "", code: "", description: "" };
-  checkedKeys.value = [];
-  open.value = true;
+function create(){
+  if(disposed||saving.value||!can('iqc:label-collection:manage')||!can('iqc:label:view'))return;
+  clearEditor();open.value=true;
 }
-async function edit(item: LabelCollection) {
-  try {
-    const detail = await getLabelCollection(item.id);
-    editId.value = item.id;
-    form.value = { name: item.name, code: item.code, description: item.description || "" };
-    checkedKeys.value = detail.members.map((member) => `${member.memberType}:${member.memberId}`);
-    open.value = true;
-  } catch { message.error("集合详情加载失败"); }
+async function edit(item:LabelCollection){
+  if(disposed||saving.value||!can('iqc:label-collection:update')||!can('iqc:label-collection:detail:view'))return;
+  clearEditor();const generation=editorGeneration;
+  try{const detail=await getLabelCollection(item.id);if(disposed||generation!==editorGeneration||!can('iqc:label-collection:update')||!can('iqc:label-collection:detail:view'))return;
+    editId.value=item.id;form.value={name:detail.collection.name,code:detail.collection.code,description:detail.collection.description||""};
+    checkedKeys.value=detail.members.map(member=>`${member.memberType}:${member.memberId}`);open.value=true;
+  }catch{if(!disposed&&generation===editorGeneration)message.error("集合详情加载失败");}
 }
-async function save() {
-  if (!form.value.name || !form.value.code || !checkedKeys.value.length)
-    return void message.warning("请填写名称、编码并选择成员");
-  saving.value = true;
-  try {
-    const members: LabelMember[] = checkedKeys.value.map((key) => {
-      const [memberType, memberId] = key.split(":");
-      return { memberType: memberType as LabelMember["memberType"], memberId };
-    });
-    if (editId.value) await reviseLabelCollection(editId.value, { ...form.value, members });
-    else await createLabelCollection({ ...form.value, members });
-    message.success(editId.value ? "标签集合已修订为草稿" : "标签集合已创建");
-    open.value = false;
-    await refresh();
-  } catch {
-    message.error("创建失败");
-  } finally {
-    saving.value = false;
-  }
+async function save(){
+  const id=editId.value,permission=id?'iqc:label-collection:update':'iqc:label-collection:manage';
+  if(disposed||saving.value||!open.value||!can(permission)||(!id&&!can('iqc:label:view')))return;
+  if(!form.value.name||!form.value.code||!checkedKeys.value.length)return void message.warning("请填写名称、编码并选择成员");
+  const generation=editorGeneration;
+  const members:LabelMember[]=checkedKeys.value.map(key=>{const [memberType,memberId]=key.split(":");return {memberType:memberType as LabelMember['memberType'],memberId};});
+  const request={...form.value,members};saving.value=true;
+  try{if(id)await reviseLabelCollection(id,request);else await createLabelCollection(request);
+    if(disposed||generation!==editorGeneration||!can(permission))return;
+    message.success(id?"标签集合已修订为草稿":"标签集合已创建");clearEditor();await refresh();
+  }catch{if(!disposed&&generation===editorGeneration)message.error("保存失败");}finally{saving.value=false;}
 }
-function disable(item: LabelCollection) {
-  Modal.confirm({ title: `确认停用“${item.name}”？`, async onOk() { try { await disableLabelCollection(item.id); message.success("集合已停用"); await refresh(); } catch { message.error("停用失败"); } } });
+function disable(item:LabelCollection){
+  if(disposed||saving.value||!can('iqc:label-collection:disable')||item.status==='DISABLED')return;
+  const id=item.id,generation=commandGeneration;
+  Modal.confirm({title:`确认停用“${item.name}”？`,async onOk(){
+    if(disposed||saving.value||generation!==commandGeneration||!can('iqc:label-collection:disable'))return;saving.value=true;
+    try{await disableLabelCollection(id);if(disposed||generation!==commandGeneration||!can('iqc:label-collection:disable'))return;message.success("集合已停用");await refresh();}
+    catch{if(!disposed&&generation===commandGeneration)message.error("停用失败");}finally{saving.value=false;}
+  }});
 }
-async function publish(id: string) {
-  try {
-    await publishLabelCollection(id);
-    message.success("标签集合已发布");
-    await refresh();
-  } catch {
-    message.error("发布失败");
-  }
+async function publish(id:string){
+  if(disposed||saving.value||!can('iqc:label-collection:publish'))return;const generation=commandGeneration;saving.value=true;
+  try{await publishLabelCollection(id);if(disposed||generation!==commandGeneration||!can('iqc:label-collection:publish'))return;message.success("标签集合已发布");await refresh();}
+  catch{if(!disposed&&generation===commandGeneration)message.error("发布失败");}finally{saving.value=false;}
 }
+watch(()=>JSON.stringify([can('iqc:label-collection:view'),can('iqc:label-collection:detail:view'),can('iqc:label-collection:manage'),can('iqc:label-collection:update'),can('iqc:label-collection:publish'),can('iqc:label-collection:disable'),can('iqc:label:view')]),()=>{++listGeneration;++commandGeneration;clearEditor();loading.value=false;collections.value=[];taxonomy.value={categories:[],groups:[],labels:[]};void refresh();},{flush:'sync'});
+watch(open,visible=>{if(!visible)clearEditor();});
+onBeforeUnmount(()=>{disposed=true;++listGeneration;++commandGeneration;clearEditor();});
 onMounted(refresh);
 </script>
 <template>
@@ -95,8 +84,8 @@ onMounted(refresh);
       <p>集合只负责业务选择，任务创建时展开为固定标签与规则快照。</p>
     </div>
     <a-button
-      v-if="can('iqc:label-collection:manage')"
-      type="primary"
+      v-if="can('iqc:label-collection:manage') && can('iqc:label:view')"
+      :disabled="saving" type="primary"
       @click="create"
       >新建集合</a-button
     >
@@ -120,13 +109,13 @@ onMounted(refresh);
         ><template #default="{ record }"
           ><a-button
             v-if="
-              record.status === 'DRAFT' && can('iqc:label-collection:manage')
+              record.status === 'DRAFT' && can('iqc:label-collection:publish')
             "
             type="link"
             @click="publish(record.id)"
             >发布</a-button
-          ><a-button v-if="can('iqc:label-collection:manage')" type="link" @click="edit(record)">编辑</a-button
-          ><a-button v-if="record.status !== 'DISABLED' && can('iqc:label-collection:manage')" type="link" danger @click="disable(record)">停用</a-button
+          ><a-button v-if="can('iqc:label-collection:update') && can('iqc:label-collection:detail:view')" :disabled="saving" type="link" @click="edit(record)">编辑</a-button
+          ><a-button v-if="record.status !== 'DISABLED' && can('iqc:label-collection:disable')" type="link" danger @click="disable(record)">停用</a-button
           ></template
         ></a-table-column
       ></a-table
@@ -151,6 +140,6 @@ onMounted(refresh);
       ><a-form-item label="集合成员" required
         ><LabelTreeSelector
           v-model="checkedKeys"
-          :taxonomy="taxonomy" /></a-form-item></a-form
+          :taxonomy="taxonomy" :disabled="saving || !can('iqc:label:view')" /></a-form-item></a-form
   ></a-modal>
 </template>

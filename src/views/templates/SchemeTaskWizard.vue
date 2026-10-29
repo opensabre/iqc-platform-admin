@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import ConversationPicker from "@/components/ConversationPicker.vue";
 import { createSchemeTask, type PublishedTemplate, type SchemeTaskRequest, type SchemeItem } from "@/api/schemes";
@@ -101,7 +101,11 @@ const task = ref<InspectionTask | undefined>(recovered?.taskId ? { id: recovered
 // Keep the exact payload after the first attempt: a timeout may happen after the server committed.
 const submitted = ref<SchemeTaskRequest | undefined>(recovered?.request);
 const persistentRetry = ref(Boolean(pendingKey));
-const allowed = computed(() => !capabilityBlocked && can("iqc:scheme:use") && can("iqc:task:execute") && can("iqc:conversation:view"));
+const initialTemplateIdentity=JSON.stringify([props.template.schemeId,props.template.versionNo,props.template.contentHash]);
+const currentTemplateIdentity=computed(()=>JSON.stringify([props.template.schemeId,props.template.versionNo,props.template.contentHash]));
+const currentOwner=computed(()=>String(auth.user?.userId || auth.user?.id || ""));
+let generation=0,disposed=false;
+const allowed = computed(() => currentOwner.value===ownerId && currentTemplateIdentity.value===initialTemplateIdentity && !capabilityBlocked && can("iqc:scheme:use") && can("iqc:task:execute") && can("iqc:conversation:view"));
 function savePending() {
   if (!pendingKey || !submitted.value) { persistentRetry.value = false; return; }
   try { sessionStorage.setItem(pendingKey, JSON.stringify({ contentHash: props.template.contentHash,
@@ -113,7 +117,8 @@ function clearPending() {
   try { sessionStorage.removeItem(pendingKey); } catch { /* Storage may be unavailable. */ }
 }
 async function submit() {
-  if (props.readOnly || !allowed.value || busy.value) return;
+  if (disposed || props.readOnly || !allowed.value || busy.value) return;
+  if(task.value&&!can("iqc:task:detail:view")){error.value="读取已创建任务状态需要任务详情权限；原任务和请求标识已保留，请取得权限后重试。";return;}
   if (!submitted.value && !validSettings.value) { error.value = "请检查任务名称、会话数量和允许的整数并发范围。"; return; }
   submitted.value ??= taskType.value === "SCHEDULED"
     ? { requestId: crypto.randomUUID(), name: name.value.trim(), concurrency: concurrency.value!, taskType: "SCHEDULED",
@@ -124,19 +129,39 @@ async function submit() {
       ...(selectedVariantCode.value ? { variantCode: selectedVariantCode.value } : {}) };
   savePending();
   busy.value = true; error.value = "";
+  const ticket=generation,schemeId=props.template.schemeId,versionNo=props.template.versionNo,contentHash=props.template.contentHash;
+  const request=submitted.value;
+  const sameContext=()=>!disposed&&currentOwner.value===ownerId&&props.template.schemeId===schemeId&&props.template.versionNo===versionNo&&props.template.contentHash===contentHash;
+  const current=()=>sameContext()&&ticket===generation&&!props.readOnly&&allowed.value;
   try {
-    task.value = task.value ? await getTask(task.value.id)
-      : await createSchemeTask(props.template.schemeId, props.template.versionNo, submitted.value);
+    const existing=task.value;
+    const received=existing?await getTask(existing.id):await createSchemeTask(schemeId,versionNo,request);
+    if(!sameContext())return;
+    if(existing&&received.id!==existing.id)throw new Error("任务响应与原任务标识不一致，请重新核对。");
+    // Retain only the task identity/status needed for an exact retry, without copying its private snapshots.
+    task.value={id:received.id,name:received.name,status:received.status,taskType:received.taskType,concurrencyLimit:received.concurrencyLimit,totalMessages:received.totalMessages,processedMessages:received.processedMessages,failedMessages:received.failedMessages};
     savePending();
-    if (submitted.value.taskType !== "SCHEDULED" && task.value.status === "CREATED") task.value = await runTask(task.value.id);
-    if (task.value.status === "CREATED") throw new Error("任务已创建但尚未进入执行队列，请重试提交。");
-    clearPending();
-    step.value = 3;
-  } catch (reason) {
-    error.value = `${task.value ? "任务已创建，重试只会继续提交此任务。" : "提交未确认，重试会使用同一请求标识。"} ${reason instanceof Error ? reason.message : "请稍后重试。"}`;
-  } finally { busy.value = false; }
+    if(!current()||(existing&&!can("iqc:task:detail:view"))){error.value="权限或模板上下文已变化，已创建操作不会撤销；原任务和请求标识已保留，请重新核对后重试。";return;}
+    if(request.taskType!=="SCHEDULED"&&task.value.status==="CREATED"){
+      const running=await runTask(task.value.id);
+      if(!current())return;
+      task.value={...task.value,status:running.status};
+    }
+    if(task.value.status==="CREATED")throw new Error("任务已创建但尚未进入执行队列，请重试提交。");
+    if(!current())return;
+    clearPending();step.value=3;
+  }catch(reason){
+    if(current())error.value=`${task.value?"任务已创建，重试只会继续提交此任务。":"提交未确认，重试会使用同一请求标识。"} ${reason instanceof Error?reason.message:"请稍后重试。"}`;
+  }finally{busy.value=false;}
 }
-function viewTask() { if (task.value) { emit("close"); void router.push({ path: "/tasks", query: { taskId: task.value.id } }); } }
+watch(()=>JSON.stringify([props.readOnly,props.template.schemeId,props.template.versionNo,props.template.contentHash,currentOwner.value,can("iqc:scheme:use"),can("iqc:task:execute"),can("iqc:conversation:view"),can("iqc:task:detail:view")]),()=>{
+  ++generation;
+  if(currentOwner.value!==ownerId){emit("close");return;}
+  if(submitted.value)error.value="权限或模板上下文已变化；已发出的操作不会撤销，请重新核对原任务后重试。";
+},{flush:"sync"});
+onBeforeUnmount(()=>{disposed=true;++generation;});
+
+function viewTask() { if (!disposed && can("iqc:task:view") && task.value) { emit("close"); void router.push({ path: "/tasks", query: { taskId: task.value.id } }); } }
 function minScheduledTime() { return localDateTime(new Date(Date.now() + 60 * 1000)); }
 </script>
 <template>
@@ -219,7 +244,7 @@ function minScheduledTime() { return localDateTime(new Date(Date.now() + 60 * 10
         : '如网络超时，请保持当前窗口并重试；浏览器未能保存本次请求，关闭后可能重复创建任务。'" />
       <p v-if="task">任务编号：{{ task.id }}</p>
     </template>
-    <a-result v-else status="success" :title="submitted?.taskType === 'SCHEDULED' ? '定时任务已创建' : '任务已提交'" :sub-title="`任务编号：${task?.id}。执行状态和结果以任务详情为准。`"><template #extra><a-button type="primary" @click="viewTask">查看任务</a-button></template></a-result>
+    <a-result v-else status="success" :title="submitted?.taskType === 'SCHEDULED' ? '定时任务已创建' : '任务已提交'" :sub-title="`任务编号：${task?.id}。执行状态和结果以任务详情为准。`"><template #extra><a-button v-if="can('iqc:task:view')" type="primary" @click="viewTask">查看任务</a-button></template></a-result>
     <a-alert v-if="error" type="error" :message="error" show-icon style="margin-top: 16px" />
     <a-alert v-if="!readOnly && !allowed && !capabilityBlocked" type="warning" message="需要模板使用、会话查看和任务执行权限，请联系管理员。" />
     <a-space v-if="!readOnly && step < 3" style="display: flex; justify-content: flex-end; margin-top: 24px">

@@ -50,13 +50,15 @@ export interface TaskRuleSnapshot {
 }
 
 export interface InspectionTask {
+  taskPresentation?:{bulkShard?:{parentTaskId:string;shardNo:number};bulk?:{schemaVersion:string;scannedConversations:string;selectedConversations:string;scannedPages:number;scanComplete:boolean};schemaVersion:string;kind:string;labelOnly:boolean|null;hasLabels:boolean|null;schemeDraftRevision?:number;selectedVariantCode?:string;conversationCount?:number|null;benchmarkBaselineTaskId?:string;rollout?:{schemaVersion:string;policyRevision:number;side:'BASELINE'|'CANDIDATE';selectedVersionNo:number;selectedReleaseHash:string}};
+  privacy?:{policyVersion:string;snapshotsVisible:boolean;canReadFull:boolean;canReadPii:boolean;canReadPrompt:boolean;withheldFields:string[]};
   id: string;
   conversationId?: string;
   conversationIdsJson?: string;
   selectionFilterJson?: string;
   scheduledTime?: string;
   name: string;
-  taskType: "BATCH" | "SCHEDULED" | "SAMPLE";
+  taskType: "PIPELINE_BULK" | "BATCH" | "SCHEDULED" | "SAMPLE" | "PIPELINE" | "PIPELINE_TRIAL" | "PIPELINE_EVALUATION";
   concurrencyLimit: number;
   agentId?: string;
   ruleSetId?: string;
@@ -70,11 +72,23 @@ export interface InspectionTask {
   autoExpandPrompt?: string;
   queuePriority?: number;
   status: string;
+  modelBudgetWaitCode?:string|null;
+  modelBudgetWaitKey?:string|null;
   totalMessages: number;
   processedMessages: number;
   failedMessages: number;
   attemptCount?: number;
   currentExecutionId?: string;
+  retryPolicyHash?: string;
+  automaticRetryEnabled?: boolean;
+  retryNotBeforeUtc?: string;
+  retryError?: string;
+  triggerSource?: string;
+  triggerEventId?: string;
+  triggerPayloadHash?: string;
+  triggerRequestHash?: string;
+  triggerError?: string;
+  triggerRetryNotBeforeUtc?: string;
   createdTime?: string;
 }
 export interface TaskExecutionSummary {
@@ -88,7 +102,7 @@ export type ExecutionMode = "RULE_ONLY" | "RULE_THEN_LLM" | "LLM_THEN_RULE" | "A
 export interface CreateTaskRequest { name?: string; taskType: "BATCH" | "SCHEDULED" | "SAMPLE"; conversationId?: string; conversationIds?: string[]; selectionFilter?: ScheduledSelectionFilter; scheduledTime?: string; sampleSize?:number; sampleSeed?:string; agentId?: string; executionMode?: ExecutionMode; ruleSetId?: string; ruleIds?: string[]; labelSelection?:LabelSelection; labelOptions?:LabelOptions; concurrencyLimit: number; }
 export interface PageResult<T> { records: T[]; current: number; size: number; total: number; }
 
-export interface TaskFilters { keyword?: string; status?: string; taskType?: string; }
+export interface TaskFilters { parentTaskId?:string;keyword?: string; status?: string; taskType?: string; }
 
 export async function listTasks(params: TaskFilters & { current?: number; size?: number } = {}) {
   const { data } = await http.get<PageResult<InspectionTask>>("/iqc/tasks", { params });
@@ -96,6 +110,10 @@ export async function listTasks(params: TaskFilters & { current?: number; size?:
 }
 export async function getTask(id: string) {
   const { data } = await http.get<InspectionTask>(`/iqc/tasks/${id}`);
+  return data;
+}
+export async function getTaskConfiguration(id:string) {
+  const {data}=await http.get<InspectionTask>(`/iqc/tasks/${encodeURIComponent(id)}/configuration`);
   return data;
 }
 export async function listTaskExecutions(id: string) {

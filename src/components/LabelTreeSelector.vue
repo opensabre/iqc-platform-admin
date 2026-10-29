@@ -6,6 +6,7 @@ const props = withDefaults(
     taxonomy: LabelTree;
     modelValue: string[];
     publishedOnly?: boolean;
+    disabled?: boolean;
   }>(),
   { publishedOnly: true }
 );
@@ -33,12 +34,13 @@ const treeData = computed(() =>
 <template>
   <a-tree
     :checked-keys="modelValue"
+    :disabled="disabled"
     checkable
     check-strictly
     default-expand-all
     :tree-data="treeData"
     @update:checkedKeys="
-      emit('update:modelValue', Array.isArray($event) ? $event : $event.checked)
+      !disabled && emit('update:modelValue', Array.isArray($event) ? $event : $event.checked)
     "
   />
 </template>
