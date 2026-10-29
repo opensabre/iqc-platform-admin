@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
-import {createApp, defineComponent, h, nextTick, type App} from 'vue';
+import {createApp, defineComponent, h, nextTick, reactive, type App} from 'vue';
 import Schedules from './schedules.vue';
 import Subscriptions from './subscriptions.vue';
 
@@ -8,7 +8,8 @@ const mocks = vi.hoisted(() => ({
  versions:vi.fn(), instances:vi.fn(), preview:vi.fn(), success:vi.fn(), warning:vi.fn(), error:vi.fn(), confirm:vi.fn(),
 }));
 vi.mock('ant-design-vue',()=>({message:{success:mocks.success,warning:mocks.warning,error:mocks.error},Modal:{confirm:mocks.confirm}}));
-vi.mock('@/composables/permission',()=>({usePermission:()=>({can:(key:string)=>!key.startsWith('iqc:pipeline:')&&!key.includes('attempt')})}));
+const access=reactive({denied:[] as string[]});
+vi.mock('@/composables/permission',()=>({usePermission:()=>({can:(key:string)=>!access.denied.includes(key)&&!key.startsWith('iqc:pipeline:')&&!key.includes('attempt')})}));
 vi.mock('@/api/periodic-schedules',()=>({listSchedules:mocks.list,getSchedule:mocks.get,createSchedule:mocks.create,updateSchedule:mocks.update,publishSchedule:mocks.publish,availabilitySchedule:mocks.availability,scheduleVersions:mocks.versions,scheduleInstances:mocks.instances,previewSchedule:mocks.preview}));
 vi.mock('@/api/event-subscriptions',()=>({listSchedules:mocks.list,getSchedule:mocks.get,createSchedule:mocks.create,updateSchedule:mocks.update,publishSchedule:mocks.publish,availabilitySchedule:mocks.availability,scheduleVersions:mocks.versions,scheduleInstances:mocks.instances}));
 vi.mock('@/components/AutomaticRetryPolicyEditor.vue',()=>({default:{render:()=>null}}));
@@ -21,7 +22,7 @@ function deferred(){let resolve!:(value:any)=>void,reject!:(error:Error)=>void;c
 async function click(label:string){const b=[...host.querySelectorAll('button')].find(x=>x.textContent===label);expect(b,label).toBeDefined();b!.click();await settle();}
 function unmount(){app?.unmount();app=undefined;}
 function resetEffects(){for(const key of ['get','list','versions','instances','success','warning','error'] as const)mocks[key].mockClear();}
-beforeEach(()=>{vi.resetAllMocks();mocks.list.mockResolvedValue({records:[],total:0});mocks.versions.mockResolvedValue([]);mocks.instances.mockResolvedValue({records:[],total:0});});
+beforeEach(()=>{access.denied=[];vi.resetAllMocks();mocks.list.mockResolvedValue({records:[],total:0});mocks.versions.mockResolvedValue([]);mocks.instances.mockResolvedValue({records:[],total:0});});
 afterEach(()=>{unmount();host?.remove();});
 
 for(const kind of ['periodic','subscription'] as const){
@@ -40,6 +41,13 @@ for(const kind of ['periodic','subscription'] as const){
    app.component('ATable',defineComponent({props:['dataSource','columns'],setup(p,{slots}){return()=>h('div',p.dataSource.flatMap((record:any)=>p.columns.map((column:any)=>slots.bodyCell?.({record,column}))));}}));
    app.mount(host);await settle();await click('会话质检');resetEffects();
   }
+  const publishCode=kind==='periodic'?'iqc:schedule:publish':'iqc:subscription:publish';
+  it('rechecks its own publish grant when confirmation is accepted',async()=>{await mount();await click('发布修订');const confirmation=mocks.confirm.mock.calls[0][0];access.denied=[publishCode];await confirmation.onOk();expect(mocks.publish).not.toHaveBeenCalled();});
+  it('revoking and restoring publish invalidates the original confirmation',async()=>{await mount();await click('发布修订');const confirmation=mocks.confirm.mock.calls[0][0];access.denied=[publishCode];access.denied=[];await confirmation.onOk();expect(mocks.publish).not.toHaveBeenCalled();});
+  for(const sensitive of ['iqc:sensitive:conversation:read','iqc:sensitive:pii:read','iqc:sensitive:prompt:read'])it(`revoking and restoring ${sensitive} invalidates the original confirmation`,async()=>{await mount();await click('发布修订');const confirmation=mocks.confirm.mock.calls[0][0];access.denied=[sensitive];access.denied=[];await confirmation.onOk();expect(mocks.publish).not.toHaveBeenCalled();});
+  it('rereading details for the same asset invalidates the old confirmation',async()=>{await mount();await click('发布修订');const confirmation=mocks.confirm.mock.calls[0][0];await (app as any)._instance.setupState.details();await confirmation.onOk();expect(mocks.publish).not.toHaveBeenCalled();});
+  it('an unrelated grant change preserves a valid publication and its exact revision',async()=>{await mount();await click('发布修订');access.denied=['unrelated:grant'];mocks.publish.mockResolvedValue(row);await mocks.confirm.mock.calls[0][0].onOk();expect(mocks.publish).toHaveBeenCalledExactlyOnceWith('a1',1);});
+  it('a newly confirmed publication remains available after authorization is restored',async()=>{await mount();await click('发布修订');const old=mocks.confirm.mock.calls[0][0];access.denied=[publishCode];access.denied=[];await old.onOk();await click('发布修订');mocks.publish.mockResolvedValue(row);await mocks.confirm.mock.calls[1][0].onOk();expect(mocks.publish).toHaveBeenCalledExactlyOnceWith('a1',1);});
   it('keeps normal save confirmation and reloads the confirmed revision',async()=>{
    await mount();const receipt={...row,draftRevision:2};mocks.update.mockResolvedValue(receipt);mocks.get.mockResolvedValue(receipt);
    await click('保存草稿');expect(mocks.update).toHaveBeenCalledTimes(1);expect(mocks.success).toHaveBeenCalledWith('草稿已保存');
