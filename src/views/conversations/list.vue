@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { usePermission } from "@/composables/permission";
 import { useRoute } from "vue-router";
 import { message } from "ant-design-vue";
 import { CheckOutlined, CopyOutlined } from "@ant-design/icons-vue";
@@ -8,6 +9,8 @@ import { dictionaryLabel, getCachedDictionaries, type DictionaryItem } from "@/a
 import ConversationDetailDrawer from "@/components/ConversationDetailDrawer.vue";
 import { copyToClipboard } from "@/utils/clipboard";
 
+const {can}=usePermission();
+let disposed=false,generation=0;
 const conversations = ref<ConversationSummary[]>([]);
 const loading = ref(false);
 const total = ref(0);
@@ -41,15 +44,18 @@ async function copyText(value?: string) {
 }
 
 async function refreshConversations() {
+  const request=++generation;conversations.value=[];total.value=0;
+  if(disposed||!can("iqc:conversation:view")){loading.value=false;return;}
   loading.value = true;
   try {
     const result = await listConversations({ current: page.value, size: pageSize.value, ...filters.value });
+    if(disposed||request!==generation||!can("iqc:conversation:view"))return;
     conversations.value = result.records;
     total.value = result.total;
   } catch {
-    message.error("会话列表加载失败");
+    if(!disposed&&request===generation)message.error("会话列表加载失败");
   } finally {
-    loading.value = false;
+    if(!disposed&&request===generation)loading.value = false;
   }
 }
 async function resetFilters() {
@@ -63,6 +69,7 @@ async function changePage(current: number, size: number) {
   await refreshConversations();
 }
 async function showDetail(id: string) {
+  if(disposed||!can("iqc:conversation:detail:view"))return;
   detailConversationId.value = id;
   detailOpen.value = true;
 }
@@ -72,6 +79,9 @@ async function loadDictionaries() {
     if (data.iqc_conversation_channel?.length) channelOptions.value = data.iqc_conversation_channel;
   } catch { /* 字典服务暂不可用时使用本地渠道选项。 */ }
 }
+watch(()=>can("iqc:conversation:view"),()=>{void refreshConversations();});
+watch(()=>can("iqc:conversation:detail:view"),allowed=>{if(!allowed){detailOpen.value=false;detailConversationId.value=undefined;}});
+onBeforeUnmount(()=>{disposed=true;generation++;conversations.value=[];detailOpen.value=false;detailConversationId.value=undefined;if(copyResetTimer)window.clearTimeout(copyResetTimer);});
 onMounted(() => {
   void refreshConversations();
   void loadDictionaries();
@@ -84,9 +94,9 @@ onMounted(() => {
   <div class="conversation-page">
     <section class="page-intro">
       <div><span class="section-kicker">CONVERSATION ARCHIVE</span><h2>会话列表</h2><p>查询已接入的客服会话，按归属、渠道和业务信息筛选。列表敏感字段默认脱敏；在详情中按权限查看完整内容或 PII。</p></div>
-      <a-tag color="blue">共 {{ total }} 条</a-tag>
+      <a-tag v-if="can('iqc:conversation:view')" color="blue">共 {{ total }} 条</a-tag>
     </section>
-    <a-card :bordered="false" class="list-card">
+    <a-alert v-if="!can('iqc:conversation:view')" type="info" show-icon message="当前未授权查看会话列表" /><a-card v-else :bordered="false" class="list-card">
       <a-form layout="inline" class="archive-filter" @submit.prevent="refreshConversations">
         <a-form-item label="员工"><a-input v-model:value="filters.employeeId" allow-clear placeholder="员工 ID" /></a-form-item>
         <a-form-item label="客户"><a-input v-model:value="filters.customerExternalId" allow-clear placeholder="客户 ID" /></a-form-item>
@@ -107,7 +117,7 @@ onMounted(() => {
         <a-table-column title="消息" data-index="messageCount" :width="80" />
         <a-table-column title="状态" data-index="status" :width="150"><template #default="{ text }"><a-tag :color="text === 'IMPORTED_WITH_ERRORS' ? 'warning' : 'success'">{{ statusLabel(text) }}</a-tag></template></a-table-column>
         <a-table-column title="创建时间" data-index="createdTime" :width="180" />
-        <a-table-column title="操作" :width="100" fixed="right"><template #default="{ record }"><a-button type="link" @click="showDetail(record.id)">查看对话</a-button></template></a-table-column>
+        <a-table-column title="操作" :width="100" fixed="right"><template #default="{ record }"><a-button v-if="can('iqc:conversation:detail:view')" type="link" @click="showDetail(record.id)">查看对话</a-button></template></a-table-column>
       </a-table>
       <a-pagination v-if="total" v-model:current="page" v-model:page-size="pageSize" :total="total" show-size-changer class="pager" @change="changePage" />
       <a-empty v-if="!loading && !conversations.length" description="暂无符合条件的会话" />

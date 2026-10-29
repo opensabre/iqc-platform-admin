@@ -5,8 +5,11 @@ import { getConversation, type ConversationDetail,type ConversationReadMode } fr
 import { CheckOutlined, CopyOutlined } from "@ant-design/icons-vue";
 import { segmentRange, confidenceLabel } from "@/utils/transcriptAlignment";
 import ConversationAudioPanel from "./ConversationAudioPanel.vue";
+import { usePermission } from "@/composables/permission";
 import { copyToClipboard } from "@/utils/clipboard";
 
+const {can}=usePermission();let disposed=false;
+function canMode(mode:ConversationReadMode){return mode==="PREVIEW"?can("iqc:conversation:detail:view"):can("iqc:conversation:view")&&can(mode==="FULL"?"iqc:sensitive:conversation:read":"iqc:sensitive:pii:read");}
 const props = defineProps<{ open: boolean; conversationId?: string }>();
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
 const loading = ref(false);
@@ -27,15 +30,17 @@ async function copyConversationId() {
 async function loadDetail(id?: string,mode:ConversationReadMode='PREVIEW') {
   const request = ++generation;
   detail.value = undefined; copiedId.value = false; activeMessage.value="";
-  if (!id || !props.open) { loading.value = false; return; }
+  if (disposed || !id || !props.open) { loading.value = false; return; }
+  if(!canMode(mode)){loading.value=false;if(mode==="PREVIEW")emit("update:open",false);return;}
   loading.value = true;
-  try { const received = mode==='PREVIEW'?await getConversation(id):await getConversation(id,mode); if (request === generation) detail.value = received; }
+  try { const received = mode==='PREVIEW'?await getConversation(id):await getConversation(id,mode); if (!disposed&&request === generation&&props.open&&props.conversationId===id&&canMode(mode)) detail.value = received; }
   catch { if (request === generation) { message.error("会话详情加载失败"); emit("update:open", false); } }
   finally { if (request === generation) loading.value = false; }
 }
 
 watch(() => [props.open, props.conversationId] as const, ([open, id]) => { void loadDetail(open ? id : undefined); }, { immediate: true });
-onBeforeUnmount(() => { generation++; });
+watch([()=>can("iqc:conversation:detail:view"),()=>can("iqc:conversation:view"),()=>can("iqc:sensitive:conversation:read"),()=>can("iqc:sensitive:pii:read")],()=>{void loadDetail(props.open?props.conversationId:undefined);});
+onBeforeUnmount(() => { disposed=true;generation++;detail.value=undefined;activeMessage.value=""; });
 
 </script>
 
@@ -46,8 +51,8 @@ onBeforeUnmount(() => { generation++; });
         <a-alert v-if="detail.privacy" type="info" show-icon :message="`${detail.privacy.contentLimited?'有限预览':'完整会话'} · ${detail.privacy.visibleMessageCount}/${detail.privacy.totalMessageCount} 条 · ${detail.privacy.piiMasked?'已应用脱敏投影':'本次未额外脱敏'}`"/>
         <a-space v-if="detail.privacy" style="margin:12px 0">
           <a-button :disabled="loading" @click="loadDetail(conversationId)">返回脱敏预览</a-button>
-          <a-button v-if="detail.privacy.canReadFull" :disabled="loading" @click="loadDetail(conversationId,'FULL')">查看完整脱敏会话</a-button>
-          <a-button v-if="detail.privacy.canReadPii" :disabled="loading" @click="loadDetail(conversationId,'PII')">按授权查看PII</a-button>
+          <a-button v-if="detail.privacy.canReadFull && canMode('FULL')" :disabled="loading" @click="loadDetail(conversationId,'FULL')">查看完整脱敏会话</a-button>
+          <a-button v-if="detail.privacy.canReadPii && canMode('PII')" :disabled="loading" @click="loadDetail(conversationId,'PII')">按授权查看PII</a-button>
         </a-space>
         <a-descriptions size="small" :column="2" bordered class="detail-meta">
           <a-descriptions-item label="会话 ID" :span="2"><a-space><a-typography-text>{{ detail.conversation.id }}</a-typography-text><a-tooltip :title="copiedId ? '已复制' : '复制会话 ID'"><a-button type="link" size="small" class="copy-button" :aria-label="copiedId ? '已复制会话 ID' : '复制会话 ID'" @click="copyConversationId"><CheckOutlined v-if="copiedId" class="copy-success"/><CopyOutlined v-else /></a-button></a-tooltip></a-space></a-descriptions-item>

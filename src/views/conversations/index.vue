@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { message, type UploadChangeParam, type UploadFile } from "ant-design-vue";
 import { batchImportConversations, importConversationZip, type ConversationMetadata } from "@/api/conversations";
 import { usePermission } from "@/composables/permission";
@@ -7,6 +7,9 @@ import { getCachedDictionaries, type DictionaryItem } from "@/api/dictionaries";
 
 const { can } = usePermission();
 const uploading = ref(false);
+const canBatch=computed(()=>can("iqc:conversation:batch-upload")),canZip=computed(()=>can("iqc:conversation:zip-upload"));
+const activeUploadTab=ref("files");
+let disposed=false,generation=0,activePermission:string|undefined;
 const latestBatch = ref<{ batchNo: string; totalCount: number; successCount: number }>();
 const pendingFiles = ref<File[]>([]);
 const zipFile = ref<File>();
@@ -37,31 +40,36 @@ function importMetadata(): ConversationMetadata {
 }
 
 async function handleBatchUpload(info: UploadChangeParam<UploadFile>) {
+  if(disposed||uploading.value||!canBatch.value)return;
   const files = (info.fileList || []).flatMap((item) => item.originFileObj ? [item.originFileObj as unknown as File] : []);
   pendingFiles.value = files;
 }
 async function startBatchImport() {
-  const files = pendingFiles.value;
+  if(disposed||!canBatch.value)return;
+  const files = [...pendingFiles.value];
   if (!files.length || uploading.value) { message.warning("请先选择会话文件"); return; }
   if (files.some((file) => !file.name.toLowerCase().endsWith(".txt"))) { message.error("仅支持 txt 文件"); return; }
-  uploading.value = true;
+  uploading.value = true;const request=++generation;activePermission="iqc:conversation:batch-upload";
   try {
-    latestBatch.value = await batchImportConversations(files, importMetadata());
+    const result=await batchImportConversations(files, importMetadata());
+    if(disposed||request!==generation||!canBatch.value)return;latestBatch.value=result;
     message.success(`批次 ${latestBatch.value.batchNo} 已导入 ${latestBatch.value.successCount} 个会话`);
     pendingFiles.value = [];
-  } catch (error) { message.error(error instanceof Error ? error.message : "批量导入失败"); }
-  finally { uploading.value = false; }
+  } catch (error) { if(!disposed&&request===generation&&canBatch.value)message.error(error instanceof Error ? error.message : "批量导入失败"); }
+  finally { if(!disposed){uploading.value=false;activePermission=undefined;} }
 }
-function handleZipUpload(info: UploadChangeParam<UploadFile>) { zipFile.value = info.file.originFileObj as unknown as File; }
+function handleZipUpload(info: UploadChangeParam<UploadFile>) { if(disposed||uploading.value||!canZip.value)return;zipFile.value = info.file.originFileObj as unknown as File; }
 async function startZipImport() {
+  if(disposed||!canZip.value)return;
   if (!zipFile.value || uploading.value) { message.warning("请先选择 ZIP 包"); return; }
-  uploading.value = true;
+  const file=zipFile.value;uploading.value = true;const request=++generation;activePermission="iqc:conversation:zip-upload";
   try {
-    latestBatch.value = await importConversationZip(zipFile.value, importMetadata());
+    const result=await importConversationZip(file, importMetadata());
+    if(disposed||request!==generation||!canZip.value)return;latestBatch.value=result;
     message.success(`ZIP 批次 ${latestBatch.value.batchNo} 已导入 ${latestBatch.value.successCount} 个会话`);
     zipFile.value = undefined;
-  } catch (error) { message.error(error instanceof Error ? error.message : "ZIP 导入失败"); }
-  finally { uploading.value = false; }
+  } catch (error) { if(!disposed&&request===generation&&canZip.value)message.error(error instanceof Error ? error.message : "ZIP 导入失败"); }
+  finally { if(!disposed){uploading.value=false;activePermission=undefined;} }
 }
 async function loadDictionaries() {
   try {
@@ -70,6 +78,14 @@ async function loadDictionaries() {
     if (data.iqc_business_type?.length) businessTypeOptions.value = data.iqc_business_type;
   } catch { /* 字典服务暂不可用时使用渠道兜底，业务类型允许为空。 */ }
 }
+watch([canBatch,canZip],([batch,zip])=>{
+ if(!batch)pendingFiles.value=[];if(!zip)zipFile.value=undefined;
+ if(activePermission&&!can(activePermission)){generation++;latestBatch.value=undefined;}
+ if(activeUploadTab.value==="files"&&!batch&&zip)activeUploadTab.value="zip";
+ if(activeUploadTab.value==="zip"&&!zip&&batch)activeUploadTab.value="files";
+ if(!batch&&!zip){generation++;latestBatch.value=undefined;metadata.value={channel:"WEB"};complaintChoice.value="UNSPECIFIED";businessFieldsText.value="";}
+},{immediate:true});
+onBeforeUnmount(()=>{disposed=true;generation++;pendingFiles.value=[];zipFile.value=undefined;latestBatch.value=undefined;metadata.value={channel:"WEB"};complaintChoice.value="UNSPECIFIED";businessFieldsText.value="";});
 onMounted(() => { void loadDictionaries(); });
 </script>
 
@@ -81,7 +97,7 @@ onMounted(() => { void loadDictionaries(); });
     </section>
     <a-row :gutter="16">
       <a-col :xs="24" :lg="16">
-        <a-card v-if="can('iqc:conversation:upload')" title="文本批量入库" :bordered="false">
+        <a-card v-if="canBatch||canZip" title="文本批量入库" :bordered="false">
           <a-alert type="info" show-icon message="以下归属信息会应用到本次选择的全部会话文件" description="员工 ID 引用 OpenSabre 用户；客户 ID 使用 CRM 等上游系统编号。" class="metadata-tip" />
           <a-form layout="vertical" class="metadata-form">
             <a-row :gutter="12"><a-col :xs="24" :md="8"><a-form-item label="沟通员工 ID"><a-input v-model:value="metadata.employeeId" placeholder="OpenSabre 用户 ID" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="员工姓名快照"><a-input v-model:value="metadata.employeeName" placeholder="例如：张三" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="员工组织 / 团队 ID"><a-input v-model:value="metadata.employeeGroupId" placeholder="组织或团队 ID（employeeGroupId）" /></a-form-item></a-col></a-row>
@@ -91,15 +107,15 @@ onMounted(() => { void loadDictionaries(); });
             <a-row :gutter="12"><a-col :xs="24" :md="8"><a-form-item label="是否投诉"><a-select v-model:value="complaintChoice" :options="[{value:'UNSPECIFIED',label:'未提供'},{value:'YES',label:'是'},{value:'NO',label:'否'}]" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="会话开始时间（Asia/Shanghai 本地 ISO）"><a-input v-model:value="metadata.startedTime" placeholder="2026-10-05T10:00:00" /></a-form-item></a-col><a-col :xs="24" :md="8"><a-form-item label="会话结束时间（Asia/Shanghai 本地 ISO）"><a-input v-model:value="metadata.endedTime" placeholder="2026-10-05T10:15:00" /></a-form-item></a-col></a-row>
             <a-form-item label="自定义业务字段（可选 JSON 对象）"><a-textarea v-model:value="businessFieldsText" :rows="3" placeholder='{"orderAmount":199.5,"priorityCustomer":true,"region":"华东"}' /><small>最多64个标量字段；未知值可用 null。不会自动推断转写状态、客户等级或投诉事实。</small></a-form-item>
           </a-form>
-          <a-tabs>
-            <a-tab-pane key="files" tab="多个 TXT">
-              <a-upload-dragger accept=".txt,text/plain" multiple :show-upload-list="true" :before-upload="() => false" @change="handleBatchUpload">
+          <a-tabs v-model:active-key="activeUploadTab">
+            <a-tab-pane v-if="canBatch" key="files" tab="多个 TXT">
+              <a-upload-dragger accept=".txt,text/plain" multiple :show-upload-list="true" :disabled="uploading" :before-upload="() => false" @change="handleBatchUpload">
                 <p class="upload-icon">⇧</p><p class="ant-upload-text">选择或拖入多个 TXT 会话文件</p><p class="ant-upload-hint">每批最多 100 个文件，单文件最大 20MB</p>
               </a-upload-dragger>
               <a-button type="primary" :loading="uploading" class="import-button" @click="startBatchImport">开始批量导入（{{ pendingFiles.length }}）</a-button>
             </a-tab-pane>
-            <a-tab-pane key="zip" tab="ZIP 压缩包">
-              <a-upload-dragger accept=".zip,application/zip" :max-count="1" :before-upload="() => false" @change="handleZipUpload">
+            <a-tab-pane v-if="canZip" key="zip" tab="ZIP 压缩包">
+              <a-upload-dragger accept=".zip,application/zip" :max-count="1" :disabled="uploading" :before-upload="() => false" @change="handleZipUpload">
                 <p class="upload-icon">ZIP</p><p class="ant-upload-text">上传包含多个 TXT 会话的 ZIP 包</p><p class="ant-upload-hint">最多 100 个 TXT；单文件 20MB，解压总量 100MB；目录结构会自动忽略</p>
               </a-upload-dragger>
               <a-button type="primary" :loading="uploading" class="import-button" @click="startZipImport">开始 ZIP 导入</a-button>
