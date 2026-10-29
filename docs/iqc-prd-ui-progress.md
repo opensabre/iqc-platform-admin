@@ -493,3 +493,11 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 原49786 terminal0，/tmp/iqc-b-pipeline-draft-complete.log.exit=0，operation36+原生命周期13共49项8.36s通过。原95437 pnpm build在途，/tmp/iqc-b-pipeline-draft-build.log及.exit，源码/测试冻结；终态另记。受控Vue/API/权限非真实岗位/PDP/后台业务写，完整I1–I7仍active，仅已处理会话输入。
 
 原95437 pnpm build已terminal0且/tmp/iqc-b-pipeline-draft-build.log.exit=0，vue-tsc和Vite通过（时长见原日志），沿原句柄跟进终态，无重启。49项专项及diff通过，无在途测试/构建；未跑最新组合全量，完整验收仍待。
+
+## 2026-10-29 B 草稿保存与重载确认
+
+基线df88cc3。原94451 terminal1，/tmp/iqc-b-pipeline-save-red.log.exit=1，38通过5真实失败：update撤权恢复迟到回执；敏感撤权后保存正文回填；旧reload覆盖另一草稿/新编辑；无manage的旧create回调仍开编辑器。卸载save与原update参数正例保留。最小改原save捕获原id/revision/name/code/release及command/detail代际，发前disposed/own writable，返后当前grant/上下文再采用，过期错误不提示；manage/update实际grant变化沿commandGeneration失效旧回执。原API/数据库/修订语义不变，失败仍保编辑供显式核对，不自动重发。reload确认捕获原id/revision/name/完整编辑器配置与detail代际，确认前核对，不能覆盖后续编辑或其它草稿。create复核自身manage与disposed。
+
+原89949 terminal0两文件56项7.58s；补合法新建仅manage无需detail/update、有效reload、撤权恢复旧确认三项，并将reload id捕获为原始值后，原16276 terminal0，/tmp/iqc-b-pipeline-save-complete.log.exit=0，两文件59项13.57s（操作46+原生命周期13）。原67818 pnpm build在途，/tmp/iqc-b-pipeline-save-build.log及.exit，源码测试冻结，不套旧全量647。本批受控Vue/权限/API非真实岗位/PDP/成功业务写；目录/版本读等余项及完整I1–I7继续，仅已处理会话，无framework/共享SQL/部署。
+
+原67818构建已终态：/tmp/iqc-b-pipeline-save-build.log.exit=0，vue-tsc及Vite56.40s通过。原16276两文件59项13.57s终态0，diff通过；无在途测试/构建。按用户要求本小项立即独立PR，不直接覆盖集成分支。
