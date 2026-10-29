@@ -1,3 +1,4 @@
+vi.mock('@/composables/permission',()=>({usePermission:()=>({can:(code:string)=>['iqc:finding:view','iqc:finding:versions:view'].includes(code)})}));
 import {afterEach,it,expect,vi} from 'vitest';
 import {createApp,defineComponent,h,nextTick,reactive,type App} from 'vue';
 const mocks=vi.hoisted(()=>({findings:vi.fn(),versions:vi.fn()}));

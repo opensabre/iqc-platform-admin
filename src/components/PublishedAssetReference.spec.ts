@@ -1,3 +1,4 @@
+vi.mock('@/composables/permission',()=>({usePermission:()=>({can:(code:string)=>['iqc:knowledge:view','iqc:knowledge:versions:view'].includes(code)})}));
 import {afterEach,expect,it,vi} from 'vitest';
 import {createApp,defineComponent,h,nextTick,ref,type App} from 'vue';
 import PublishedAssetReference from './PublishedAssetReference.vue';

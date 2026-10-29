@@ -1,3 +1,4 @@
+vi.mock('@/composables/permission',()=>({usePermission:()=>({can:(code:string)=>['iqc:agent:view','iqc:agent:versions:view'].includes(code)})}));
 import {afterEach,describe,it,expect,vi} from 'vitest';
 import {createApp,defineComponent,h,nextTick,reactive,type App} from 'vue';
 import type {PipelineNode} from '@/api/pipelines';

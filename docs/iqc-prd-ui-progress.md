@@ -392,3 +392,12 @@ Root整合后原25691 build终态0且/tmp/iqc-finding-distribution-final-ui.exit
 首轮37385为15通过12失败：规则路由mock缺meta，Agent在资产加载未完成时开始绑定产生第二次历史读取。原31234类型终态0后修正route fixture并等待资产完成，未修改生产逻辑。原86737 27项7.53s通过；补六项复合权限与legacy保存后，最终原52064 terminal0，/tmp/iqc-b-rule-agent-operations-complete-20261029.log.exit=0，3文件33项全部通过8.76s（新31+原prompt生命周期2）。最终原83661 vue-tsc terminal0，/tmp/iqc-b-rule-agent-types-final-20261029.log.exit=0，diff通过。保留原Prompt测试Ant未stub警告。
 
 本轮没有重跑全量或Vite；之前501项全量只证明a4dead4组合，不能套在本轮新源。当前专项不是真实浏览器/岗位/PDP/成功持久化或完整I1–I7验收。所有输入为处理好的会话，不增加语音处理。
+
+
+## 2026-10-29 B 四类资产引用与Skill能力分权/全量回归
+
+基线5312ca8，仅merge固定8dc731e为a66c4c8。三个原spec仅补明确自身list/history权限fixture，保留Knowledge切换/卸载、Finding版本valueType、Skill/API精确快照及无效Schema草稿断言。新asset-reference-permissions.spec.ts 18项：四类RULE/AGENT/FINDING/KNOWLEDGE各自目录不代历史、历史不代目录、两在途撤回清查询不改父引用/code/valueType；Skill能力不借Agent目录权限、精确发布legacy快照、撤权保已存引用、敏感变化重取安全presentation并拒旧body、无效privacy不退回legacy正文、卸载拒迟到。未修改生产源码。
+
+原83917 terminal0，/tmp/iqc-b-reference-permissions-20261029.log.exit=0，4文件24项通过11.25s（新18+原6）；原77895 vue-tsc terminal0，/tmp/iqc-b-reference-types-20261029.log.exit=0。最终原18992全量terminal0，/tmp/iqc-b-reference-full-ui-20261029.log.exit=0，63文件550项全部通过124.08s，包含规则/Agent固定源及新31项。diff通过，原未stub组件警告保留。
+
+这是当前B快照真实Vue/受控API权限/Ant stub验证，不代表真实浏览器/组织PDP/写入或完整I1–I7验收；不含A尚在开发的方案权限修改。本轮未重跑Vite或部署。只处理既有会话数据，语音生成/转换不在范围。
