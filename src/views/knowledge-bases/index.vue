@@ -12,7 +12,7 @@ const fullAccess=computed(()=>can('iqc:sensitive:conversation:read')&&can('iqc:s
 const writable=computed(()=>!restricted.value&&!uncertain.value&&can(selected.value?'iqc:knowledge:update':'iqc:knowledge:create'));
 const dirty=computed(()=>baseline.value!==JSON.stringify([name.value,documents.value]));
 const characterCount=computed(()=>documents.value.reduce((sum,item)=>sum+item.text.length,0));
-function clearEditor(){++detailGeneration;++versionGeneration;selected.value=undefined;code.value='';name.value='';documents.value=[];history.value=[];versionDocuments.value=[];versionLabel.value='';baseline.value='';restricted.value=false;uncertain.value=false;detailError.value='';}
+function clearEditor(){++detailGeneration;++versionGeneration;busy.value=false;selected.value=undefined;code.value='';name.value='';documents.value=[];history.value=[];versionDocuments.value=[];versionLabel.value='';baseline.value='';restricted.value=false;uncertain.value=false;detailError.value='';}
 function close(){if(busy.value)return;open.value=false;clearEditor();}
 function corpus(body:string):KnowledgeCorpus{const value=JSON.parse(body);if(!value||value.schemaVersion!=='iqc-knowledge-corpus-v1'||!Array.isArray(value.documents)||value.documents.length<1||value.documents.length>100||value.documents.some((d:KnowledgeDocument)=>!d||['documentId','title','text','sourceReference'].some(key=>typeof d[key as keyof KnowledgeDocument]!=='string')))throw Error('语料协议无效');return value;}
 function apply(row:Knowledge){selected.value={...row,draftConfigJson:null};code.value=row.code;name.value=row.name??'';restricted.value=knowledgeRestricted(row)||!row.draftConfigJson;documents.value=[];
@@ -25,7 +25,7 @@ async function historyFor(id:string,ticket:number){history.value=[];if(!can('iqc
 async function load(row:Knowledge){if(disposed||busy.value||!can('iqc:knowledge:detail:view')||(open.value&&dirty.value&&selected.value?.id!==row.id))return;clearEditor();const ticket=detailGeneration;selected.value={...row,draftConfigJson:null};restricted.value=true;open.value=true;busy.value=true;
  try{const result=await getKnowledge(row.id);if(disposed||ticket!==detailGeneration||!can('iqc:knowledge:detail:view'))return;apply(result);await historyFor(row.id,ticket);}
  catch{if(ticket===detailGeneration){restricted.value=true;documents.value=[];detailError.value='详情读取失败，正文已清除。';}}
- finally{busy.value=false;}}
+ finally{if(!disposed&&ticket===detailGeneration)busy.value=false;}}
 function create(){if(disposed||busy.value||(open.value&&dirty.value)||!can('iqc:knowledge:create'))return;clearEditor();documents.value=[{documentId:'document-1',title:'',text:'',sourceReference:''}];open.value=true;}
 function addDocument(){if(!writable.value||busy.value||documents.value.length>=100)return;let index=1;while(documents.value.some(d=>d.documentId===`document-${index}`))index++;documents.value.push({documentId:`document-${index}`,title:'',text:'',sourceReference:''});}
 function removeDocument(index:number){if(writable.value&&!busy.value&&documents.value.length>1)documents.value.splice(index,1);}
@@ -37,10 +37,10 @@ async function command(permission:string,action:()=>Promise<unknown>,id?:string)
  try{const receipt=await action() as Knowledge|KnowledgeVersion;confirmed=true;if(disposed||ticket!==detailGeneration||!can(permission))return;
   const target=id??('knowledgeBaseId' in receipt?receipt.knowledgeBaseId:receipt.id);documents.value=[];history.value=[];restricted.value=true;
   selected.value='knowledgeBaseId' in receipt?(prior?{...prior,draftConfigJson:null,activePublishedVersion:receipt.versionNo,privacy:receipt.privacy}:undefined):{...receipt,draftConfigJson:null};baseline.value='';uncertain.value=false;
-  if(can('iqc:knowledge:detail:view')){const result=await getKnowledge(target);if(disposed||ticket!==detailGeneration||!can('iqc:knowledge:detail:view'))return;apply(result);open.value=true;await historyFor(target,ticket);}else{open.value=false;clearEditor();}
+  if(can('iqc:knowledge:detail:view')){const result=await getKnowledge(target);if(disposed||ticket!==detailGeneration||!can('iqc:knowledge:detail:view'))return;apply(result);open.value=true;await historyFor(target,ticket);}else{open.value=false;clearEditor();void refresh();}
   if(ticket===detailGeneration)message.success('操作已确认');
  }catch{if(ticket===detailGeneration){documents.value=[];history.value=[];restricted.value=true;uncertain.value=true;detailError.value=confirmed?'操作已完成，但重新读取失败；请重读详情，勿重复提交。':'操作结果未确认，请重新读取后继续，勿直接重复提交。';}}
- finally{busy.value=false;if(!disposed)void refresh();}}
+ finally{if(!disposed&&ticket===detailGeneration){busy.value=false;void refresh();}}}
 function save(){if(!writable.value||busy.value)return;let value:KnowledgeCorpus;try{value=validated();}catch(e){message.warning(e instanceof Error?e.message:'语料无效');return;}
  const row=selected.value;if(row)void command('iqc:knowledge:update',()=>updateKnowledge(row.id,row.draftRevision,name.value,value),row.id);else void command('iqc:knowledge:create',()=>createKnowledge(code.value,name.value,value));}
 function publish(){const row=selected.value;if(!row||busy.value||dirty.value||restricted.value||uncertain.value)return;void command('iqc:knowledge:publish',()=>publishKnowledge(row.id,row.draftRevision),row.id);}
