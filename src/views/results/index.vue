@@ -265,11 +265,28 @@ function exportTaskReviews(){
     }
   });
 }
-function markResult(id:string,type:"CORRECT"|"FALSE_POSITIVE"|"FALSE_NEGATIVE"){Modal.confirm({title:type==="CORRECT"?"确认质检结论正确？":type==="FALSE_POSITIVE"?"标记为误判？":"标记为漏判？",content:"标注会追加保存，不会覆盖 AI 原始结果。",async onOk(){await createFeedback(id,{feedbackType:type});message.success("结果标注已保存");}});}
-async function openReview(id:string){try{await requestReview(id,"从结果中心发起");message.success("已进入人工复核队列");}catch{message.error("发起复核失败");}}
-async function saveAsSample(id:string,type:"POSITIVE"|"FALSE_POSITIVE"|"FALSE_NEGATIVE"){try{await createSample(id,{sampleType:type});message.success("已加入样本库");}catch{message.error("样本创建失败");}}
+function markResult(id:string,type:"CORRECT"|"FALSE_POSITIVE"|"FALSE_NEGATIVE"){
+  const generation=exportGeneration,request=resultRequest,context=detailRequest;
+  const current=()=>!disposed&&generation===exportGeneration&&request===resultRequest&&context===detailRequest&&can("iqc:result:feedback");
+  if(!current())return;
+  Modal.confirm({title:type==="CORRECT"?"确认质检结论正确？":type==="FALSE_POSITIVE"?"标记为误判？":"标记为漏判？",content:"标注会追加保存，不会覆盖 AI 原始结果。",
+    async onOk(){if(!current())return;try{await createFeedback(id,{feedbackType:type});if(current())message.success("结果标注已保存");}catch{if(current())message.error("结果标注失败");}}
+  });
+}
+async function openReview(id:string){
+  const generation=exportGeneration,request=resultRequest,context=detailRequest;
+  const current=()=>!disposed&&generation===exportGeneration&&request===resultRequest&&context===detailRequest&&can("iqc:review:create");
+  if(!current())return;
+  try{await requestReview(id,"从结果中心发起");if(current())message.success("已进入人工复核队列");}catch{if(current())message.error("发起复核失败");}
+}
+async function saveAsSample(id:string,type:"POSITIVE"|"FALSE_POSITIVE"|"FALSE_NEGATIVE"){
+  const generation=exportGeneration,request=resultRequest,context=detailRequest;
+  const current=()=>!disposed&&generation===exportGeneration&&request===resultRequest&&context===detailRequest&&can("iqc:sample:manage");
+  if(!current())return;
+  try{await createSample(id,{sampleType:type});if(current())message.success("已加入样本库");}catch{if(current())message.error("样本创建失败");}
+}
 async function loadDictionaries() { try { const data = await getCachedDictionaries(["iqc_result_status", "iqc_risk_level"]); if (data.iqc_result_status?.length) resultStatuses.value = data.iqc_result_status; if (data.iqc_risk_level?.length) riskLevels.value = data.iqc_risk_level; } catch { /* 治理中心不可用时保留本地展示兜底。 */ } }
-watch(()=>JSON.stringify([can('iqc:result:view'),can('iqc:result:business:view'),can('iqc:result:detail:view'),can('iqc:result:conversation:view'),can('iqc:result:hierarchy:view'),can('iqc:result:summary:view'),can('iqc:result:labels:view'),can('iqc:result:export'),can('iqc:result:labels:export'),can('iqc:review:view'),can('iqc:conversation:detail:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read'),can('iqc:sensitive:prompt:read')]),()=>{
+watch(()=>JSON.stringify([can('iqc:result:view'),can('iqc:result:business:view'),can('iqc:result:detail:view'),can('iqc:result:conversation:view'),can('iqc:result:hierarchy:view'),can('iqc:result:summary:view'),can('iqc:result:labels:view'),can('iqc:result:export'),can('iqc:result:labels:export'),can('iqc:review:view'),can('iqc:result:feedback'),can('iqc:review:create'),can('iqc:sample:manage'),can('iqc:conversation:detail:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read'),can('iqc:sensitive:prompt:read')]),()=>{
   ++resultRequest;++detailRequest;++exportGeneration;results.value=[];businessResults.value=[];canonicalSummaries.value={};total.value=0;loading.value=false;
   detailOpen.value=false;detailLoading.value=false;clearDetail();conversationDrawerOpen.value=false;conversationDetailId.value=undefined;
   if(!filters.value.parentTaskId&&!can(listPermission.value)&&can("iqc:result:view"))resultView.value="MESSAGE";

@@ -441,3 +441,15 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 原17981类型检查终态另记，未计通过前冻结源码。结果页全部精确grant/导出/撤权独立组件专项仍需补，现有导航和工具函数断言不替代该验收；真实PDP/岗位/成功持久化与完整I1–I7仍继续。所有输入为处理好的会话，不做语音处理。
 
 最终原17981 vue-tsc --noEmit terminal0，/tmp/iqc-b-task-selector-types-20261029.log.exit=0，原进程持续跟进至结束，未因安静重启。diff通过，无在途构建；本轮未重跑Vite/全量。
+
+## 2026-10-29 B 结果页精准读写及撤权命令验证
+
+基线b1e6ed6，结果生产来自A固定7e301db（B定点0537c75）。新results/operation-permissions.spec.ts使用实际Vue页面、响应式权限与受控API，所有嵌套业务面板stub，避免后台调用。独立business/message列表、detail不借目录、conversation+hierarchy双授权、summary无权不读/失败不推断分数、普通export和labels:export分别与full/PII复合、旧Blob不下载/旧业务确认不复活均有专项。结果页原导航/路由/分组与共享选择器断言保留。
+
+首轮原48382终态1是新Ant Table stub错误展开带record的slot（20失败/46异步错误）；修为原导航fixture已有的data-source表不展开slot，未修改生产逻辑/断言。干净红测原93326终态1，/tmp/iqc-b-results-operation-red-clean-20261029.log.exit=1，16通过4真实失败：仅result:view仍可反馈、发起复核、沉淀样本，以及feedback撤权恢复后旧确认可写。
+
+原results/index.vue最小修复三个handler：feedback、review:create、sample:manage各自精确码，当前授权/disposed/列表与详情上下文/原权限代际核对；反馈确认前后、异步成功/失败回执均须仍在当前上下文。三项权限加入原sync失效watch，撤权再恢复不复活旧确认；不回滚已发服务端操作、不新建API/存储/框架能力。反馈保持原ID和类型/追加不覆盖语义。新增合法原payload、两个异步回执撤权、关闭详情与卸载使确认失效等正反回归。
+
+原5437 terminal0，/tmp/iqc-b-results-operation-final-20261029.log.exit=0，5文件58项18.81s通过（新28+原结果导航12/路由6/分组3/选择器9）。原导航保留既有Ant stub/happy-dom localhost:3000 EPERM日志，新28项全部API受控；不把测试日志或受控成功当真实后台成功。原32977最终pnpm build仍在途，源码冻结，终态另记。未跑全量，旧550不套当前组合；全部适用I1–I7、真实五职责/PDP/成功写入/外部/监控/容量与A–E继续。输入仅处理好的会话，不做语音处理，未部署/修改共享SQL/framework。
+
+最终原32977 pnpm build terminal0，/tmp/iqc-b-results-operation-build-20261029.log.exit=0，vue-tsc/Vite通过（Vite1m37s），现有Node引擎/chunk提示保留。原进程全程跟进，无重启；diff通过，无在途构建。进度记录已归入本UI工作树文档。
