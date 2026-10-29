@@ -37,7 +37,7 @@ const active=ref("business"), loading=ref(false), reviews=ref<ResultReview[]>([]
 const report=ref<QualityReport>();
 const decisionOpen=ref(false), selected=ref<ResultReview>(), form=ref({decision:"APPROVED",finalStatus:"HIT",finalScore:100,finalRiskLevel:"LOW",comment:""});
 const {can}=usePermission();
-let disposed=false,generation=0;const deciding=ref(false);
+let disposed=false,generation=0,decisionGeneration=0;const deciding=ref(false);
 function reviewWithheld(row:ResultReview){const p=row.privacy;return !!p&&(p.policyVersion!=="iqc-message-review-read-v1"||!p.canonicalPayloadVisible||!p.canReadFull||!p.canReadPii);}
 const commentsWithheld=computed(()=>reviews.value.some(reviewWithheld));
 async function refresh(){
@@ -60,18 +60,24 @@ async function refresh(){
  }catch{if(!disposed&&ticket===generation)message.error('质量运营数据加载失败');}
  finally{if(!disposed&&ticket===generation)loading.value=false;}
 }
-function openDecision(row:ResultReview){if(disposed||deciding.value||!can('iqc:review:decide'))return;selected.value=row;form.value={decision:'APPROVED',finalStatus:row.originalStatus,finalScore:row.originalScore??100,finalRiskLevel:row.originalRiskLevel||'LOW',comment:''};decisionOpen.value=true;}
+function openDecision(row:ResultReview){if(disposed||deciding.value||!can('iqc:review:decide'))return;++decisionGeneration;selected.value=row;form.value={decision:'APPROVED',finalStatus:row.originalStatus,finalScore:row.originalScore??100,finalRiskLevel:row.originalRiskLevel||'LOW',comment:''};decisionOpen.value=true;}
 async function saveDecision(){
  if(disposed||deciding.value||!selected.value||!can('iqc:review:decide'))return;
- const id=selected.value.id,payload={...form.value};deciding.value=true;
- try{await decideReview(id,payload);if(disposed)return;message.success('复核结论已保存');decisionOpen.value=false;await refresh();}
- catch{if(!disposed)message.error('复核处理未确认，请核对历史后再重试');}finally{if(!disposed)deciding.value=false;}
+ const id=selected.value.id,payload={...form.value},ticket=++decisionGeneration;deciding.value=true;
+ const current=()=>!disposed&&ticket===decisionGeneration&&decisionOpen.value&&selected.value?.id===id&&can('iqc:review:decide');
+ try{await decideReview(id,payload);if(!current())return;message.success('复核结论已保存');decisionOpen.value=false;await refresh();}
+ catch{if(current())message.error('复核处理未确认，请核对历史后再重试');}finally{if(!disposed&&ticket===decisionGeneration)deciding.value=false;}
+
 }
 watch(()=>JSON.stringify([can('iqc:review:view'),can('iqc:result:feedback:view'),can('iqc:sample:view'),can('iqc:report:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')]),()=>{
  ++generation;loading.value=false;reviews.value=[];feedbacks.value=[];samples.value=[];report.value=undefined;
 },{flush:'sync'});
-watch(decisionOpen,visible=>{if(!visible){selected.value=undefined;form.value={decision:'APPROVED',finalStatus:'HIT',finalScore:100,finalRiskLevel:'LOW',comment:''};}});
-onBeforeUnmount(()=>{disposed=true;generation++;reviews.value=[];feedbacks.value=[];samples.value=[];report.value=undefined;selected.value=undefined;form.value.comment='';});
+function resetDecision(){++decisionGeneration;deciding.value=false;selected.value=undefined;form.value={decision:'APPROVED',finalStatus:'HIT',finalScore:100,finalRiskLevel:'LOW',comment:''};}
+watch(decisionOpen,visible=>{if(!visible)resetDecision();},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:review:decide'),can('iqc:review:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')]),()=>{
+ if(decisionOpen.value)decisionOpen.value=false;else resetDecision();
+},{flush:'sync'});
+onBeforeUnmount(()=>{disposed=true;generation++;decisionGeneration++;reviews.value=[];feedbacks.value=[];samples.value=[];report.value=undefined;selected.value=undefined;form.value.comment='';});
 
 </script>
 <template>
