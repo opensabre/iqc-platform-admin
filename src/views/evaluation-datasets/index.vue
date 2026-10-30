@@ -10,6 +10,8 @@ const reloadRequired=ref(false);let operationGeneration=0;
 const candidateLoading=computed(()=>candidateListLoading.value||candidateVersionLoading.value);
 const projected=computed(()=>reloadRequired.value||!!selected.value?.privacy&&(selected.value.privacy.policyVersion!=='iqc-dataset-draft-read-v1'||selected.value.privacy.canonicalPayloadVisible!==true||selected.value.privacy.canReadFull!==true||selected.value.privacy.canReadPii!==true));
 const types=['BASIC','BOUNDARY','RISK','ADVERSARIAL','REGRESSION','CUSTOM'];const key=()=>JSON.stringify([name.value,draft.value]);const dirty=computed(()=>baseline.value!==key());const editable=computed(()=>!disposed&&!busy.value&&!projected.value&&(selected.value?can('iqc:dataset:update'):can('iqc:dataset:manage')));
+let editChangeGeneration=0;
+watch(key,()=>{++editChangeGeneration;},{flush:'sync'});
 async function refresh(page=1){if(disposed||!can('iqc:dataset:view'))return;const ticket=++listGeneration;loading.value=true;current.value=page;error.value='';try{const d=await listDatasets(page);if(!disposed&&ticket===listGeneration&&can('iqc:dataset:view')){rows.value=d.records;total.value=d.total;}}catch{if(ticket===listGeneration)error.value='数据集目录加载失败，请重试。';}finally{if(ticket===listGeneration)loading.value=false;}}
 function populate(row:Dataset){
  const privacy=row.privacy;
@@ -44,7 +46,17 @@ async function reread(id:string,ownsCommand:()=>boolean){
  const row=await getDataset(id);if(ownsCommand()&&can('iqc:dataset:detail:view'))populate(row);
 }
 
-function reload(){const row=selected.value;if(!row)return;if(dirty.value)Modal.confirm({title:'重新加载草稿？',content:'将替换未保存的编辑。',onOk:()=>edit(row)});else void edit(row);}
+function confirmDiscard(title:string,action:()=>unknown){
+ const operation=operationGeneration,context=detailGeneration,changes=editChangeGeneration;
+ Modal.confirm({title,content:'将放弃当前未保存的编辑。',onOk:()=>{
+  if(disposed||busy.value||operation!==operationGeneration||context!==detailGeneration||changes!==editChangeGeneration)return;
+  return action();
+ }});
+}
+function reload(){const asset=selected.value;if(disposed||busy.value||!asset)return;
+ const row={...asset,name:'',draftConfigJson:null};
+ if(dirty.value)confirmDiscard('重新加载草稿？',()=>edit(row));else void edit(row);
+}
 async function save(){
  if(!editable.value||!name.value.trim()||!draft.value.members.length||draft.value.members.length>1000)return;
  const asset=selected.value,requestName=name.value,body=JSON.parse(JSON.stringify(draft.value)) as DatasetDraft;
@@ -138,7 +150,7 @@ async function viewVersion(v:DatasetVersion){
 }
 
 function finishClose(){if(disposed||busy.value)return;++operationGeneration;++freezeGeneration;reset();open.value=false;selected.value=undefined;name.value='';draft.value=freshDraft();baseline.value=key();reloadRequired.value=false;}
-function close(){if(disposed||busy.value)return;if(dirty.value)Modal.confirm({title:'放弃未保存编辑？',onOk:finishClose});else finishClose();}
+function close(){if(disposed||busy.value)return;if(dirty.value)confirmDiscard('放弃未保存编辑？',finishClose);else finishClose();}
 onMounted(()=>void refresh());
 </script>
 <template>
