@@ -7,7 +7,7 @@ import {usePermission} from '@/composables/permission';
 import {getGoldSample,annotateGold,reviewGold,listGoldVersions,getGoldVersion,type GoldSample,type GoldDraft,type GoldFinding,type GoldVersion,type GoldDecision,type JsonValue} from '@/api/evaluation';
 const props=defineProps<{sampleId:string}>(),emit=defineEmits<{changed:[]}>();const {can}=usePermission();
 const sample=ref<GoldSample>(),draft=shallowRef<GoldDraft>(),findings=ref<Array<Omit<GoldFinding,'value'>&{value:boolean|string|number|null;objectText:string}>>([]),tags=ref<string[]>([]),difficulty=ref<GoldDraft['difficulty']>('BASIC'),context=ref('{}'),decisionEnabled=ref(false),decision=ref<Omit<GoldDecision,'labels'>>({}),labels=ref('{}'),reason=ref('');
-const loading=ref(false),busy=ref(false),error=ref(''),baseline=ref(''),versions=ref<GoldVersion[]>([]),historyPage=ref(1),historyTotal=ref(0),snapshot=ref('');let generation=0,historyGeneration=0,snapshotGeneration=0;
+const loading=ref(false),busy=ref(false),error=ref(''),baseline=ref(''),versions=ref<GoldVersion[]>([]),historyPage=ref(1),historyTotal=ref(0),snapshot=ref('');let disposed=false,generation=0,historyGeneration=0,snapshotGeneration=0,commandGeneration=0;
 const precisionRestricted=ref(false),scoreText=ref(''),snapshotProjected=ref(false);
 function isProjected(privacy:GoldSample['privacy']){return privacy!=null&&(privacy.policyVersion!=='iqc-gold-read-v1'||privacy.canonicalPayloadVisible!==true||privacy.canReadFull!==true||privacy.canReadPii!==true);}
 const projectedGold=computed(()=>isProjected(sample.value?.privacy));
@@ -15,8 +15,10 @@ function clearAuxiliary(){++historyGeneration;++snapshotGeneration;versions.valu
 const goldPreview=computed(()=>sample.value?.privacy?.policyVersion==='iqc-gold-read-v1'?sample.value.privacy.preview:undefined);
 const types=['BOOLEAN','STRING','NUMBER','ENUM','OBJECT'],states=['KNOWN','UNKNOWN','CONFLICT','ERROR','NOT_EVALUATED'];
 const stateKey=()=>JSON.stringify([findings.value,tags.value,difficulty.value,context.value,decisionEnabled.value,decision.value,labels.value,scoreText.value]);const dirty=computed(()=>!!sample.value&&!error.value&&baseline.value!==stateKey());
-defineExpose({hasUnsavedChanges:()=>dirty.value||!!reason.value.trim(),isBusy:()=>busy.value||loading.value});
-const editable=computed(()=>can('iqc:gold:annotate')&&!projectedGold.value&&!precisionRestricted.value&&!busy.value&&!loading.value&&!error.value);
+let editRevision=0;
+watch(()=>JSON.stringify([stateKey(),reason.value]),()=>{++editRevision;},{flush:'sync'});
+defineExpose({hasUnsavedChanges:()=>dirty.value||!!reason.value.trim(),isBusy:()=>busy.value||loading.value,getEditRevision:()=>JSON.stringify([generation,editRevision,sample.value?.goldDraftRevision])});
+const editable=computed(()=>!disposed&&can('iqc:gold:annotate')&&!projectedGold.value&&!precisionRestricted.value&&!busy.value&&!loading.value&&!error.value);
 function populate(row:GoldSample){
  sample.value=row;draft.value=undefined;precisionRestricted.value=false;
  if(projectedGold.value){
@@ -37,10 +39,14 @@ function populate(row:GoldSample){
  decision.value={score:d?.decision?.score,scoreStatus:d?.decision?.scoreStatus,risk:d?.decision?.risk};scoreText.value=d?.decision?.score==null?'':String(d.decision.score);
  labels.value=JSON.stringify(d?.decision?.labels??{},null,2);baseline.value=stateKey();
 }
-async function load(){const ticket=++generation;++historyGeneration;++snapshotGeneration;sample.value=undefined;draft.value=undefined;precisionRestricted.value=false;scoreText.value='';findings.value=[];versions.value=[];historyPage.value=1;historyTotal.value=0;snapshot.value='';snapshotProjected.value=false;reason.value='';tags.value=[];difficulty.value='BASIC';context.value='{}';decisionEnabled.value=false;decision.value={};labels.value='{}';baseline.value='';error.value='';loading.value=true;busy.value=false;if(!can('iqc:gold:view')){loading.value=false;return;}try{const row=await getGoldSample(props.sampleId);if(ticket===generation)populate(row);}catch{if(ticket===generation)error.value='金标草稿加载失败或协议无效，请重试。';}finally{if(ticket===generation)loading.value=false;}}
-watch(()=>[props.sampleId,can('iqc:gold:view')],()=>void load(),{immediate:true,flush:'sync'});
+async function load(){if(disposed)return;const ticket=++generation;++historyGeneration;++snapshotGeneration;sample.value=undefined;draft.value=undefined;precisionRestricted.value=false;scoreText.value='';findings.value=[];versions.value=[];historyPage.value=1;historyTotal.value=0;snapshot.value='';snapshotProjected.value=false;reason.value='';tags.value=[];difficulty.value='BASIC';context.value='{}';decisionEnabled.value=false;decision.value={};labels.value='{}';baseline.value='';error.value='';loading.value=true;busy.value=false;if(!can('iqc:gold:view')){loading.value=false;return;}try{const row=await getGoldSample(props.sampleId);if(!disposed&&ticket===generation&&can('iqc:gold:view'))populate(row);}catch{if(ticket===generation)error.value='金标草稿加载失败或协议无效，请重试。';}finally{if(ticket===generation)loading.value=false;}}
+const readScope=computed(()=>JSON.stringify([can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')]));
+watch(()=>JSON.stringify([props.sampleId,can('iqc:gold:view'),readScope.value]),()=>void load(),{immediate:true,flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:gold:annotate'),can('iqc:gold:review')]),()=>{++commandGeneration;busy.value=false;},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:gold:versions:view'),readScope.value]),()=>{++historyGeneration;versions.value=[];historyTotal.value=0;},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:gold:version:view'),readScope.value]),()=>{++snapshotGeneration;snapshot.value='';snapshotProjected.value=false;},{flush:'sync'});
 // Invalidate pending loads and commands when the editor leaves its owning page.
-onBeforeUnmount(()=>{++generation;clearAuxiliary();});
+onBeforeUnmount(()=>{disposed=true;++generation;++commandGeneration;clearAuxiliary();});
 class GoldPrecisionError extends Error {}
 function exactJson(raw:string){
  if(selectorJsonNeedsExactEditor(raw))throw new GoldPrecisionError('此表单无法精确保留该数值，请使用原标注接口提交精确JSON；未保存或舍入。');
@@ -55,33 +61,34 @@ function numeric(value:unknown):number{
 function object(raw:string):Record<string,JsonValue>{const v=exactJson(raw);if(!v||typeof v!=='object'||Array.isArray(v))throw Error('需要 JSON 对象');return v;}
 function newFinding(){findings.value.push({code:'',valueType:'BOOLEAN',state:'KNOWN',value:false,evidenceMessageIds:[],objectText:'{}'});}
 function changeType(f:typeof findings.value[number]){f.value=f.valueType==='BOOLEAN'?false:f.valueType==='NUMBER'?0:'';f.objectText='{}';}
-async function save(){if(!editable.value||!sample.value)return;const id=props.sampleId,ticket=generation;try{const fs:GoldFinding[]=findings.value.map(f=>{let value:JsonValue=f.state==='KNOWN'?(f.valueType==='OBJECT'?object(f.objectText):f.valueType==='NUMBER'?numeric(f.value):f.value):null;if(!/^[A-Z][A-Z0-9_]{1,63}$/.test(f.code)||f.state==='KNOWN'&&(value===null||f.valueType==='NUMBER'&&(typeof value!=='number'||!Number.isFinite(value))))throw Error('请检查事实编码和值');return {code:f.code,valueType:f.valueType,state:f.state,value,evidenceMessageIds:f.evidenceMessageIds};});if(!fs.length||new Set(fs.map(f=>f.code)).size!==fs.length)throw Error('至少一个事实，编码不得重复');const d=decisionEnabled.value?{...decision.value,score:decision.value.scoreStatus==='FINAL'?numeric(scoreText.value):null,labels:object(labels.value)}:undefined;if(d?.scoreStatus==='FINAL'&&(d.score==null||d.score<0||d.score>100))throw Error('最终分数须为0–100');const data={expectedRevision:sample.value.goldDraftRevision??0,findings:fs,businessContext:object(context.value),tags:tags.value,difficulty:difficulty.value,decision:d};busy.value=true;const receipt=await annotateGold(id,data);if(ticket===generation){
+async function save(){if(!editable.value||!sample.value)return;const id=props.sampleId,ticket=generation,request=++commandGeneration;const current=()=>!disposed&&ticket===generation&&request===commandGeneration&&can('iqc:gold:annotate');try{const fs:GoldFinding[]=findings.value.map(f=>{let value:JsonValue=f.state==='KNOWN'?(f.valueType==='OBJECT'?object(f.objectText):f.valueType==='NUMBER'?numeric(f.value):f.value):null;if(!/^[A-Z][A-Z0-9_]{1,63}$/.test(f.code)||f.state==='KNOWN'&&(value===null||f.valueType==='NUMBER'&&(typeof value!=='number'||!Number.isFinite(value))))throw Error('请检查事实编码和值');return {code:f.code,valueType:f.valueType,state:f.state,value,evidenceMessageIds:f.evidenceMessageIds};});if(!fs.length||new Set(fs.map(f=>f.code)).size!==fs.length)throw Error('至少一个事实，编码不得重复');const d=decisionEnabled.value?{...decision.value,score:decision.value.scoreStatus==='FINAL'?numeric(scoreText.value):null,labels:object(labels.value)}:undefined;if(d?.scoreStatus==='FINAL'&&(d.score==null||d.score<0||d.score>100))throw Error('最终分数须为0–100');const data={expectedRevision:sample.value.goldDraftRevision??0,findings:fs,businessContext:object(context.value),tags:tags.value,difficulty:difficulty.value,decision:d};busy.value=true;const receipt=await annotateGold(id,data);if(current()){
  clearAuxiliary();populate(receipt);emit('changed');
- try{const row=await getGoldSample(id);if(ticket===generation){populate(row);message.success('金标草稿已保存，等待独立审核');}}
- catch{if(ticket===generation){error.value='标注已保存，但完整草稿未重新取得，请刷新核对修订。';message.warning('标注已保存，重新加载失败；请刷新后继续。');}}
- }}catch(e){if(ticket===generation)message.error(e instanceof GoldPrecisionError?e.message:e instanceof SyntaxError?'JSON 格式无效':'保存未成功，请检查字段，或重新加载核对修订。');}finally{if(ticket===generation)busy.value=false;}}
+ try{if(!can('iqc:gold:view'))return;const row=await getGoldSample(id);if(current()&&can('iqc:gold:view')){populate(row);message.success('金标草稿已保存，等待独立审核');}}
+ catch{if(current()){error.value='标注已保存，但完整草稿未重新取得，请刷新核对修订。';message.warning('标注已保存，重新加载失败；请刷新后继续。');}}
+ }}catch(e){if(current())message.error(e instanceof GoldPrecisionError?e.message:e instanceof SyntaxError?'JSON 格式无效':'保存未成功，请检查字段，或重新加载核对修订。');}finally{if(current())busy.value=false;}}
 async function review(approve:boolean){
- if(!sample.value||projectedGold.value||dirty.value||busy.value||!reason.value.trim())return;
- const id=props.sampleId,ticket=generation;busy.value=true;
+ if(disposed||!can('iqc:gold:review')||!sample.value||projectedGold.value||dirty.value||busy.value||!reason.value.trim())return;
+ const id=props.sampleId,ticket=generation,request=++commandGeneration;const current=()=>!disposed&&ticket===generation&&request===commandGeneration&&can('iqc:gold:review');busy.value=true;
  try{
   await reviewGold(id,{expectedRevision:sample.value.goldDraftRevision,approve,reason:reason.value});
-  if(ticket!==generation)return;
+  if(!current())return;
   clearAuxiliary();sample.value=undefined;draft.value=undefined;findings.value=[];reason.value='';baseline.value='';emit('changed');
-  try{const row=await getGoldSample(id);if(ticket===generation){populate(row);message.success('审核决定已保存');}}
-  catch{if(ticket===generation){error.value='审核已保存，但当前草稿未重新取得，请刷新核对状态。';message.warning('审核已保存，重新加载失败；请刷新后继续。');}}
- }catch{if(ticket===generation)message.error('审核未成功，请核对独立审核人、修订和审核状态。');}
- finally{if(ticket===generation)busy.value=false;}
+  try{if(!can('iqc:gold:view'))return;const row=await getGoldSample(id);if(current()&&can('iqc:gold:view')){populate(row);message.success('审核决定已保存');}}
+  catch{if(current()){error.value='审核已保存，但当前草稿未重新取得，请刷新核对状态。';message.warning('审核已保存，重新加载失败；请刷新后继续。');}}
+ }catch{if(current())message.error('审核未成功，请核对独立审核人、修订和审核状态。');}
+ finally{if(current())busy.value=false;}
 }
-async function history(page=1){const id=props.sampleId,ticket=generation,request=++historyGeneration;historyPage.value=page;versions.value=[];historyTotal.value=0;try{const data=await listGoldVersions(id,page);if(ticket===generation&&request===historyGeneration){versions.value=data.records;historyTotal.value=data.total;}}catch{if(ticket===generation)message.error('历史加载失败');}}
+async function history(page=1){if(disposed||!can('iqc:gold:versions:view'))return;const id=props.sampleId,ticket=generation,request=++historyGeneration;historyPage.value=page;versions.value=[];historyTotal.value=0;try{const data=await listGoldVersions(id,page);if(!disposed&&ticket===generation&&request===historyGeneration&&can('iqc:gold:versions:view')){versions.value=data.records;historyTotal.value=data.total;}}catch{if(!disposed&&ticket===generation&&request===historyGeneration&&can('iqc:gold:versions:view'))message.error('历史加载失败');}}
 async function view(v:GoldVersion){
+ if(disposed||!can('iqc:gold:version:view'))return;
  const ticket=generation,id=props.sampleId,request=++snapshotGeneration;
  snapshot.value='';snapshotProjected.value=false;
  try{
-  const row=await getGoldVersion(id,v.versionNo);if(ticket!==generation||request!==snapshotGeneration)return;
+  const row=await getGoldVersion(id,v.versionNo);if(disposed||ticket!==generation||request!==snapshotGeneration||!can('iqc:gold:version:view'))return;
   snapshotProjected.value=isProjected(row.privacy);
   if(snapshotProjected.value)snapshot.value=JSON.stringify(row.privacy?.policyVersion==='iqc-gold-read-v1'?{previewState:row.privacy.previewState,withheldFields:row.privacy.withheldFields,preview:row.privacy.preview}:{previewState:'UNSUPPORTED_PRIVACY_POLICY'},null,2);
   else snapshot.value=selectorJsonNeedsExactEditor(row.snapshotJson??'null')?(row.snapshotJson??'null'):JSON.stringify(JSON.parse(row.snapshotJson??'null'),null,2);
- }catch{if(ticket===generation)message.error('版本快照加载失败');}
+ }catch{if(!disposed&&ticket===generation&&request===snapshotGeneration&&can('iqc:gold:version:view'))message.error('版本快照加载失败');}
 }
 </script>
 <template>

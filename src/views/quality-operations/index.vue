@@ -7,13 +7,21 @@ import BusinessReviewQueue from "@/components/BusinessReviewQueue.vue";
 import LabelReviewQueue from "@/components/LabelReviewQueue.vue";
 import BusinessQualityReport from "@/components/BusinessQualityReport.vue";
 import GoldSampleEditor from "@/components/GoldSampleEditor.vue";
-const goldSampleId=ref<string>(), goldOpen=ref(false), goldEditor=ref<{hasUnsavedChanges:()=>boolean;isBusy?:()=>boolean}>();
+const goldSampleId=ref<string>(), goldOpen=ref(false), goldEditor=ref<{hasUnsavedChanges:()=>boolean;isBusy?:()=>boolean;getEditRevision?:()=>string}>();
+let goldGeneration=0;
+function finishGold(){++goldGeneration;goldOpen.value=false;goldSampleId.value=undefined;}
 function closeGold(){
-  if(goldEditor.value?.isBusy?.())return;
+  if(disposed||goldEditor.value?.isBusy?.())return;
   if(goldEditor.value?.hasUnsavedChanges()){
-    Modal.confirm({title:"放弃尚未保存的金标编辑？",onOk:()=>{goldOpen.value=false;goldSampleId.value=undefined;}});
-  }else{goldOpen.value=false;goldSampleId.value=undefined;}
+    const session=goldGeneration,id=goldSampleId.value,revision=goldEditor.value?.getEditRevision?.();
+    Modal.confirm({title:'放弃尚未保存的金标编辑？',onOk:()=>{
+      if(disposed||!goldOpen.value||!can('iqc:gold:view')||session!==goldGeneration||id!==goldSampleId.value||goldEditor.value?.isBusy?.()||revision!==goldEditor.value?.getEditRevision?.())return;
+      finishGold();
+    }});
+  }else finishGold();
 }
+function goldChanged(){++goldGeneration;void refresh();}
+
 const sampleTypeNames:Record<string,string>={POSITIVE:'正样本',NEGATIVE:'负样本',FALSE_POSITIVE:'误报',FALSE_NEGATIVE:'漏报',UNCLASSIFIED:'未分类（挖掘来源）'};
 const miningReasonNames:Record<string,string>={MISSING_FINDING:'缺少事实',FINDING_UNKNOWN:'事实未知',FINDING_CONFLICT:'事实冲突',FINDING_ERROR:'事实错误',FINDING_NOT_EVALUATED:'事实未评测',UNMEASURED_CONFIDENCE:'置信度未测量',LOW_CONFIDENCE:'置信度低于阈值',OBSERVATION_DISAGREEMENT:'原始观测分歧'};
 function miningSummary(sample:QualitySample):string {
@@ -29,7 +37,7 @@ function miningSummary(sample:QualitySample):string {
   return '待核实：'+value.reasonCodes.map(code=>miningReasonNames[code as string]).join('、');
  }catch{return '筛选依据不可用';}
 }
-function openGold(sample:QualitySample){goldSampleId.value=sample.id;goldOpen.value=true;}
+function openGold(sample:QualitySample){if(disposed||!can('iqc:gold:view')||goldEditor.value?.isBusy?.()||(goldOpen.value&&goldEditor.value?.hasUnsavedChanges()))return;++goldGeneration;goldSampleId.value=sample.id;goldOpen.value=true;}
 const businessReport = ref<InstanceType<typeof BusinessQualityReport>>();
 const queue = ref<InstanceType<typeof BusinessReviewQueue>>();
 const labelQueue = ref<InstanceType<typeof LabelReviewQueue>>();
@@ -37,7 +45,7 @@ const active=ref("business"), loading=ref(false), reviews=ref<ResultReview[]>([]
 const report=ref<QualityReport>();
 const decisionOpen=ref(false), selected=ref<ResultReview>(), form=ref({decision:"APPROVED",finalStatus:"HIT",finalScore:100,finalRiskLevel:"LOW",comment:""});
 const {can}=usePermission();
-let disposed=false,generation=0;const deciding=ref(false);
+let disposed=false,generation=0,decisionGeneration=0;const deciding=ref(false);
 function reviewWithheld(row:ResultReview){const p=row.privacy;return !!p&&(p.policyVersion!=="iqc-message-review-read-v1"||!p.canonicalPayloadVisible||!p.canReadFull||!p.canReadPii);}
 const commentsWithheld=computed(()=>reviews.value.some(reviewWithheld));
 async function refresh(){
@@ -45,31 +53,40 @@ async function refresh(){
  if(active.value==='business-report'){await businessReport.value?.refresh();return;}
  if(active.value==='business'){await queue.value?.refresh();return;}
  if(active.value==='labels'){await labelQueue.value?.refresh();return;}
- const tab=active.value;loading.value=true;
+ const tab=active.value;loading.value=true;report.value=undefined;
+ const permission=tab==='reviews'?'iqc:review:view':tab==='feedback'?'iqc:result:feedback:view':tab==='samples'?'iqc:sample:view':undefined;
  try{
-  const rows=tab==='reviews'&&can('iqc:review:view')?await listReviews():tab==='feedback'&&can('iqc:result:view')?await listFeedbacks():tab==='samples'&&can('iqc:sample:view')?await listSamples():[];
-  if(disposed||ticket!==generation)return;
+  const rows=tab==='reviews'&&can('iqc:review:view')?await listReviews():tab==='feedback'&&can('iqc:result:feedback:view')?await listFeedbacks():tab==='samples'&&can('iqc:sample:view')?await listSamples():[];
+  if(disposed||ticket!==generation||tab!==active.value)return;
+  if(permission&&can(permission)){
   if(tab==='reviews')reviews.value=(rows as ResultReview[]).map(row=>reviewWithheld(row)?{...row,reviewComment:null}:row);
   if(tab==='feedback')feedbacks.value=rows as ResultFeedback[];
   if(tab==='samples')samples.value=rows as QualitySample[];
+  }
   const stats=can('iqc:report:view')?await getQualityReport():undefined;
-  if(!disposed&&ticket===generation)report.value=stats;
+  if(!disposed&&ticket===generation&&tab===active.value&&can('iqc:report:view'))report.value=stats;
  }catch{if(!disposed&&ticket===generation)message.error('质量运营数据加载失败');}
  finally{if(!disposed&&ticket===generation)loading.value=false;}
 }
-function openDecision(row:ResultReview){if(disposed||deciding.value||!can('iqc:review:decide'))return;selected.value=row;form.value={decision:'APPROVED',finalStatus:row.originalStatus,finalScore:row.originalScore??100,finalRiskLevel:row.originalRiskLevel||'LOW',comment:''};decisionOpen.value=true;}
+function openDecision(row:ResultReview){if(disposed||deciding.value||!can('iqc:review:decide'))return;++decisionGeneration;selected.value=row;form.value={decision:'APPROVED',finalStatus:row.originalStatus,finalScore:row.originalScore??100,finalRiskLevel:row.originalRiskLevel||'LOW',comment:''};decisionOpen.value=true;}
 async function saveDecision(){
  if(disposed||deciding.value||!selected.value||!can('iqc:review:decide'))return;
- const id=selected.value.id,payload={...form.value};deciding.value=true;
- try{await decideReview(id,payload);if(disposed)return;message.success('复核结论已保存');decisionOpen.value=false;await refresh();}
- catch{if(!disposed)message.error('复核处理未确认，请核对历史后再重试');}finally{if(!disposed)deciding.value=false;}
+ const id=selected.value.id,payload={...form.value},ticket=++decisionGeneration;deciding.value=true;
+ const current=()=>!disposed&&ticket===decisionGeneration&&decisionOpen.value&&selected.value?.id===id&&can('iqc:review:decide');
+ try{await decideReview(id,payload);if(!current())return;message.success('复核结论已保存');decisionOpen.value=false;await refresh();}
+ catch{if(current())message.error('复核处理未确认，请核对历史后再重试');}finally{if(!disposed&&ticket===decisionGeneration)deciding.value=false;}
+
 }
-watch(()=>[can('iqc:sample:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')].join('|'),()=>{
- samples.value=[];
- if(active.value==='samples'){generation++;loading.value=false;void refresh();}
+watch(()=>JSON.stringify([can('iqc:review:view'),can('iqc:result:feedback:view'),can('iqc:sample:view'),can('iqc:report:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')]),()=>{
+ ++generation;loading.value=false;reviews.value=[];feedbacks.value=[];samples.value=[];report.value=undefined;
 },{flush:'sync'});
-watch(decisionOpen,visible=>{if(!visible){selected.value=undefined;form.value={decision:'APPROVED',finalStatus:'HIT',finalScore:100,finalRiskLevel:'LOW',comment:''};}});
-onBeforeUnmount(()=>{disposed=true;generation++;reviews.value=[];feedbacks.value=[];samples.value=[];report.value=undefined;selected.value=undefined;form.value.comment='';});
+function resetDecision(){++decisionGeneration;deciding.value=false;selected.value=undefined;form.value={decision:'APPROVED',finalStatus:'HIT',finalScore:100,finalRiskLevel:'LOW',comment:''};}
+watch(decisionOpen,visible=>{if(!visible)resetDecision();},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:review:decide'),can('iqc:review:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')]),()=>{
+ if(decisionOpen.value)decisionOpen.value=false;else resetDecision();
+},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:gold:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')]),finishGold,{flush:'sync'});
+onBeforeUnmount(()=>{disposed=true;finishGold();generation++;decisionGeneration++;reviews.value=[];feedbacks.value=[];samples.value=[];report.value=undefined;selected.value=undefined;form.value.comment='';});
 
 </script>
 <template>
@@ -86,6 +103,6 @@ onBeforeUnmount(()=>{disposed=true;generation++;reviews.value=[];feedbacks.value
     <a-tab-pane key="feedback" tab="误判/漏判"><a-table :data-source="feedbacks" :loading="loading" row-key="id"><a-table-column title="结果" data-index="resultId"/><a-table-column title="标注" data-index="feedbackType"/><a-table-column title="说明" data-index="comment"/><a-table-column title="状态" data-index="status"/><a-table-column title="时间" data-index="createdTime"/></a-table></a-tab-pane>
     <a-tab-pane key="samples" tab="样本库"><a-alert type="info" show-icon message="已复核候选保存完整输入与裁决；自动挖掘候选保留原输入和筛选依据，不预判误报/漏报。CANDIDATE 仍需人工标注与独立金标审核后才能进入数据集。" /><a-table :data-source="samples" :loading="loading" row-key="id"><a-table-column title="名称" data-index="name"/><a-table-column title="类型"><template #default="{record}">{{sampleTypeNames[record.sampleType]||record.sampleType}}</template></a-table-column><a-table-column title="内容快照" ellipsis><template #default="{record}">{{record.privacy?.candidateContentVisible===false?"内容受权限限制":record.contentSnapshot||"—"}}</template></a-table-column><a-table-column title="挖掘依据（非裁决）"><template #default="{record}">{{miningSummary(record)}}</template></a-table-column><a-table-column title="状态" data-index="status"/><a-table-column title="金标状态"><template #default="{record}">{{record.goldStatus||'UNLABELLED'}}</template></a-table-column><a-table-column title="时间" data-index="createdTime"/><a-table-column title="操作"><template #default="{record}"><a-button v-if="can('iqc:gold:view')" type="link" @click="openGold(record)">金标标注与审核</a-button></template></a-table-column></a-table></a-tab-pane>
   </a-tabs></a-card>
-  <a-drawer :open="goldOpen" title="金标样本" :width="960" :destroy-on-close="true" :mask-closable="false" :keyboard="false" @close="closeGold"><GoldSampleEditor v-if="goldSampleId" ref="goldEditor" :sample-id="goldSampleId" @changed="refresh" /></a-drawer>
+  <a-drawer :open="goldOpen" title="金标样本" :width="960" :destroy-on-close="true" :mask-closable="false" :keyboard="false" @close="closeGold"><GoldSampleEditor v-if="goldSampleId" ref="goldEditor" :sample-id="goldSampleId" @changed="goldChanged" /></a-drawer>
   <a-modal v-model:open="decisionOpen" title="处理人工复核" :confirm-loading="deciding" :closable="!deciding" :mask-closable="!deciding" :keyboard="!deciding" :cancel-button-props="{disabled:deciding}" @ok="saveDecision"><a-form layout="vertical" :disabled="deciding"><a-form-item label="决定"><a-select v-model:value="form.decision"><a-select-option value="APPROVED">确认原结论</a-select-option><a-select-option value="CORRECTED">修正结论</a-select-option><a-select-option value="REJECTED">退回</a-select-option></a-select></a-form-item><template v-if="form.decision==='CORRECTED'"><a-form-item label="结果状态"><a-select v-model:value="form.finalStatus"><a-select-option value="HIT">命中</a-select-option><a-select-option value="NOT_HIT">未命中</a-select-option><a-select-option value="ERROR">错误</a-select-option></a-select></a-form-item><a-form-item label="最终分数"><a-input-number v-model:value="form.finalScore" :min="0" :max="100"/></a-form-item><a-form-item label="风险"><a-select v-model:value="form.finalRiskLevel"><a-select-option value="LOW">低</a-select-option><a-select-option value="MEDIUM">中</a-select-option><a-select-option value="HIGH">高</a-select-option></a-select></a-form-item></template><a-form-item label="复核说明"><a-textarea v-model:value="form.comment" :rows="3"/></a-form-item></a-form></a-modal>
 </template>
