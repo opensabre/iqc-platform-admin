@@ -9,7 +9,7 @@ const candidates=ref<QualitySample[]>([]),candidateId=ref<string>(),approved=ref
 const candidateLoading=computed(()=>candidateListLoading.value||candidateVersionLoading.value);
 const projected=computed(()=>!!selected.value?.privacy&&(selected.value.privacy.policyVersion!=='iqc-dataset-draft-read-v1'||selected.value.privacy.canonicalPayloadVisible!==true||selected.value.privacy.canReadFull!==true||selected.value.privacy.canReadPii!==true));
 const types=['BASIC','BOUNDARY','RISK','ADVERSARIAL','REGRESSION','CUSTOM'];const key=()=>JSON.stringify([name.value,draft.value]);const dirty=computed(()=>baseline.value!==key());const editable=computed(()=>!busy.value&&!projected.value&&(selected.value?can('iqc:dataset:update'):can('iqc:dataset:manage')));
-async function refresh(page=1){if(!can('iqc:dataset:view'))return;const ticket=++listGeneration;loading.value=true;current.value=page;error.value='';try{const d=await listDatasets(page);if(ticket===listGeneration){rows.value=d.records;total.value=d.total;}}catch{if(ticket===listGeneration)error.value='数据集目录加载失败，请重试。';}finally{if(ticket===listGeneration)loading.value=false;}}
+async function refresh(page=1){if(disposed||!can('iqc:dataset:view'))return;const ticket=++listGeneration;loading.value=true;current.value=page;error.value='';try{const d=await listDatasets(page);if(!disposed&&ticket===listGeneration&&can('iqc:dataset:view')){rows.value=d.records;total.value=d.total;}}catch{if(ticket===listGeneration)error.value='数据集目录加载失败，请重试。';}finally{if(ticket===listGeneration)loading.value=false;}}
 function populate(row:Dataset){
  const privacy=row.privacy;
  if(privacy&&(privacy.policyVersion!=='iqc-dataset-draft-read-v1'||privacy.canonicalPayloadVisible!==true||privacy.canReadFull!==true||privacy.canReadPii!==true)){
@@ -42,6 +42,13 @@ async function save(){
 }
 
 let disposed=false,freezeGeneration=0,activeFreeze:number|undefined;
+const sensitiveReadKey=computed(()=>JSON.stringify([can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')]));
+watch(()=>JSON.stringify([can('iqc:dataset:view'),sensitiveReadKey.value]),()=>{++listGeneration;rows.value=[];total.value=0;loading.value=false;},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:sample:view'),sensitiveReadKey.value]),()=>{++candidateListGeneration;candidates.value=[];candidateListLoading.value=false;},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:gold:versions:view'),sensitiveReadKey.value]),()=>{++candidateGeneration;approved.value=[];versionNo.value=undefined;candidateTotal.value=0;candidateVersionLoading.value=false;},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:dataset:versions:view'),sensitiveReadKey.value]),()=>{++historyGeneration;history.value=[];historyTotal.value=0;},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:dataset:version:view'),sensitiveReadKey.value]),()=>{++snapshotGeneration;snapshot.value='';snapshotNotice.value='';},{flush:'sync'});
+
 watch(()=>JSON.stringify([can('iqc:dataset:freeze'),can('iqc:dataset:detail:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')]),()=>{
  ++freezeGeneration;if(activeFreeze!==undefined){activeFreeze=undefined;busy.value=false;}
 },{flush:'sync'});
@@ -61,19 +68,19 @@ function freeze(){
   finally{if(!disposed&&activeFreeze===command){activeFreeze=undefined;busy.value=false;}}
  }});
 }
-onBeforeUnmount(()=>{disposed=true;++freezeGeneration;activeFreeze=undefined;});
+onBeforeUnmount(()=>{disposed=true;++freezeGeneration;activeFreeze=undefined;++listGeneration;reset();rows.value=[];total.value=0;loading.value=false;});
 
 async function availability(row:Dataset){if(busy.value)return;busy.value=true;try{await setDatasetAvailability(row.id,row.status!=='ACTIVE');await refresh(current.value);if(selected.value?.id===row.id&&!dirty.value)populate(await getDataset(row.id));}catch{message.error('可用性更新失败，请刷新核对');}finally{busy.value=false;}}
-async function loadCandidates(){const ticket=++candidateListGeneration;candidateListLoading.value=true;candidateError.value='';try{const data=await listSamples();if(ticket===candidateListGeneration)candidates.value=data;}catch{if(ticket===candidateListGeneration)candidateError.value='候选样本加载失败，请重试。';}finally{if(ticket===candidateListGeneration)candidateListLoading.value=false;}}
-async function candidateVersions(id:string,page=1){candidateId.value=id;versionNo.value=undefined;approved.value=[];candidatePage.value=page;const ticket=++candidateGeneration;candidateVersionLoading.value=true;candidateError.value='';candidateTotal.value=0;try{const d=await listGoldVersions(id,page);if(ticket===candidateGeneration){approved.value=d.records.filter(v=>v.decision==='APPROVED');candidateTotal.value=d.total;}}catch{if(ticket===candidateGeneration)candidateError.value='金标审核版本加载失败，请重试。';}finally{if(ticket===candidateGeneration)candidateVersionLoading.value=false;}}
+async function loadCandidates(){if(disposed||!can('iqc:sample:view'))return;const ticket=++candidateListGeneration;candidateListLoading.value=true;candidateError.value='';try{const data=await listSamples();if(!disposed&&ticket===candidateListGeneration&&can('iqc:sample:view'))candidates.value=data;}catch{if(ticket===candidateListGeneration)candidateError.value='候选样本加载失败，请重试。';}finally{if(ticket===candidateListGeneration)candidateListLoading.value=false;}}
+async function candidateVersions(id:string,page=1){if(disposed||!can('iqc:gold:versions:view'))return;candidateId.value=id;versionNo.value=undefined;approved.value=[];candidatePage.value=page;const ticket=++candidateGeneration;candidateVersionLoading.value=true;candidateError.value='';candidateTotal.value=0;try{const d=await listGoldVersions(id,page);if(!disposed&&ticket===candidateGeneration&&candidateId.value===id&&can('iqc:gold:versions:view')){approved.value=d.records.filter(v=>v.decision==='APPROVED');candidateTotal.value=d.total;}}catch{if(ticket===candidateGeneration)candidateError.value='金标审核版本加载失败，请重试。';}finally{if(ticket===candidateGeneration)candidateVersionLoading.value=false;}}
 function add(){if(!candidateId.value||!versionNo.value||!approved.value.some(v=>v.versionNo===versionNo.value))return;if(draft.value.members.some(m=>m.sampleId===candidateId.value)){message.error('同一样本只能加入一次，先删除旧引用再选择版本');return;}draft.value.members.push({sampleId:candidateId.value,versionNo:versionNo.value});}
-async function loadHistory(page=1){if(!selected.value)return;const id=selected.value.id,ticket=detailGeneration,request=++historyGeneration;history.value=[];historyTotal.value=0;try{const d=await listDatasetVersions(id,page);if(ticket===detailGeneration&&request===historyGeneration){history.value=d.records;historyTotal.value=d.total;historyPage.value=page;}}catch{message.error('版本历史加载失败');}}
+async function loadHistory(page=1){if(disposed||!selected.value||!can('iqc:dataset:versions:view'))return;const id=selected.value.id,ticket=detailGeneration,request=++historyGeneration;history.value=[];historyTotal.value=0;try{const d=await listDatasetVersions(id,page);if(!disposed&&ticket===detailGeneration&&request===historyGeneration&&selected.value?.id===id&&can('iqc:dataset:versions:view')){history.value=d.records;historyTotal.value=d.total;historyPage.value=page;}}catch{if(!disposed&&ticket===detailGeneration&&request===historyGeneration&&can('iqc:dataset:versions:view'))message.error('版本历史加载失败');}}
 async function viewVersion(v:DatasetVersion){
- if(!selected.value)return;
+ if(disposed||!selected.value||!can('iqc:dataset:version:view'))return;
  const id=selected.value.id,ticket=detailGeneration,request=++snapshotGeneration;
  snapshot.value='';snapshotNotice.value='';
  try{const d=await getDatasetVersion(id,v.versionNo);
-  if(ticket!==detailGeneration||request!==snapshotGeneration)return;
+  if(disposed||ticket!==detailGeneration||request!==snapshotGeneration||selected.value?.id!==id||!can('iqc:dataset:version:view'))return;
   if(d.privacy){
    if(d.privacy.policyVersion!=='iqc-dataset-read-v1'){
     snapshotNotice.value='展示协议不受支持，未显示快照正文。';return;
@@ -85,7 +92,7 @@ async function viewVersion(v:DatasetVersion){
   }
   if(!d.snapshotJson){snapshotNotice.value='此响应未包含冻结快照正文。';return;}
   snapshot.value=d.snapshotJson;
- }catch{if(ticket===detailGeneration&&request===snapshotGeneration){snapshot.value='';snapshotNotice.value='冻结快照加载失败，请重新读取。';}}
+ }catch{if(!disposed&&ticket===detailGeneration&&request===snapshotGeneration&&can('iqc:dataset:version:view')){snapshot.value='';snapshotNotice.value='冻结快照加载失败，请重新读取。';}}
 }
 
 function close(){if(busy.value)return;if(dirty.value)Modal.confirm({title:'放弃未保存编辑？',onOk:()=>{reset();open.value=false;}});else{reset();open.value=false;}}
