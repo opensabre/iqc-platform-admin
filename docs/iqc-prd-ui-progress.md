@@ -507,3 +507,11 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 基线898c14a。原55100 terminal1，/tmp/iqc-b-pipeline-reads-red.log.exit=1，49通过5实际失败：撤权恢复旧目录回填、已读目录不清、卸载后旧refresh/versions仍读、历史回填另一资产。原页面refresh复用generation并检查当前view/disposed，相关grant改变同步失效/清目录与计数/loading，恢复须显式重读；失败计数不沿用旧值。versions返后核对原asset id/historyGeneration/当前versions码与disposed，旧错误不污染新对象，自己的finally只释放原代际。卸载清目录。无API/模型/额外组合权限。
 
 原38480 terminal0，/tmp/iqc-b-pipeline-reads-final.log.exit=0，两文件67项9.82s（operation54+原生命周期13）。包括新授权读取不被旧响应覆盖、目录不替history、history own grant不强加detail/view。未跑B完整build；将按用户要求独立PR并在PR集成基线构建，终态另记。受控Vue/API/权限非真实PDP/浏览器或完整PRD，输入仅处理好的会话，无framework/共享SQL/部署。
+
+
+
+## 2026-10-30 协作小PR复用现有CI
+
+原唯一docker-build workflow的pull_request分支过滤扩为main及review/iqc-*，覆盖以IQC集成或父功能review分支为目标的小PR。push仍仅main与v*标签；原类型检查、覆盖率测试、生产构建、制品上传、镜像构建、needs与权限均不变。PR事件原Docker push=false、不登录Registry条件保持，不因协作分支新增镜像发布。相同PR的新提交仍按原并发规则取消该PR旧轮次，不取消其它PR。
+
+本改动需要先合入集成/相关父分支，再让后续PR新事件使用包含本配置的合流快照；已存在的旧运行不因文件提案追溯变绿。Root仅检查YAML语法与差异，不写跑本地应用测试/主动dispatch。自动CI按准确head、run和job终态记录；专项分支仍须最终合流验证，构建/测试绿色不替代真实PDP、供应商、容量或全部PRD验收。
