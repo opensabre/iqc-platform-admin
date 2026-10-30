@@ -30,16 +30,28 @@ const qualityTaskId=ref(''),regressionTaskId=ref(''),qualityExecutionId=ref<stri
 const trialTaskId=ref(''),trialStatus=ref(''),reviewed=ref(false),startUncertain=ref(false);
 watch(trialTaskId,()=>{trialStatus.value='';reviewed.value=false;});
 function invalidateGate(){++gateGeneration;gate.value=undefined;gateBusy.value=false;gateError.value='';}
-watch([qualityTaskId,qualityExecutionId,regressionTaskId,regressionExecutionId,()=>selected.value?.id,()=>selected.value?.draftRevision],invalidateGate);
+watch([qualityTaskId,qualityExecutionId,regressionTaskId,regressionExecutionId,()=>selected.value?.id,()=>selected.value?.draftRevision],invalidateGate,{flush:'sync'});
 async function evidenceRounds(kind:'QUALITY'|'REGRESSION',id:string){const quality=kind==='QUALITY',ticket=quality?++qualityGeneration:++regressionGeneration,assetId=selected.value?.id;if(quality){qualityRounds.value=[];qualityExecutionId.value=undefined;}else{regressionRounds.value=[];regressionExecutionId.value=undefined;}if(disposed||!can('iqc:task:executions:view')||!id.trim())return;try{const rows=await listTaskExecutions(id.trim());if(disposed||!can('iqc:task:executions:view')||ticket!==(quality?qualityGeneration:regressionGeneration)||assetId!==selected.value?.id)return;const terminal=rows.filter(r=>['SUCCEEDED','PARTIAL_FAILED','FAILED','CANCELLED'].includes(r.status));if(quality){qualityRounds.value=terminal;qualityExecutionId.value=terminal[0]?.id;}else{regressionRounds.value=terminal;regressionExecutionId.value=terminal[0]?.id;}}catch{if(ticket===(quality?qualityGeneration:regressionGeneration))gateError.value='评测执行历史加载失败，请核对任务权限。';}}
 watch(qualityTaskId,id=>void evidenceRounds('QUALITY',id));watch(regressionTaskId,id=>void evidenceRounds('REGRESSION',id));
 function publicationEvidence():PublicationEvidence{if(!qualityTaskId.value.trim()||!regressionTaskId.value.trim()||!qualityExecutionId.value||!regressionExecutionId.value)throw Error('请选择质量与回归评测的终态执行轮次');return {qualityEvidence:{taskId:qualityTaskId.value.trim(),executionId:qualityExecutionId.value},regressionEvidence:{taskId:regressionTaskId.value.trim(),executionId:regressionExecutionId.value}};}
-async function previewGate(){const asset=selected.value;if(!asset||dirty.value||gateBusy.value||!can('iqc:pipeline:gate:view'))return;let evidence:PublicationEvidence;try{evidence=publicationEvidence();}catch(e){message.warning(e instanceof Error?e.message:'请补齐评测');return;}const ticket=++gateGeneration;gate.value=undefined;gateBusy.value=true;gateError.value='';try{const decision=await getPublicationGate(asset.id,asset.draftRevision,evidence);if(ticket===gateGeneration&&selected.value?.id===asset.id&&selected.value.draftRevision===asset.draftRevision)gate.value=decision;}catch{if(ticket===gateGeneration)gateError.value='准入报告未获得，请核对评测来源、完整产物及精确冻结配置。';}finally{if(ticket===gateGeneration)gateBusy.value=false;}}
+async function previewGate(){
+ const asset=selected.value;if(disposed||!asset||dirty.value||gateBusy.value||!can('iqc:pipeline:gate:view'))return;
+ let evidence:PublicationEvidence;try{evidence=publicationEvidence();}catch(e){message.warning(e instanceof Error?e.message:'请补齐评测');return;}
+ const ticket=++gateGeneration,id=asset.id,revision=asset.draftRevision,context=detailGeneration,encoded=JSON.stringify(evidence);
+ // A report belongs to the original saved revision and exact evaluation selection.
+ const current=()=>{if(disposed||ticket!==gateGeneration||context!==detailGeneration||!can('iqc:pipeline:gate:view')||dirty.value||selected.value?.id!==id||selected.value.draftRevision!==revision)return false;try{return JSON.stringify(publicationEvidence())===encoded;}catch{return false;}};
+ gate.value=undefined;gateBusy.value=true;gateError.value='';
+ try{const decision=await getPublicationGate(id,revision,evidence);if(current())gate.value=decision;}
+ catch{if(current())gateError.value='准入报告未获得，请核对评测来源、完整产物及精确冻结配置。';}
+ finally{if(!disposed&&ticket===gateGeneration)gateBusy.value=false;}
+}
 let generation=0,historyGeneration=0,detailGeneration=0,statusGeneration=0,commandGeneration=0,disposed=false,detailLoading=false;
 function taskSummary(task:InspectionTask):InspectionTask{return {id:task.id,name:task.name,status:task.status,taskType:task.taskType,concurrencyLimit:task.concurrencyLimit,totalMessages:task.totalMessages,processedMessages:task.processedMessages,failedMessages:task.failedMessages,taskPresentation:task.taskPresentation};}
 const fresh=():PipelineRelease=>({schemaVersion:'iqc-pipeline-release-v1',pipeline:{schemaVersion:'iqc-pipeline-v1',nodes:[]},fusion:{id:'DEFAULT',version:1,method:'PRIORITY',nodePriority:{},overrideNodeByCode:{},confidenceCalibrationId:null,calibratedNodeIds:[]},scoring:{version:'iqc-score-v2',mode:'DEDUCTION',baseScore:100,passingScore:60,items:[]},items:[]});
 const writable=computed(()=>!payloadRestricted.value&&(selected.value?can('iqc:pipeline:update'):can('iqc:pipeline:manage')));
 const dirty=computed(()=>{if(payloadRestricted.value)return false;if(!selected.value)return true;try{return JSON.stringify([name.value,editor.value?.release()])!==baseline.value;}catch{return true;}});
+// Editing invalidates an earlier report immediately, including edit-and-restore sequences.
+watch(dirty,invalidateGate,{flush:'sync'});
 function resetTask(){++commandGeneration;bulkEnabled.value=false;bulkScanSize.value=1000;++qualityGeneration;++regressionGeneration;qualityTaskId.value='';regressionTaskId.value='';qualityRounds.value=[];regressionRounds.value=[];qualityExecutionId.value=undefined;regressionExecutionId.value=undefined;forceReason.value='';invalidateGate();command.value=undefined;taskError.value='';createdTask.value=undefined;conversations.value=[];selectionMode.value='MANUAL';taskName.value='';trialTaskId.value='';trialStatus.value='';reviewed.value=false;version.value=undefined;taskKind.value=can('iqc:pipeline:execute')?'TRIAL':'PUBLISHED';concurrency.value=1;startUncertain.value=false;history.value=[];historyError.value='';historyLoading.value=false;++historyGeneration;}
 async function refresh(page=current.value){
  if(disposed||!can('iqc:pipeline:view'))return;const ticket=++generation;
@@ -185,7 +197,7 @@ watch(()=>JSON.stringify([can('iqc:task:detail:view'),can('iqc:task:executions:v
 watch(()=>JSON.stringify([can('iqc:pipeline:availability'),can('iqc:pipeline:publish'),can('iqc:pipeline:force:publish'),can('iqc:pipeline:gate:view'),can('iqc:pipeline:detail:view'),can('iqc:pipeline:versions:view')]),()=>{
  ++commandGeneration;++historyGeneration;history.value=[];historyLoading.value=false;invalidateGate();forceReason.value='';
 },{flush:'sync'});
-onMounted(()=>void refresh());onBeforeUnmount(()=>{disposed=true;rows.value=[];total.value=0;loading.value=false;++detailGeneration;initial.value=undefined;selected.value=undefined;history.value=[];name.value='';command.value=undefined;++generation;++historyGeneration;++qualityGeneration;++regressionGeneration;++gateGeneration;});
+onMounted(()=>void refresh());onBeforeUnmount(()=>{disposed=true;rows.value=[];total.value=0;loading.value=false;++detailGeneration;initial.value=undefined;selected.value=undefined;history.value=[];name.value='';command.value=undefined;++generation;++historyGeneration;++qualityGeneration;++regressionGeneration;invalidateGate();});
 </script>
 <template>
 <section class="page-intro"><div><h2>检测流水线</h2><p>配置版本化检测节点、事实融合和评分映射，真实试跑后发布。</p></div><a-button v-if="can('iqc:pipeline:manage')" type="primary" :disabled="busy" @click="create">新建流水线</a-button></section>
