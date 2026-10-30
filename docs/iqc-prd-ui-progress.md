@@ -473,3 +473,8 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 原21006 terminal0，/tmp/iqc-b-stable-watch-pipeline-20261029.log.exit=0，5文件80项18.30s全部通过（新pipeline15+原生命周期13+资产21+标签22+选择器9）。原9113 vue-tsc仍在途，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log及.exit，源码冻结，终态另记。未重跑Vite或全量，旧647仅适用于489253c，不套本次新源。真实Vue/受控API权限与stub，非真实岗位/PDP/后台成功写或完整I1–I7。已处理会话输入不变，无语音转换/framework/共享SQL/部署。
 
 最终原9113 vue-tsc --noEmit terminal0，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log.exit=0，持续跟进原句柄未因安静重启。diff通过，无在途测试/构建。相关生产源码仍仅为A三个固定提交，本批没有修改生产逻辑。
+
+
+## 2026-10-30 数据集冻结确认权限
+
+冻结按钮处理函数与确认回调均检查独立dataset:freeze、原ID/修订/详情上下文、ACTIVE及未保存/受限状态。冻结、详情或敏感读取权限变化使旧确认和原在途回执失效，冻结仅释放自己占用的busy；旧回执不能处理后来编辑。确认成功后的详情回读独立检查dataset:detail:view，回读失败明确已冻结并提示核对，避免误报失败后重复提交。此项仅冻结路径，目录/保存/其它草稿与真实PDP另行处理。Root仅构建，不写跑测试，协作专项分开记录。

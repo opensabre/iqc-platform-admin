@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed,onMounted,ref} from 'vue';
+import {computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
 import {message,Modal} from 'ant-design-vue';
 import {usePermission} from '@/composables/permission';
 import {listSamples,type QualitySample} from '@/api/quality';
@@ -41,7 +41,28 @@ async function save(){
  }finally{busy.value=false;}
 }
 
-function freeze(){const row=selected.value;if(!row||dirty.value||busy.value)return;Modal.confirm({title:`冻结已保存修订 ${row.draftRevision}？`,content:'保存成员的完整已批准会话及金标，不可覆盖。重复会话将被拒绝。',async onOk(){busy.value=true;try{await freezeDataset(row.id,row.draftRevision);populate(await getDataset(row.id));message.success('数据集版本已冻结');await refresh(current.value);}catch{message.error('冻结未成功，请核对修订、成员当前可用性及重复会话。');}finally{busy.value=false;}}});}
+let disposed=false,freezeGeneration=0,activeFreeze:number|undefined;
+watch(()=>JSON.stringify([can('iqc:dataset:freeze'),can('iqc:dataset:detail:view'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')]),()=>{
+ ++freezeGeneration;if(activeFreeze!==undefined){activeFreeze=undefined;busy.value=false;}
+},{flush:'sync'});
+function freeze(){
+ const row=selected.value;
+ if(disposed||!row||dirty.value||busy.value||projected.value||row.status!=='ACTIVE'||!can('iqc:dataset:freeze'))return;
+ const permission=freezeGeneration,context=detailGeneration,id=row.id,revision=row.draftRevision;
+ Modal.confirm({title:`冻结已保存修订 ${revision}？`,content:'保存成员的完整已批准会话及金标，不可覆盖。重复会话将被拒绝。',async onOk(){
+  if(disposed||permission!==freezeGeneration||context!==detailGeneration||!can('iqc:dataset:freeze')||busy.value||dirty.value||projected.value||selected.value?.id!==id||selected.value.draftRevision!==revision||selected.value.status!=='ACTIVE')return;
+  const command=++freezeGeneration;activeFreeze=command;busy.value=true;let confirmed=false;
+  const ownsFreeze=()=>!disposed&&command===freezeGeneration&&activeFreeze===command&&context===detailGeneration&&selected.value?.id===id&&selected.value.draftRevision===revision&&can('iqc:dataset:freeze');
+  try{
+   await freezeDataset(id,revision);confirmed=true;if(!ownsFreeze())return;
+   if(can('iqc:dataset:detail:view')){const data=await getDataset(id);if(!ownsFreeze()||!can('iqc:dataset:detail:view'))return;populate(data);}
+   message.success('数据集版本已冻结');await refresh(current.value);
+  }catch{if(ownsFreeze())message.warning(confirmed?'数据集版本已冻结，但重新读取失败；请刷新核对，勿重复提交。':'冻结未确认，请核对修订、成员当前可用性及重复会话。');}
+  finally{if(!disposed&&activeFreeze===command){activeFreeze=undefined;busy.value=false;}}
+ }});
+}
+onBeforeUnmount(()=>{disposed=true;++freezeGeneration;activeFreeze=undefined;});
+
 async function availability(row:Dataset){if(busy.value)return;busy.value=true;try{await setDatasetAvailability(row.id,row.status!=='ACTIVE');await refresh(current.value);if(selected.value?.id===row.id&&!dirty.value)populate(await getDataset(row.id));}catch{message.error('可用性更新失败，请刷新核对');}finally{busy.value=false;}}
 async function loadCandidates(){const ticket=++candidateListGeneration;candidateListLoading.value=true;candidateError.value='';try{const data=await listSamples();if(ticket===candidateListGeneration)candidates.value=data;}catch{if(ticket===candidateListGeneration)candidateError.value='候选样本加载失败，请重试。';}finally{if(ticket===candidateListGeneration)candidateListLoading.value=false;}}
 async function candidateVersions(id:string,page=1){candidateId.value=id;versionNo.value=undefined;approved.value=[];candidatePage.value=page;const ticket=++candidateGeneration;candidateVersionLoading.value=true;candidateError.value='';candidateTotal.value=0;try{const d=await listGoldVersions(id,page);if(ticket===candidateGeneration){approved.value=d.records.filter(v=>v.decision==='APPROVED');candidateTotal.value=d.total;}}catch{if(ticket===candidateGeneration)candidateError.value='金标审核版本加载失败，请重试。';}finally{if(ticket===candidateGeneration)candidateVersionLoading.value=false;}}
