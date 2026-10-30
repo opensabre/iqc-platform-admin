@@ -31,8 +31,18 @@ const trialTaskId=ref(''),trialStatus=ref(''),reviewed=ref(false),startUncertain
 watch(trialTaskId,()=>{trialStatus.value='';reviewed.value=false;});
 function invalidateGate(){++gateGeneration;gate.value=undefined;gateBusy.value=false;gateError.value='';}
 watch([qualityTaskId,qualityExecutionId,regressionTaskId,regressionExecutionId,()=>selected.value?.id,()=>selected.value?.draftRevision],invalidateGate,{flush:'sync'});
-async function evidenceRounds(kind:'QUALITY'|'REGRESSION',id:string){const quality=kind==='QUALITY',ticket=quality?++qualityGeneration:++regressionGeneration,assetId=selected.value?.id;if(quality){qualityRounds.value=[];qualityExecutionId.value=undefined;}else{regressionRounds.value=[];regressionExecutionId.value=undefined;}if(disposed||!can('iqc:task:executions:view')||!id.trim())return;try{const rows=await listTaskExecutions(id.trim());if(disposed||!can('iqc:task:executions:view')||ticket!==(quality?qualityGeneration:regressionGeneration)||assetId!==selected.value?.id)return;const terminal=rows.filter(r=>['SUCCEEDED','PARTIAL_FAILED','FAILED','CANCELLED'].includes(r.status));if(quality){qualityRounds.value=terminal;qualityExecutionId.value=terminal[0]?.id;}else{regressionRounds.value=terminal;regressionExecutionId.value=terminal[0]?.id;}}catch{if(ticket===(quality?qualityGeneration:regressionGeneration))gateError.value='评测执行历史加载失败，请核对任务权限。';}}
-watch(qualityTaskId,id=>void evidenceRounds('QUALITY',id));watch(regressionTaskId,id=>void evidenceRounds('REGRESSION',id));
+async function evidenceRounds(kind:'QUALITY'|'REGRESSION',id:string){
+ const quality=kind==='QUALITY',ticket=quality?++qualityGeneration:++regressionGeneration,assetId=selected.value?.id,context=detailGeneration;
+ if(quality){qualityRounds.value=[];qualityExecutionId.value=undefined;}else{regressionRounds.value=[];regressionExecutionId.value=undefined;}
+ if(disposed||!can('iqc:task:executions:view')||!id.trim())return;
+ // Success and failure both belong to the original asset and selection generation.
+ const current=()=>!disposed&&can('iqc:task:executions:view')&&ticket===(quality?qualityGeneration:regressionGeneration)&&assetId===selected.value?.id&&context===detailGeneration;
+ try{const rows=await listTaskExecutions(id.trim());if(!current())return;
+  const terminal=rows.filter(r=>['SUCCEEDED','PARTIAL_FAILED','FAILED','CANCELLED'].includes(r.status));
+  if(quality){qualityRounds.value=terminal;qualityExecutionId.value=terminal[0]?.id;}else{regressionRounds.value=terminal;regressionExecutionId.value=terminal[0]?.id;}
+ }catch{if(current())gateError.value='评测执行历史加载失败，请核对任务权限。';}
+}
+watch(qualityTaskId,id=>void evidenceRounds('QUALITY',id),{flush:'sync'});watch(regressionTaskId,id=>void evidenceRounds('REGRESSION',id),{flush:'sync'});
 function publicationEvidence():PublicationEvidence{if(!qualityTaskId.value.trim()||!regressionTaskId.value.trim()||!qualityExecutionId.value||!regressionExecutionId.value)throw Error('请选择质量与回归评测的终态执行轮次');return {qualityEvidence:{taskId:qualityTaskId.value.trim(),executionId:qualityExecutionId.value},regressionEvidence:{taskId:regressionTaskId.value.trim(),executionId:regressionExecutionId.value}};}
 async function previewGate(){
  const asset=selected.value;if(disposed||!asset||dirty.value||gateBusy.value||!can('iqc:pipeline:gate:view'))return;
