@@ -2,9 +2,9 @@ import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {createApp,defineComponent,h,nextTick,reactive,type App} from 'vue';
 import GoldSampleEditor from './GoldSampleEditor.vue';
 import {message} from 'ant-design-vue';
-import {getGoldSample,annotateGold,reviewGold,type GoldSample,type GoldVersion} from '@/api/evaluation';
-const access=vi.hoisted(()=>({denied:[] as string[]}));
-vi.mock('@/composables/permission',()=>({usePermission:()=>({can:(code:string)=>!access.denied.includes(code)})}));
+import {getGoldSample,annotateGold,reviewGold,listGoldVersions,getGoldVersion,type GoldSample,type GoldVersion} from '@/api/evaluation';
+const access=vi.hoisted(()=>({denied:[] as string[],refresh:null as null|{value:number}}));
+vi.mock('@/composables/permission',()=>({usePermission:()=>({can:(code:string)=>{void access.refresh?.value;return !access.denied.includes(code);}})}));
 vi.mock('@/api/evaluation',()=>({getGoldSample:vi.fn(),annotateGold:vi.fn(),reviewGold:vi.fn(),listGoldVersions:vi.fn(),getGoldVersion:vi.fn()}));
 vi.mock('ant-design-vue',()=>({message:{success:vi.fn(),warning:vi.fn(),error:vi.fn()}}));
 const pass=defineComponent({setup(_,{slots,attrs}){return()=>h('div',[attrs.message as string,slots.default?.()]);}});
@@ -23,7 +23,7 @@ function mount(changed=vi.fn()){
  app.mount(host);
 }
 function saveButton(){return [...host.querySelectorAll('button')].find(b=>b.textContent==='保存标注');}
-beforeEach(()=>{vi.resetAllMocks();access.denied=reactive<string[]>([]);});afterEach(()=>{app?.unmount();host?.remove();});
+beforeEach(()=>{vi.resetAllMocks();access.denied=reactive<string[]>([]);access.refresh=reactive({value:0});});afterEach(()=>{app?.unmount();host?.remove();});
 describe('Gold draft protocol compatibility',()=>{
  it.each(['iqc-gold-draft-v1','iqc-gold-draft-v2'])('loads %s frozen draft for annotation',async schema=>{
   vi.mocked(getGoldSample).mockResolvedValue(sample(schema));mount();await settle();
@@ -86,5 +86,62 @@ describe('Gold view permission revocation',()=>{
   mount(changed);await settle();saveButton()!.click();await settle();expect(annotateGold).toHaveBeenCalledTimes(1);
   access.denied.push('iqc:gold:view');await settle();pending.resolve(row);await settle();
   expect(host.textContent).not.toContain('frozen text');expect(changed).not.toHaveBeenCalled();expect(getGoldSample).toHaveBeenCalledTimes(1);expect(message.success).not.toHaveBeenCalled();
+ });
+});
+
+function vm(){return (app as any)._instance.setupState;}
+function revoke(code:string){access.denied.push(code);}
+function restore(code:string){access.denied.splice(access.denied.indexOf(code),1);}
+const version={id:'v1',sampleId:'sample',versionNo:1,sourceDraftRevision:1,decision:'APPROVED',reviewerId:'independent',reason:'checked',contentHash:'hash'} as GoldVersion;
+async function loaded(changed=vi.fn()){vi.mocked(getGoldSample).mockResolvedValue(sample('iqc-gold-draft-v2'));mount(changed);await settle();return vm();}
+describe('Gold exact operation permissions and request ownership',()=>{
+ it.each([
+  ['iqc:gold:review','review'],['iqc:gold:versions:view','history'],['iqc:gold:version:view','version'],
+ ])('does not execute %s through another grant',async(permission,operation)=>{
+  const editor=await loaded();revoke(permission);await settle();editor.reason='independently checked';
+  if(operation==='review')await editor.review(true);else if(operation==='history')await editor.history();else await editor.view(version);
+  expect(reviewGold).not.toHaveBeenCalled();expect(listGoldVersions).not.toHaveBeenCalled();expect(getGoldVersion).not.toHaveBeenCalled();
+ });
+ it('keeps annotation inputs when the effective permission values are unchanged',async()=>{
+  const editor=await loaded();editor.context='{"retained":"unsaved context"}';editor.reason='unsaved reason';
+  revoke('unrelated:grant');await settle();expect(getGoldSample).toHaveBeenCalledTimes(1);expect(editor.context).toContain('unsaved context');expect(editor.reason).toBe('unsaved reason');
+  access.refresh!.value++;await settle();expect(getGoldSample).toHaveBeenCalledTimes(1);expect(editor.context).toContain('unsaved context');
+ });
+ it.each(['iqc:sensitive:conversation:read','iqc:sensitive:pii:read'])('clears sensitive copies and rejects old loads after %s changes',async(permission)=>{
+  const old=deferred<GoldSample>(),fresh=deferred<GoldSample>();vi.mocked(getGoldSample).mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);mount();await settle();
+  revoke(permission);await settle();expect(getGoldSample).toHaveBeenCalledTimes(2);old.resolve(sample('iqc-gold-draft-v2'));await settle();expect(host.textContent).not.toContain('frozen text');expect(vm().sample).toBeUndefined();
+  fresh.resolve({...sample('iqc-gold-draft-v2'),privacy:{policyVersion:'iqc-gold-read-v1',canonicalPayloadVisible:false,canReadFull:false,canReadPii:false} as GoldSample['privacy'],goldDraftJson:null});await settle();expect(host.textContent).not.toContain('frozen text');expect(vm().context).toBe('{}');
+ });
+ for(const operation of ['history','version']){
+  const permission=operation==='history'?'iqc:gold:versions:view':'iqc:gold:version:view';
+  it(`${operation}: rejects late success after revoke and restore, and permits a new exact read`,async()=>{
+   const editor=await loaded();const old=deferred<any>();
+   if(operation==='history')vi.mocked(listGoldVersions).mockReturnValueOnce(old.promise);else vi.mocked(getGoldVersion).mockReturnValueOnce(old.promise);
+   const read=operation==='history'?editor.history(2):editor.view(version);revoke(permission);restore(permission);await settle();
+   old.resolve(operation==='history'?{records:[version],total:19}:{...version,snapshotJson:'{"secret":"old snapshot"}'});await read;
+   expect(editor.versions).toEqual([]);expect(editor.snapshot).toBe('');expect(editor.historyTotal).toBe(0);
+   if(operation==='history'){vi.mocked(listGoldVersions).mockResolvedValueOnce({records:[version],total:1} as never);await editor.history(3);expect(listGoldVersions).toHaveBeenLastCalledWith('sample',3);expect(editor.versions).toHaveLength(1);}
+   else{vi.mocked(getGoldVersion).mockResolvedValueOnce({...version,snapshotJson:'{"fresh":true}'});await editor.view(version);expect(getGoldVersion).toHaveBeenLastCalledWith('sample',1);expect(editor.snapshot).toContain('fresh');}
+  });
+  it(`${operation}: ignores late failures when its permission is withdrawn`,async()=>{
+   const editor=await loaded();const old=deferred<any>();if(operation==='history')vi.mocked(listGoldVersions).mockReturnValueOnce(old.promise);else vi.mocked(getGoldVersion).mockReturnValueOnce(old.promise);
+   const read=operation==='history'?editor.history():editor.view(version);revoke(permission);old.reject(new Error('late forbidden failure'));await read;expect(message.error).not.toHaveBeenCalled();
+  });
+ }
+ for(const operation of ['annotate','review'])for(const outcome of ['success','failure']){
+  const permission=`iqc:gold:${operation}`;
+  it(`${operation}: old ${outcome} cannot overwrite or unlock a newer command after reauthorization`,async()=>{
+   const changed=vi.fn(),editor=await loaded(changed),old=deferred<any>(),fresh=deferred<any>();editor.reason='checked independently';
+   const api=operation==='annotate'?annotateGold:reviewGold;vi.mocked(api).mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);
+   const oldSave=operation==='annotate'?editor.save():editor.review(true);revoke(permission);restore(permission);await settle();
+   const freshSave=operation==='annotate'?editor.save():editor.review(true);expect(api).toHaveBeenCalledTimes(2);
+   if(outcome==='success')old.resolve(operation==='annotate'?sample('iqc-gold-draft-v2'):version);else old.reject(new Error('old command failed'));await oldSave;
+   expect(editor.busy).toBe(true);expect(changed).not.toHaveBeenCalled();expect(getGoldSample).toHaveBeenCalledTimes(1);expect(message.success).not.toHaveBeenCalled();expect(message.error).not.toHaveBeenCalled();
+   fresh.resolve(operation==='annotate'?sample('iqc-gold-draft-v2'):version);await freshSave;expect(changed).toHaveBeenCalledTimes(1);expect(editor.busy).toBe(false);expect(getGoldSample).toHaveBeenCalledTimes(2);
+  });
+ }
+ it('submits independent review using the original revision and reason',async()=>{
+  const editor=await loaded();editor.reason='evidence checked';vi.mocked(reviewGold).mockResolvedValueOnce(version);await editor.review(false);
+  expect(reviewGold).toHaveBeenCalledExactlyOnceWith('sample',{expectedRevision:1,approve:false,reason:'evidence checked'});expect(message.success).toHaveBeenCalledWith('审核决定已保存');
  });
 });
