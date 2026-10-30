@@ -2,7 +2,7 @@
 import AutomaticRetryPolicyEditor from "@/components/AutomaticRetryPolicyEditor.vue";
 import {validateAutomaticRetry} from "@/api/automatic-retry";
 import TriggerAttemptHistory from '@/components/TriggerAttemptHistory.vue';
-import {computed,onMounted,onBeforeUnmount,ref} from 'vue';
+import {computed,onMounted,onBeforeUnmount,ref,watch} from 'vue';
 import {message,Modal} from 'ant-design-vue';
 import {usePermission} from '@/composables/permission';
 import SelectorAssetLibrary from '@/components/SelectorAssetLibrary.vue';
@@ -18,12 +18,26 @@ const history=ref<SubscriptionVersion[]>([]),instances=ref<InspectionTask[]>([])
 // Navigation invalidates command continuations as well as read generations.
 let disposed=false;
 let generation=0,detailGeneration=0,catalogGeneration=0,versionGeneration=0;
+let publishGeneration=0,editorGeneration=0,operationGeneration=0,editorChangeGeneration=0;
+watch(()=>JSON.stringify([can('iqc:subscription:publish'),can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read'),can('iqc:sensitive:prompt:read')]),()=>{++publishGeneration;},{flush:'sync'});
+const sensitiveReadKey=computed(()=>JSON.stringify([can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read'),can('iqc:sensitive:prompt:read')]));
+watch(()=>JSON.stringify([can('iqc:subscription:view'),sensitiveReadKey.value]),()=>{++generation;rows.value=[];total.value=0;loading.value=false;},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:pipeline:view'),sensitiveReadKey.value]),()=>{++catalogGeneration;pipelines.value=[];pipelineTotal.value=0;pipelineLoading.value=false;},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:pipeline:versions:view'),sensitiveReadKey.value]),()=>{++versionGeneration;pipelineVersions.value=[];},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:subscription:versions:view'),can('iqc:subscription:instances:view'),sensitiveReadKey.value]),()=>{++detailGeneration;history.value=[];instances.value=[];instanceTotal.value=0;},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:subscription:detail:view'),sensitiveReadKey.value]),()=>{
+ ++editorGeneration;++operationGeneration;busy.value=false;open.value=false;clearDetails();
+ if(selected.value)selected.value={...selected.value,name:'',draftConfigJson:null,lastError:null};
+ name.value='';definition.value=fresh();baseline.value=JSON.stringify([name.value,definition.value]);reloadRequired.value=true;
+},{flush:'sync'});
+watch(()=>JSON.stringify([can('iqc:subscription:create'),can('iqc:subscription:update'),can('iqc:subscription:publish'),can('iqc:subscription:availability'),can('iqc:pipeline:rollout:task:create')]),()=>{++operationGeneration;busy.value=false;},{flush:'sync'});
 function fresh():SubscriptionDefinition{return {schemaVersion:'iqc-event-subscription-v1',eventType:'ConversationCompleted',effectiveFrom:new Date().toISOString(),effectiveUntil:null,waitSeconds:3600,concurrency:1,pipeline:{pipelineId:'',versionNo:0},selector:null};}
 const reloadRequired=ref(false);
 function isRestricted(row:EventSubscription|SubscriptionVersion) {const p=row.privacy;return !!p&&(p.policyVersion!=='iqc-schedule-read-v1'||p.canonicalPayloadVisible!==true||p.canReadFull!==true||p.canReadPii!==true||p.canReadPrompt!==true);}
 const restricted=computed(()=>reloadRequired.value||!!selected.value&&isRestricted(selected.value));
 function clearDetails(){++detailGeneration;++versionGeneration;history.value=[];instances.value=[];instanceTotal.value=0;pipelineVersions.value=[];selectorLabel.value='';}
 const dirty=computed(()=>baseline.value!==JSON.stringify([name.value,definition.value]));
+watch(()=>JSON.stringify([code.value,name.value,definition.value]),()=>{++editorChangeGeneration;},{flush:'sync'});
 const writable=computed(()=>!restricted.value&&can(selected.value?'iqc:subscription:update':'iqc:subscription:create'));
 const targetPipelineId=computed(()=>definition.value.rollout?.pipelineId??definition.value.pipeline?.pipelineId??'');
 const rolloutMode=computed({get:()=>definition.value.schemaVersion==='iqc-event-subscription-rollout-v1',set:(enabled:boolean)=>{
@@ -44,62 +58,89 @@ function apply(row:EventSubscription){
  selected.value=row;code.value=row.code;name.value=row.name;definition.value=value;selectorLabel.value=value.selector?`${value.selector.selectorId} · v${value.selector.versionNo}`:'不限制选择器';baseline.value=JSON.stringify([name.value,value]);reloadRequired.value=false;
 }
 
-async function refresh(page=current.value){if(disposed||busy.value||!can('iqc:subscription:view'))return;const ticket=++generation;loading.value=true;error.value='';try{const data=await listSchedules(page);if(ticket===generation){rows.value=data.records;total.value=data.total;current.value=page;}}catch{if(ticket===generation)error.value='订阅列表加载失败，请重试。';}finally{if(ticket===generation)loading.value=false;}}
-async function catalogs(page=1){if(disposed||!can('iqc:pipeline:view'))return;const ticket=++catalogGeneration;pipelineLoading.value=true;catalogError.value='';try{const data=await listPipelines(page);if(ticket===catalogGeneration){pipelines.value=data.records.filter(p=>p.status==='ACTIVE');pipelinePage.value=page;pipelineTotal.value=data.total;}}catch{if(ticket===catalogGeneration)catalogError.value='流水线目录未加载，请核对权限。';}finally{if(ticket===catalogGeneration)pipelineLoading.value=false;}}
-async function pipelineChanged(id:string){if(disposed||busy.value||!writable.value)return;if(rolloutMode.value){++versionGeneration;pipelineVersions.value=[];definition.value.rollout={pipelineId:id};}else{definition.value.pipeline={pipelineId:id,versionNo:0};await versionsForPipeline(id);}}
-async function versionsForPipeline(id:string){const ticket=++versionGeneration;pipelineVersions.value=[];if(rolloutMode.value||!id||!can('iqc:pipeline:versions:view'))return;try{const data=await listPipelineVersions(id);if(ticket===versionGeneration&&!rolloutMode.value&&targetPipelineId.value===id)pipelineVersions.value=data;}catch{if(ticket===versionGeneration)catalogError.value='流水线版本加载失败，请核对权限。';}}
-function chooseSelector(reference:SelectorAssetReference,label:string){if(disposed||busy.value||!writable.value)return;definition.value.selector={...reference};selectorLabel.value=label;}
-async function details(page=1){if(disposed)return;const asset=selected.value;if(!asset)return;const ticket=++detailGeneration;history.value=[];instances.value=[];instanceTotal.value=0;detailError.value='';try{if(can('iqc:subscription:versions:view')){const data=await scheduleVersions(asset.id);if(ticket===detailGeneration)history.value=data;}if(ticket===detailGeneration&&!disposed&&can('iqc:subscription:instances:view')){const data=await scheduleInstances(asset.id,page);if(ticket===detailGeneration){instances.value=data.records;instanceTotal.value=data.total;instancePage.value=page;}}}catch{if(ticket===detailGeneration)detailError.value='版本或接收实例加载失败，请刷新。';}}
-async function load(row:EventSubscription){
- if(disposed||busy.value||!can('iqc:subscription:detail:view'))return;
- busy.value=true;clearDetails();const ticket=detailGeneration;
- reloadRequired.value=true;selected.value={...row,name:'',draftConfigJson:null,lastError:null};code.value=row.code;name.value='';definition.value=fresh();baseline.value=JSON.stringify([name.value,definition.value]);
- try{const data=await getSchedule(row.id);if(ticket!==detailGeneration)return;
-  apply(data);open.value=true;await versionsForPipeline(targetPipelineId.value);await details();
- }catch{if(ticket===detailGeneration)message.error('订阅详情读取失败，旧配置已清除，请重新加载。');}
- finally{if(!disposed)busy.value=false;}
+function stageReceipt(row:EventSubscription){
+ clearDetails();selected.value={...row,name:'',draftConfigJson:null,lastError:null};code.value=row.code;name.value='';definition.value=fresh();
+ reloadRequired.value=true;baseline.value=JSON.stringify([name.value,definition.value]);
+}
+async function reread(id:string,current:()=>boolean){
+ if(!current()||!can('iqc:subscription:detail:view'))return;
+ const data=await getSchedule(id);if(!current()||!can('iqc:subscription:detail:view'))return;
+ apply(data);await details();
 }
 
-function create(){if(disposed||busy.value||!can('iqc:subscription:create'))return;++detailGeneration;++versionGeneration;selected.value=undefined;reloadRequired.value=false;code.value='';name.value='';definition.value=fresh();baseline.value='';history.value=[];instances.value=[];pipelineVersions.value=[];selectorLabel.value='';open.value=true;}
+async function refresh(page=current.value){if(disposed||busy.value||!can('iqc:subscription:view'))return;const ticket=++generation;loading.value=true;error.value='';try{const data=await listSchedules(page);if(!disposed&&ticket===generation&&can('iqc:subscription:view')){rows.value=data.records;total.value=data.total;current.value=page;}}catch{if(ticket===generation)error.value='订阅列表加载失败，请重试。';}finally{if(ticket===generation)loading.value=false;}}
+async function catalogs(page=1){if(disposed||!can('iqc:pipeline:view'))return;const ticket=++catalogGeneration;pipelineLoading.value=true;catalogError.value='';try{const data=await listPipelines(page);if(!disposed&&ticket===catalogGeneration&&can('iqc:pipeline:view')){pipelines.value=data.records.filter(p=>p.status==='ACTIVE');pipelinePage.value=page;pipelineTotal.value=data.total;}}catch{if(ticket===catalogGeneration)catalogError.value='流水线目录未加载，请核对权限。';}finally{if(ticket===catalogGeneration)pipelineLoading.value=false;}}
+async function pipelineChanged(id:string){if(disposed||busy.value||!writable.value)return;if(rolloutMode.value){++versionGeneration;pipelineVersions.value=[];definition.value.rollout={pipelineId:id};}else{definition.value.pipeline={pipelineId:id,versionNo:0};await versionsForPipeline(id);}}
+async function versionsForPipeline(id:string){const ticket=++versionGeneration;pipelineVersions.value=[];if(disposed||rolloutMode.value||!id||!can('iqc:pipeline:versions:view'))return;try{const data=await listPipelineVersions(id);if(!disposed&&ticket===versionGeneration&&can('iqc:pipeline:versions:view')&&!rolloutMode.value&&targetPipelineId.value===id)pipelineVersions.value=data;}catch{if(ticket===versionGeneration)catalogError.value='流水线版本加载失败，请核对权限。';}}
+function chooseSelector(reference:SelectorAssetReference,label:string){if(disposed||busy.value||!writable.value)return;definition.value.selector={...reference};selectorLabel.value=label;}
+async function details(page=1){if(disposed)return;const asset=selected.value;if(!asset)return;const ticket=++detailGeneration;history.value=[];instances.value=[];instanceTotal.value=0;detailError.value='';try{if(can('iqc:subscription:versions:view')){const data=await scheduleVersions(asset.id);if(!disposed&&ticket===detailGeneration&&selected.value?.id===asset.id&&can('iqc:subscription:versions:view'))history.value=data;}if(ticket===detailGeneration&&!disposed&&selected.value?.id===asset.id&&can('iqc:subscription:instances:view')){const data=await scheduleInstances(asset.id,page);if(!disposed&&ticket===detailGeneration&&selected.value?.id===asset.id&&can('iqc:subscription:instances:view')){instances.value=data.records;instanceTotal.value=data.total;instancePage.value=page;}}}catch{if(ticket===detailGeneration)detailError.value='版本或接收实例加载失败，请刷新。';}}
+async function load(row:EventSubscription){
+ if(disposed||busy.value||!can('iqc:subscription:detail:view'))return;
+ const operation=++operationGeneration,context=++editorGeneration;
+ const current=()=>!disposed&&operation===operationGeneration&&context===editorGeneration&&can('iqc:subscription:detail:view');
+ busy.value=true;stageReceipt(row);const ticket=detailGeneration;
+ try{const data=await getSchedule(row.id);if(!current()||ticket!==detailGeneration)return;
+  apply(data);open.value=true;await versionsForPipeline(targetPipelineId.value);if(!current())return;await details();
+ }catch{if(current())message.error('订阅详情读取失败，旧配置已清除，请重新加载。');}
+ finally{if(!disposed&&operation===operationGeneration)busy.value=false;}
+}
+
+function create(){if(disposed||busy.value||!can('iqc:subscription:create'))return;++editorGeneration;++operationGeneration;++detailGeneration;++versionGeneration;selected.value=undefined;reloadRequired.value=false;code.value='';name.value='';definition.value=fresh();baseline.value='';history.value=[];instances.value=[];pipelineVersions.value=[];selectorLabel.value='';open.value=true;}
 function validated(){const d=structuredClone(JSON.parse(JSON.stringify(definition.value))) as SubscriptionDefinition;if(!name.value.trim()||name.value.length>100)throw Error('名称需为1–100字');if(!selected.value&&!/^[A-Z][A-Z0-9_]{1,63}$/.test(code.value))throw Error('编码需为2–64位大写字母、数字或下划线');const from=new Date(d.effectiveFrom);if(!Number.isFinite(from.getTime()))throw Error('生效时间无效');from.setUTCMilliseconds(0);d.effectiveFrom=from.toISOString();if(d.effectiveUntil){const until=new Date(d.effectiveUntil);if(!Number.isFinite(until.getTime()))throw Error('结束时间无效');until.setUTCMilliseconds(0);if(until<=from)throw Error('结束时间须晚于生效时间（整秒）');d.effectiveUntil=until.toISOString();}else d.effectiveUntil=null;if(!Number.isInteger(d.waitSeconds)||d.waitSeconds<1||d.waitSeconds>604800||!Number.isInteger(d.concurrency)||d.concurrency<1||d.concurrency>32)throw Error('等待秒数及并发数量超出允许范围');const gray=d.schemaVersion==='iqc-event-subscription-rollout-v1';if(gray?(!can('iqc:pipeline:rollout:task:create')||d.pipeline!=null||!d.rollout?.pipelineId):(!d.pipeline?.pipelineId||!d.pipeline.versionNo||d.rollout!=null))throw Error('请选择有效流水线目标，灰度模式需要灰度任务权限');if(d.selector&&(!d.selector.selectorId||!d.selector.versionNo))throw Error('请选择有效的已发布选择器');d.retryPolicy=validateAutomaticRetry(d.retryPolicy);return d;}
 async function save(){
  if(disposed||busy.value||!writable.value)return;let d:SubscriptionDefinition;try{d=validated();}catch(e){message.warning(e instanceof Error?e.message:'配置无效');return;}
+ const asset=selected.value,requestName=name.value.trim(),requestCode=code.value;
+ const permission=asset?'iqc:subscription:update':'iqc:subscription:create';
+ const operation=++operationGeneration,context=editorGeneration;
+ const current=()=>!disposed&&operation===operationGeneration&&context===editorGeneration&&can(permission);
  busy.value=true;
  try{
   let receipt:EventSubscription;
-  try{receipt=selected.value?await updateSchedule(selected.value.id,selected.value.draftRevision,name.value.trim(),d):await createSchedule(code.value,name.value.trim(),d);}
-  catch{if(disposed)return;message.error('保存未确认，请保留编辑并重新核对修订。');return;}
-  if(disposed)return;
-  clearDetails();apply(receipt);message.success('草稿已保存');
-  try{apply(await getSchedule(receipt.id));await details();}catch{if(disposed)return;message.warning('草稿已保存，但重新读取失败。请重新加载，勿重复提交。');}
- }finally{if(!disposed)busy.value=false;}await refresh();
+  try{receipt=asset?await updateSchedule(asset.id,asset.draftRevision,requestName,d):await createSchedule(requestCode,requestName,d);}
+  catch{if(current())message.error('保存未确认，请保留编辑并重新核对修订。');return;}
+  if(!current())return;
+  stageReceipt(receipt);message.success('草稿已保存');
+  try{await reread(receipt.id,current);}catch{if(current())message.warning('草稿已保存，但重新读取失败。请重新加载，勿重复提交。');}
+ }finally{if(!disposed&&operation===operationGeneration){busy.value=false;void refresh();}}
 }
 
 function publish(){const asset=selected.value;if(disposed||!asset||restricted.value||busy.value||dirty.value||!can('iqc:subscription:publish'))return;
+ const permissionTicket=publishGeneration,contextTicket=detailGeneration;
  Modal.confirm({title:`发布修订 ${asset.draftRevision}？`,content:'发布版本不可修改。发布后请显式启用。',async onOk(){
-  if(disposed||restricted.value||busy.value||dirty.value||selected.value?.id!==asset.id||selected.value.draftRevision!==asset.draftRevision)return;
+  if(disposed||permissionTicket!==publishGeneration||contextTicket!==detailGeneration||!can('iqc:subscription:publish')||restricted.value||busy.value||dirty.value||selected.value?.id!==asset.id||selected.value.draftRevision!==asset.draftRevision)return;
+  const operation=++operationGeneration,context=editorGeneration;
+  const current=()=>!disposed&&operation===operationGeneration&&context===editorGeneration&&can('iqc:subscription:publish');
   busy.value=true;try{
-   try{await publishSchedule(asset.id,asset.draftRevision);}catch{if(disposed)return;message.error('发布未确认，请重新加载核对。');return;}
-   if(disposed)return;
-   clearDetails();selected.value={...asset,draftConfigJson:null};definition.value=fresh();reloadRequired.value=true;baseline.value=JSON.stringify([name.value,definition.value]);message.success('版本已发布');
-   try{apply(await getSchedule(asset.id));await details();}catch{if(disposed)return;message.warning('版本已发布，但重新读取失败。请重新加载，勿重复发布。');}
-  }finally{if(!disposed)busy.value=false;}await refresh();
+   try{await publishSchedule(asset.id,asset.draftRevision);}catch{if(current())message.error('发布未确认，请重新加载核对。');return;}
+   if(!current())return;
+   stageReceipt(asset);message.success('版本已发布');
+   try{await reread(asset.id,current);}catch{if(current())message.warning('版本已发布，但重新读取失败。请重新加载，勿重复发布。');}
+  }finally{if(!disposed&&operation===operationGeneration){busy.value=false;void refresh();}}
  }});
 }
 
 async function availability(row:EventSubscription){
  if(disposed||busy.value||!can('iqc:subscription:availability')||(row.status!=='ACTIVE'&&!row.activeRevisionId))return;
  if(selected.value?.id===row.id&&dirty.value){message.warning('请先保存或重新加载未保存的草稿。');return;}
+ const operation=++operationGeneration,context=editorGeneration;
+ const current=()=>!disposed&&operation===operationGeneration&&context===editorGeneration&&can('iqc:subscription:availability');
  busy.value=true;try{
-  let receipt:EventSubscription;try{receipt=await availabilitySchedule(row.id,row.status!=='ACTIVE');}catch{if(disposed)return;message.error('操作未确认，请刷新核对。');return;}
-  if(disposed)return;
-  message.success('可用性已更新');if(selected.value?.id===row.id){clearDetails();apply(receipt);try{apply(await getSchedule(row.id));await details();}catch{if(disposed)return;message.warning('可用性已更新，但重新读取失败。请重新加载。');}}
- }finally{if(!disposed)busy.value=false;}await refresh();
+  let receipt:EventSubscription;try{receipt=await availabilitySchedule(row.id,row.status!=='ACTIVE');}catch{if(current())message.error('操作未确认，请刷新核对。');return;}
+  if(!current())return;
+  message.success('可用性已更新');if(selected.value?.id===row.id){stageReceipt(receipt);try{await reread(row.id,current);}catch{if(current())message.warning('可用性已更新，但重新读取失败。请重新加载。');}}
+ }finally{if(!disposed&&operation===operationGeneration){busy.value=false;void refresh();}}
 }
 
-function reload(){const row=selected.value;if(!row||busy.value)return;if(dirty.value)Modal.confirm({title:"重新加载并放弃未保存的修改？",onOk:()=>load(row)});else void load(row);}
-function finishClose(){open.value=false;clearDetails();selected.value=undefined;code.value='';name.value='';definition.value=fresh();baseline.value='';reloadRequired.value=false;}
-function close(){if(busy.value)return;if(dirty.value)Modal.confirm({title:'放弃未保存的修改？',onOk:finishClose});else finishClose();}
+function confirmDiscard(title:string,action:()=>unknown){
+ const context=editorGeneration,operation=operationGeneration,changes=editorChangeGeneration;
+ Modal.confirm({title,onOk:()=>{if(disposed||busy.value||context!==editorGeneration||operation!==operationGeneration||changes!==editorChangeGeneration)return;return action();}});
+}
+function reload(){const selectedRow=selected.value;if(disposed||!selectedRow||busy.value)return;
+ const row={...selectedRow,name:'',draftConfigJson:null,lastError:null};
+ if(dirty.value)confirmDiscard('重新加载并放弃未保存的修改？',()=>load(row));else void load(row);
+}
+function finishClose(){++editorGeneration;++operationGeneration;open.value=false;clearDetails();selected.value=undefined;code.value='';name.value='';definition.value=fresh();baseline.value='';reloadRequired.value=false;}
+function close(){if(disposed||busy.value)return;if(dirty.value)confirmDiscard('放弃未保存的修改？',finishClose);else finishClose();}
 
 onMounted(()=>{void refresh();void catalogs();});onBeforeUnmount(()=>{disposed=true;++generation;++detailGeneration;++catalogGeneration;++versionGeneration;finishClose();});
 </script>
