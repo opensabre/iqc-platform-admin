@@ -492,3 +492,10 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 ## 2026-10-30 Gold组件准确操作与读取
 
 金标load使用样本ID、独立gold:view与会话/PII权限实际值的稳定watch，原样权限刷新不重置未保存标注；敏感变化沿原load同步清副本、失效旧请求，并只重新读取当前授权投影。审核/历史/版本处理函数分别校验gold:review、gold:versions:view、gold:version:view；历史和版本撤权及时清原副本，旧响应不能恢复。标注/审核命令归属独立校验，写权限变化失效旧回执；写后金标详情读取独立检查gold:view。沿用原精确数字、独立审核、组织范围与受限投影，不新增API/表。Root仅构建，不写跑测试；父页面旧放弃确认与真实PDP/浏览器、全部PRD验收另行推进。
+
+
+## 2026-10-30 协作小PR复用现有CI
+
+原唯一docker-build workflow的pull_request分支过滤扩为main及review/iqc-*，覆盖以IQC集成或父功能review分支为目标的小PR。push仍仅main与v*标签；原类型检查、覆盖率测试、生产构建、制品上传、镜像构建、needs与权限均不变。PR事件原Docker push=false、不登录Registry条件保持，不因协作分支新增镜像发布。相同PR的新提交仍按原并发规则取消该PR旧轮次，不取消其它PR。
+
+本改动需要先合入集成/相关父分支，再让后续PR新事件使用包含本配置的合流快照；已存在的旧运行不因文件提案追溯变绿。Root仅检查YAML语法与差异，不写跑本地应用测试/主动dispatch。自动CI按准确head、run和job终态记录；专项分支仍须最终合流验证，构建/测试绿色不替代真实PDP、供应商、容量或全部PRD验收。
