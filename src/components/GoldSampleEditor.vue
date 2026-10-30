@@ -15,7 +15,9 @@ function clearAuxiliary(){++historyGeneration;++snapshotGeneration;versions.valu
 const goldPreview=computed(()=>sample.value?.privacy?.policyVersion==='iqc-gold-read-v1'?sample.value.privacy.preview:undefined);
 const types=['BOOLEAN','STRING','NUMBER','ENUM','OBJECT'],states=['KNOWN','UNKNOWN','CONFLICT','ERROR','NOT_EVALUATED'];
 const stateKey=()=>JSON.stringify([findings.value,tags.value,difficulty.value,context.value,decisionEnabled.value,decision.value,labels.value,scoreText.value]);const dirty=computed(()=>!!sample.value&&!error.value&&baseline.value!==stateKey());
-defineExpose({hasUnsavedChanges:()=>dirty.value||!!reason.value.trim(),isBusy:()=>busy.value||loading.value});
+let editRevision=0;
+watch(()=>JSON.stringify([stateKey(),reason.value]),()=>{++editRevision;},{flush:'sync'});
+defineExpose({hasUnsavedChanges:()=>dirty.value||!!reason.value.trim(),isBusy:()=>busy.value||loading.value,getEditRevision:()=>JSON.stringify([generation,editRevision,sample.value?.goldDraftRevision])});
 const editable=computed(()=>can('iqc:gold:annotate')&&!projectedGold.value&&!precisionRestricted.value&&!busy.value&&!loading.value&&!error.value);
 function populate(row:GoldSample){
  sample.value=row;draft.value=undefined;precisionRestricted.value=false;
