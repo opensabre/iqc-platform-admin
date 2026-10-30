@@ -473,3 +473,10 @@ UI基线232d527，仅cherry-pick A固定7e301db为0537c75，不含A后续标签/
 原21006 terminal0，/tmp/iqc-b-stable-watch-pipeline-20261029.log.exit=0，5文件80项18.30s全部通过（新pipeline15+原生命周期13+资产21+标签22+选择器9）。原9113 vue-tsc仍在途，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log及.exit，源码冻结，终态另记。未重跑Vite或全量，旧647仅适用于489253c，不套本次新源。真实Vue/受控API权限与stub，非真实岗位/PDP/后台成功写或完整I1–I7。已处理会话输入不变，无语音转换/framework/共享SQL/部署。
 
 最终原9113 vue-tsc --noEmit terminal0，/tmp/iqc-b-stable-watch-pipeline-types-20261029.log.exit=0，持续跟进原句柄未因安静重启。diff通过，无在途测试/构建。相关生产源码仍仅为A三个固定提交，本批没有修改生产逻辑。
+
+
+## 2026-10-30 协作小PR复用现有CI
+
+原唯一docker-build workflow的pull_request分支过滤扩为main及review/iqc-*，覆盖以IQC集成或父功能review分支为目标的小PR。push仍仅main与v*标签；原类型检查、覆盖率测试、生产构建、制品上传、镜像构建、needs与权限均不变。PR事件原Docker push=false、不登录Registry条件保持，不因协作分支新增镜像发布。相同PR的新提交仍按原并发规则取消该PR旧轮次，不取消其它PR。
+
+本改动需要先合入集成/相关父分支，再让后续PR新事件使用包含本配置的合流快照；已存在的旧运行不因文件提案追溯变绿。Root仅检查YAML语法与差异，不写跑本地应用测试/主动dispatch。自动CI按准确head、run和job终态记录；专项分支仍须最终合流验证，构建/测试绿色不替代真实PDP、供应商、容量或全部PRD验收。
