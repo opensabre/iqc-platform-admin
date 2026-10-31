@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, defineComponent, h, nextTick, reactive, type App } from "vue";
 import BusinessQualityReport from "./BusinessQualityReport.vue";
-import { getBusinessQualityReport, type BusinessQualityReport as Report } from "@/api/quality";
+import { getBusinessQualityReport, type BusinessClaimSourceSupportSummary as Support, type BusinessQualityReport as Report } from "@/api/quality";
 import { listTaskExecutions, listTasks } from "@/api/tasks";
 
 const state = vi.hoisted(() => ({ permissions: ["iqc:report:view", "iqc:task:view"] }));
@@ -26,7 +26,7 @@ async function select(ids: string[]) {
 }
 function mount() {
   host = document.createElement("div"); document.body.append(host); app = createApp(BusinessQualityReport);
-  for (const name of ["AAlert", "AForm", "AFormItem", "ASpace", "ATag", "ACard"]) app.component(name, pass);
+  for (const name of ["AAlert", "AForm", "AFormItem", "ASpace", "ATag", "ACard", "ATableColumn"]) app.component(name, pass);
   app.component("AButton", defineComponent({ setup(_, { slots, attrs }) { return () => h("button", attrs, slots.default?.()); } }));
   app.component("AInput", defineComponent({ props: ["value"], emits: ["update:value"], setup(props, { emit }) {
     return () => h("input", { value: props.value, onInput: (event: Event) => emit("update:value", (event.target as HTMLInputElement).value) });
@@ -36,7 +36,7 @@ function mount() {
       h("span", JSON.stringify(props.options))]);
   } }));
   app.component("ATable", defineComponent({ props: ["dataSource", "columns"], setup(props, { slots }) {
-    return () => h("table", props.dataSource.map((row: Record<string, unknown>) => h("tr", props.columns.map((column: { dataIndex: string }) =>
+    return () => h("table", props.dataSource.map((row: Record<string, unknown>) => h("tr", (props.columns ?? []).map((column: { dataIndex: string }) =>
       h("td", ["averageScore", "qualifiedRate", "failureRate", "scored", "points", "veto"].includes(column.dataIndex)
         ? slots.bodyCell?.({ column, text: row[column.dataIndex] }) : String(row[column.dataIndex]))))));
   } }));
@@ -280,4 +280,111 @@ describe("business quality report", () => {
     expect(host.textContent).toContain("已确认动作失败率：未测量");expect(host.textContent).toContain("不代表动作已经执行成功");
   });
 
+
+  describe("explicit claim source support summary", () => {
+    const grants=["iqc:report:view","iqc:sensitive:conversation:read","iqc:sensitive:pii:read"];
+    const partial:Support={schemaVersion:"iqc-model-claim-source-support-summary-v1",scope:"KNOWN_RAW_LLM_FINDINGS_IN_SELECTED_RESULT_RUNS",
+      state:"PARTIAL",knownClaims:"6",annotatedClaims:"3",unannotatedClaims:"3",supportedClaims:"1",contradictedClaims:"1",insufficientSourceClaims:"1",annotationCoverage:0.5};
+    function response(summary:Support|null=partial):Report {
+      const source={expectedResults:2,sourceResults:1,unavailableResults:1,facts:[]};
+      return {...report,groups:[{...report.groups[0],schemeId:"",pipelineId:"pipeline"}],findingDistributions:{key:{
+        schemaVersion:"iqc-business-finding-distribution-v1",machine:{...source},reviewed:{...source},sourceSupport:summary&&{...summary}}}};
+    }
+    async function enableFindings(){
+      const label=[...host.querySelectorAll("label")].find(item=>item.textContent?.includes("包含按冻结标准分组"))!;
+      const checkbox=label.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+      checkbox.checked=true;checkbox.dispatchEvent(new Event("change"));await settle();
+    }
+    async function query(value:Report=response()){
+      vi.mocked(getBusinessQualityReport).mockResolvedValue(value);mount();await select(["task"]);await enableFindings();
+      button("查询业务统计").click();await settle();
+    }
+    beforeEach(()=>{state.permissions.push(...grants.slice(1));});
+
+    it("keeps default request unchanged and only opts into the existing report endpoint",async()=>{
+      mount();await select(["task"]);button("查询业务统计").click();await settle();
+      expect(getBusinessQualityReport).toHaveBeenLastCalledWith(["task"],{task:"LATEST"},"SELECTED_RUNS");
+      await enableFindings();expect(host.querySelector("table")).toBeNull();
+      vi.mocked(getBusinessQualityReport).mockResolvedValue(response());button("查询业务统计").click();await settle();
+      expect(getBusinessQualityReport).toHaveBeenLastCalledWith(["task"],{task:"LATEST"},"SELECTED_RUNS",false,false,true);
+      expect(host.textContent).toContain("部分已标注 · 标注覆盖率 50.00%");
+      expect(host.textContent).toContain("已知模型事实 6 · 已标注 3 · 未标注 3");
+      expect(host.textContent).toContain("有来源支持 1 · 与来源矛盾 1 · 来源不足 1");
+      expect(host.textContent).toContain("不代表完整幻觉率或金标准确率");
+    });
+    it.each([
+      ["UNMEASURED","0","0","0",null,"没有已知模型声明 · 标注覆盖率 未测量"],
+      ["UNANNOTATED","2","0","2",0,"尚未标注 · 标注覆盖率 0.00%"],
+      ["COMPLETE","3","3","0",1,"本范围全部已标注 · 标注覆盖率 100.00%"]
+    ] as const)("distinguishes %s from missing evidence",async(state,known,annotated,unannotated,coverage,label)=>{
+      await query(response({...partial,state,knownClaims:known,annotatedClaims:annotated,unannotatedClaims:unannotated,
+        supportedClaims:annotated==="0"?"0":"1",contradictedClaims:annotated==="0"?"0":"1",insufficientSourceClaims:annotated==="0"?"0":"1",annotationCoverage:coverage}));
+      expect(host.textContent).toContain(label);expect(host.textContent).not.toContain("计数或覆盖率不一致");
+    });
+    it("preserves long counts above Number precision and exact PARTIAL even when coverage rounds to one",async()=>{
+      await query(response({...partial,knownClaims:"9223372036854775807",annotatedClaims:"9223372036854775806",unannotatedClaims:"1",
+        supportedClaims:"9223372036854775804",contradictedClaims:"1",insufficientSourceClaims:"1",annotationCoverage:1}));
+      expect(host.textContent).toContain("已知模型事实 9223372036854775807 · 已标注 9223372036854775806 · 未标注 1");
+      expect(host.textContent).toContain("有来源支持 9223372036854775804");
+      expect(host.textContent).toContain("部分已标注 · 标注覆盖率 100.00%");
+      expect(host.textContent).not.toContain("本范围全部已标注");
+    });
+    it("accepts six-place half-up coverage at a rounding tie",async()=>{
+      await query(response({...partial,knownClaims:"128",annotatedClaims:"1",unannotatedClaims:"127",supportedClaims:"1",
+        contradictedClaims:"0",insufficientSourceClaims:"0",annotationCoverage:0.007813}));
+      expect(host.textContent).toContain("部分已标注 · 标注覆盖率 0.78%");
+      expect(host.textContent).not.toContain("计数或覆盖率不一致");
+    });
+    it.each([null,undefined])("keeps absent legacy summary %s unmeasured instead of fabricating zero",async absent=>{
+      const value=response();value.findingDistributions!.key.sourceSupport=absent;await query(value);
+      expect(host.textContent).toContain("尚未提供模型事实来源支持摘要");
+      expect(host.textContent).not.toContain("已知模型事实 0");expect(host.textContent).not.toContain("标注覆盖率 0.00%");
+    });
+    it.each([
+      ["future schema",{schemaVersion:"future"}], ["wrong scope",{scope:"ALL"}], ["count conservation",{knownClaims:"7"}],
+      ["verdict conservation",{supportedClaims:"2"}], ["noncanonical integer",{knownClaims:"06"}],
+      ["overflow",{knownClaims:"9223372036854775808"}], ["numeric count",{knownClaims:6}],
+      ["negative",{supportedClaims:"-1"}], ["wrong state",{state:"COMPLETE"}], ["wrong coverage",{annotationCoverage:0.500001}],
+      ["NaN",{annotationCoverage:NaN}], ["infinite",{annotationCoverage:Infinity}], ["missing measured coverage",{annotationCoverage:null}]
+    ])("rejects %s without presenting partial statistics",async(_label,patch)=>{
+      await query(response({...partial,...patch} as Support));
+      expect(host.textContent).toContain("来源支持摘要的计数或覆盖率不一致");
+      expect(host.textContent).not.toContain("已知模型事实 6");expect(host.textContent).not.toContain("有来源支持 1");
+    });
+    it("rejects non-null zero-denominator coverage and claims without a machine source",async()=>{
+      const value=response({...partial,state:"UNMEASURED",knownClaims:"0",annotatedClaims:"0",unannotatedClaims:"0",
+        supportedClaims:"0",contradictedClaims:"0",insufficientSourceClaims:"0",annotationCoverage:0});
+      await query(value);expect(host.textContent).toContain("计数或覆盖率不一致");
+      const impossible=response();Object.assign(impossible.findingDistributions!.key.machine,{sourceResults:0,unavailableResults:2});
+      vi.mocked(getBusinessQualityReport).mockResolvedValue(impossible);button("查询业务统计").click();await settle();
+      expect(host.textContent).toContain("计数或覆盖率不一致");expect(host.textContent).not.toContain("已知模型事实 6");
+    });
+    it("keeps summaries in their frozen groups and clears them when the run policy changes",async()=>{
+      const value=response();value.groups.push({...value.groups[0],groupKey:"key2",versionNo:"2"});
+      value.findingDistributions!.key2={...value.findingDistributions!.key,sourceSupport:{...partial,state:"UNANNOTATED",knownClaims:"9",
+        annotatedClaims:"0",unannotatedClaims:"9",supportedClaims:"0",contradictedClaims:"0",insufficientSourceClaims:"0",annotationCoverage:0}};
+      await query(value);expect(host.textContent).toContain("已知模型事实 6 · 已标注 3 · 未标注 3");
+      expect(host.textContent).toContain("已知模型事实 9 · 已标注 0 · 未标注 9");
+      const policy=host.querySelector<HTMLSelectElement>('select[aria-label="运行统计口径"]')!;
+      policy.value="FIRST_PER_CONVERSATION";policy.dispatchEvent(new Event("change"));await settle();
+      expect(host.textContent).not.toContain("已知模型事实 6");button("查询业务统计").click();await settle();
+      expect(getBusinessQualityReport).toHaveBeenLastCalledWith(["task"],undefined,"FIRST_PER_CONVERSATION",false,false,true);
+    });
+    it.each(grants)("clears loaded and late summaries across %s revoke and restore",async grant=>{
+      await query();expect(host.textContent).toContain("已知模型事实 6");
+      state.permissions.splice(state.permissions.indexOf(grant),1);await settle();
+      expect(host.textContent).not.toContain("已知模型事实 6");
+      state.permissions.push(grant);await settle();expect(host.textContent).not.toContain("已知模型事实 6");
+      await enableFindings();button("查询业务统计").click();await settle();
+      expect(host.textContent).toContain("已知模型事实 6");
+      let resolve!:(value:Report)=>void;vi.mocked(getBusinessQualityReport).mockReturnValueOnce(new Promise(done=>{resolve=done;}));
+      button("查询业务统计").click();await settle();state.permissions.splice(state.permissions.indexOf(grant),1);await settle();
+      state.permissions.push(grant);await settle();resolve(response());await settle();
+      expect(host.textContent).not.toContain("已知模型事实 6");expect(host.querySelector("table")).toBeNull();
+      button("查询业务统计").click();await settle();
+      expect(getBusinessQualityReport).toHaveBeenLastCalledWith(["task"],{task:"LATEST"},"SELECTED_RUNS");
+      expect(host.textContent).not.toContain("已知模型事实 6");
+      await enableFindings();button("查询业务统计").click();await settle();expect(host.textContent).toContain("已知模型事实 6");
+    });
+  });
 });
