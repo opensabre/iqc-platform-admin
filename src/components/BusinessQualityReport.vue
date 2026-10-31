@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { getBusinessQualityReport, type BusinessQualityReport, type BusinessFindingDistribution, type BusinessFindingSummary } from "@/api/quality";
+import { getBusinessQualityReport, type BusinessQualityReport, type BusinessFindingDistribution, type BusinessFindingSummary, type BusinessClaimSourceSupportSummary } from "@/api/quality";
 import { listTaskExecutions, listTasks, type TaskExecutionSummary } from "@/api/tasks";
 import { usePermission } from "@/composables/permission";
 
@@ -53,6 +53,32 @@ const findingDistributions=computed(()=>{
     ||!validFindingSummary(data.reviewed,group.conversationCount)||data.machine.facts.length!==data.reviewed.facts.length
     ||data.machine.facts.some((fact,index)=>fact.code!==data.reviewed.facts[index]?.code||fact.valueType!==data.reviewed.facts[index]?.valueType))continue;
   output[group.groupKey]=data;
+ }
+ return output;
+});
+const supportStateNames={UNMEASURED:'没有已知模型声明',UNANNOTATED:'尚未标注',PARTIAL:'部分已标注',COMPLETE:'本范围全部已标注'};
+function supportCount(value:unknown){
+ if(typeof value!=='string'||!/^(0|[1-9]\d{0,18})$/.test(value))return undefined;
+ const count=BigInt(value);return count<=9223372036854775807n?count:undefined;
+}
+function validSourceSupport(source:BusinessClaimSourceSupportSummary,sourceResults:number){
+ if(!source||source.schemaVersion!=='iqc-model-claim-source-support-summary-v1'||source.scope!=='KNOWN_RAW_LLM_FINDINGS_IN_SELECTED_RESULT_RUNS')return false;
+ const known=supportCount(source.knownClaims),annotated=supportCount(source.annotatedClaims),unannotated=supportCount(source.unannotatedClaims);
+ const supported=supportCount(source.supportedClaims),contradicted=supportCount(source.contradictedClaims),insufficient=supportCount(source.insufficientSourceClaims);
+ if(known===undefined||annotated===undefined||unannotated===undefined||supported===undefined||contradicted===undefined||insufficient===undefined
+   ||known!==annotated+unannotated||annotated!==supported+contradicted+insufficient)return false;
+ if(sourceResults===0&&known!==0n)return false;
+ const state=known===0n?'UNMEASURED':annotated===0n?'UNANNOTATED':annotated===known?'COMPLETE':'PARTIAL';
+ if(source.state!==state)return false;
+ if(known===0n)return source.annotationCoverage==null;
+ const expected=Number((annotated*2_000_000n+known)/(2n*known))/1_000_000;
+ return typeof source.annotationCoverage==='number'&&Number.isFinite(source.annotationCoverage)
+   &&source.annotationCoverage>=0&&source.annotationCoverage<=1&&Math.abs(source.annotationCoverage-expected)<=1e-12;
+}
+const sourceSupportSummaries=computed(()=>{
+ const output:Record<string,BusinessClaimSourceSupportSummary>=Object.create(null);
+ for(const [key,distribution] of Object.entries(findingDistributions.value)){
+  if(distribution.sourceSupport&&validSourceSupport(distribution.sourceSupport,distribution.machine.sourceResults))output[key]=distribution.sourceSupport;
  }
  return output;
 });
@@ -215,6 +241,15 @@ defineExpose({ refresh });
                 <a-table-column title="有值事实严重度"><template #default="{record}">{{severityText(record.knownSeverityCounts)}}</template></a-table-column>
               </a-table>
             </section>
+            <h4>大模型事实来源支持标注</h4>
+            <template v-if="sourceSupportSummaries[group.groupKey]">
+              <p>范围为所选结果中已知的原始大模型事实，含融合未采用的观察；只统计最新已完成复核中的明确人工标注。</p>
+              <p>{{supportStateNames[sourceSupportSummaries[group.groupKey]!.state]}} · 标注覆盖率 {{sourceSupportSummaries[group.groupKey]!.annotationCoverage==null?'未测量':`${(sourceSupportSummaries[group.groupKey]!.annotationCoverage!*100).toFixed(2)}%`}}</p>
+              <p>已知模型事实 {{sourceSupportSummaries[group.groupKey]!.knownClaims}} · 已标注 {{sourceSupportSummaries[group.groupKey]!.annotatedClaims}} · 未标注 {{sourceSupportSummaries[group.groupKey]!.unannotatedClaims}}</p>
+              <p>有来源支持 {{sourceSupportSummaries[group.groupKey]!.supportedClaims}} · 与来源矛盾 {{sourceSupportSummaries[group.groupKey]!.contradictedClaims}} · 来源不足 {{sourceSupportSummaries[group.groupKey]!.insufficientSourceClaims}}</p>
+              <p>覆盖率显示值经过四舍五入，以数量和标注状态为准。未标注不等于有支持；这些人工标注数量不代表完整幻觉率或金标准确率。</p>
+            </template>
+            <a-alert v-else type="info" show-icon :message="findingDistributions[group.groupKey]!.sourceSupport==null?'本响应尚未提供模型事实来源支持摘要，无法确认覆盖率。':'来源支持摘要的计数或覆盖率不一致，无法确认。'"/>
           </a-card>
           <a-alert v-else :type="group.pipelineId?'warning':'info'" show-icon :message="group.pipelineId?'本次响应未提供有效 Finding 分布，无法确认频次。':'本组方案没有流水线 Finding 协议，Finding 分布不适用。'"/>
         </template>
