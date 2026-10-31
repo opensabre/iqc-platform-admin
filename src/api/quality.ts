@@ -58,7 +58,12 @@ export interface BusinessFactDistribution {
   knownSeverityCounts:Record<string,number>;trueCount:number;falseCount:number;
 }
 export interface BusinessFindingSummary {expectedResults:number;sourceResults:number;unavailableResults:number;facts:BusinessFactDistribution[]}
-export interface BusinessFindingDistribution {schemaVersion:'iqc-business-finding-distribution-v1';machine:BusinessFindingSummary;reviewed:BusinessFindingSummary}
+export interface BusinessClaimSourceSupportSummary {
+ schemaVersion:'iqc-model-claim-source-support-summary-v1';scope:'KNOWN_RAW_LLM_FINDINGS_IN_SELECTED_RESULT_RUNS';
+ state:'UNMEASURED'|'UNANNOTATED'|'PARTIAL'|'COMPLETE';knownClaims:string;annotatedClaims:string;unannotatedClaims:string;
+ supportedClaims:string;contradictedClaims:string;insufficientSourceClaims:string;annotationCoverage:number|null;
+}
+export interface BusinessFindingDistribution {schemaVersion:'iqc-business-finding-distribution-v1';machine:BusinessFindingSummary;reviewed:BusinessFindingSummary;sourceSupport?:BusinessClaimSourceSupportSummary|null}
 export interface BusinessQualityReport {
   scope: "SELECTED_TASK_RUNS"; runPolicy: "SELECTED_RUNS" | "FIRST_PER_CONVERSATION" | "LATEST_PER_CONVERSATION";
   taskCount: number; conversationCount: number; groups: BusinessPolicyGroup[]; actionMetrics?:BusinessActionMetrics|null; findingDistributions?:Record<string,BusinessFindingDistribution>|null;
