@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {onBeforeUnmount,ref,watch} from 'vue';
 import {getScoreReviewContext,type ScoreAdjustment,type ScoreReviewContext} from '@/api/quality';
-const props=defineProps<{resultId:string;disabled:boolean;refreshToken?:number}>();
+const props=defineProps<{resultId:string;disabled:boolean;refreshToken?:number|string}>();
 const emit=defineEmits<{save:[adjustment:ScoreAdjustment]}>();
 const context=ref<ScoreReviewContext>(),loading=ref(false),error=ref(''),score=ref(''),reason=ref('');let generation=0,disposed=false;
 async function load(){if(disposed)return;const ticket=++generation,id=props.resultId;loading.value=true;context.value=undefined;error.value='';score.value='';reason.value='';

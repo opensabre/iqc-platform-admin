@@ -138,16 +138,25 @@ export interface BusinessCandidateRequest { reviewId: string; requestId: string;
 export const createBusinessCandidate = (resultId: string, data: BusinessCandidateRequest) =>
   http.post<QualitySample>(`/iqc/quality-operations/results/${resultId}/samples`, { ...data, targetType: "BUSINESS" }).then(r => r.data);
 
+export interface HumanClaimSourceSupport {
+ rawFindingId:string;verdict:'SUPPORTED'|'CONTRADICTED'|'INSUFFICIENT_SOURCE';evidenceIds:string[];messageIds:string[];reason:string;
+}
+export interface HumanModelClaim {
+ rawFindingId:string;valueType:string;valueJson:string;reason:string|null;nodeId:string;engineVersion:string;runIndex:number;inputHash:string|null;
+ evidence:Array<{id:string;type:string;reference:string}>;
+}
 export interface HumanFindingDecision {
  sourceResultId:string;findingCode:string;expectedFindingHash:string;state:'KNOWN'|'UNKNOWN';valueJson:string;
  severity:'NONE'|'LOW'|'MEDIUM'|'HIGH'|'CRITICAL';reason:string;retainedEvidenceIds:string[];addedMessageIds:string[];
+ sourceSupport?:HumanClaimSourceSupport[];
 }
 export interface HumanFindingContext {
  privacy?:import("@/api/config").AssetReadPrivacy;
  sourceResultId:string;sourceHash:string;available:boolean;message?:string;
  findings:Array<{code:string;valueType:string;state:'KNOWN'|'UNKNOWN'|'CONFLICT'|'ERROR'|'NOT_EVALUATED';valueJson:string;
  severity:HumanFindingDecision['severity'];expectedFindingHash:string;allowedValues:string[];allowedEvidenceTypes:string[];evidenceRequired:boolean;
- evidence:Array<{id:string;type:string;reference:string}>;retainedEvidenceIds:string[];addedMessageIds:string[]}>;
+ evidence:Array<{id:string;type:string;reference:string}>;retainedEvidenceIds:string[];addedMessageIds:string[];
+ modelClaims?:HumanModelClaim[];sourceSupport?:HumanClaimSourceSupport[]}>;
  messages:Array<{id:string;sequenceNo:number;speakerRole:string;content:string}>;
 }
 export const getHumanFindingContext=(resultId:string)=>http.get<HumanFindingContext>('/iqc/quality-operations/reviews',
