@@ -83,6 +83,9 @@ function captureCandidate(review: BusinessReview) {
 }
 const pending = computed(() => history.value.find(item => item.status === "PENDING"));
 const latestRevision = computed(() => Math.max(0, ...history.value.map(item => item.reviewRevision)));
+const reviewReadScope = computed(() => JSON.stringify([can('iqc:review:view'),can('iqc:review:decide'),
+  can('iqc:sensitive:conversation:read'),can('iqc:sensitive:pii:read')]));
+const contextRefreshToken = computed(() => JSON.stringify([latestRevision.value,reviewReadScope.value]));
 const terminal = computed(() => ["SUCCEEDED", "PARTIAL_FAILED", "FAILED", "CANCELLED"].includes(props.taskStatus));
 function withheld(review:BusinessReview){const p=review.privacy;return !!p&&(p.policyVersion!=="iqc-business-review-read-v1"||!p.canonicalPayloadVisible||!p.canReadFull||!p.canReadPii);}
 const contentWithheld=computed(()=>history.value.some(withheld));
@@ -156,6 +159,14 @@ watch(() => props.resultId, () => {
   candidateCommand.value = undefined; candidateBusy.value = false; candidateError.value = ""; candidateType.value = undefined;
   void refresh();
 }, { immediate: true });
+watch(reviewReadScope, () => {
+  const interrupted=busy.value||!!command.value||candidateBusy.value||!!candidateCommand.value;
+  generation++;candidateEpoch++;history.value=[];loaded.value=false;loading.value=false;command.value=undefined;
+  requestStage.value='INITIAL';requestComment.value='';comment.value='';itemCode.value=undefined;finalStatus.value=undefined;evidence.value=[];feedbackCategory.value=undefined;
+  candidateCommand.value=undefined;candidateBusy.value=false;candidateError.value='';candidateType.value=undefined;
+  void refresh();
+  if(interrupted&&!disposed)message.info('权限已变化，请重新读取历史核对；已发出的操作仍需确认结果。');
+}, {flush:'sync'});
 
 async function submit() {
   const current = command.value;
@@ -250,8 +261,8 @@ async function acknowledgeParent(){
             </a-space>
           </a-form>
           <p v-else-if="!readOnly">当前账号没有裁决权限，请交由有权限的复核人员处理。</p>
-          <HumanFindingReviewEditor v-if="!readOnly&&can('iqc:review:decide')" :result-id="resultId" :disabled="!editable||damaged" :refresh-token="latestRevision" @save="decideFinding"/>
-          <ManualScoreReviewEditor v-if="!readOnly&&can('iqc:review:decide')" :result-id="resultId" :disabled="!editable||damaged" :refresh-token="latestRevision" @save="decideScore"/>
+          <HumanFindingReviewEditor v-if="!readOnly&&can('iqc:review:decide')" :result-id="resultId" :disabled="!editable||damaged" :refresh-token="contextRefreshToken" @save="decideFinding"/>
+          <ManualScoreReviewEditor v-if="!readOnly&&can('iqc:review:decide')" :result-id="resultId" :disabled="!editable||damaged" :refresh-token="contextRefreshToken" @save="decideScore"/>
         </a-card>
         <a-collapse v-if="rows.length">
           <a-collapse-panel v-for="row in rows" :key="row.review.id" :header="`第 ${row.review.reviewRevision} 轮 · ${{PENDING:'待复核',COMPLETED:'已完成',REJECTED:'已退回'}[row.review.status]}`">
