@@ -22,6 +22,13 @@ export const listReviews = (status?:string) => http.get<ResultReview[]>("/iqc/qu
 export const decideReview = (reviewId:string,data:{decision:string;finalStatus?:string;finalScore?:number;finalRiskLevel?:string;comment?:string}) => http.post<ResultReview>(`/iqc/quality-operations/reviews/${reviewId}/decision`,data).then(r=>r.data);
 export const createSample = (resultId:string,data:{name?:string;sampleType:string;expectedJson?:string;tagsJson?:string}) => http.post<QualitySample>(`/iqc/quality-operations/results/${resultId}/samples`,data).then(r=>r.data);
 export const listSamples = (params:{type?:string;status?:string}={}) => http.get<QualitySample[]>("/iqc/quality-operations/samples",{params}).then(r=>r.data);
+export const listSamplePage = (params:{current:number;size:number;type?:string;status?:string}) =>
+  http.get<PageResult<QualitySample>>("/iqc/quality-operations/samples",{params}).then(({data})=>{
+    if(!data||!Array.isArray(data.records)||data.current!==params.current||data.size!==params.size
+      ||!Number.isSafeInteger(data.total)||data.total<0||data.records.length>params.size)
+      throw new Error('候选样本分页协议不受支持');
+    return data;
+  });
 export const getQualityReport = () => http.get<QualityReport>("/iqc/quality-operations/report").then(r=>r.data);
 
 export interface BusinessScoreSummary {
