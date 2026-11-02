@@ -2,12 +2,12 @@ import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {createApp,defineComponent,h,nextTick,reactive,type App} from 'vue';
 import {Modal,message} from 'ant-design-vue';
 import {freezeDataset,getDataset,listDatasets,listGoldVersions,listDatasetVersions,getDatasetVersion,type Dataset} from '@/api/evaluation';
-import {listSamples} from '@/api/quality';
+import {listSamplePage} from '@/api/quality';
 import Datasets from './index.vue';
 const state=vi.hoisted(()=>({permissions:null as null|Record<string,boolean>}));
 vi.mock('@/composables/permission',()=>({usePermission:()=>({can:(code:string)=>state.permissions?.[code]??false})}));
 vi.mock('ant-design-vue',()=>({message:{error:vi.fn(),success:vi.fn(),warning:vi.fn()},Modal:{confirm:vi.fn()}}));
-vi.mock('@/api/quality',()=>({listSamples:vi.fn()}));
+vi.mock('@/api/quality',()=>({listSamplePage:vi.fn()}));
 vi.mock('@/api/evaluation',()=>({listDatasets:vi.fn(),getDataset:vi.fn(),createDataset:vi.fn(),updateDataset:vi.fn(),freezeDataset:vi.fn(),setDatasetAvailability:vi.fn(),listDatasetVersions:vi.fn(),getDatasetVersion:vi.fn(),listGoldVersions:vi.fn()}));
 const freeze='iqc:dataset:freeze',detail='iqc:dataset:detail:view',full='iqc:sensitive:conversation:read',pii='iqc:sensitive:pii:read';
 let app:App|undefined,host:HTMLDivElement,vm:any;
@@ -24,7 +24,7 @@ beforeEach(()=>{vi.resetAllMocks();state.permissions=reactive({[freeze]:true,[de
 afterEach(()=>{app?.unmount();app=undefined;host?.remove();});
 const reads=[
  {label:'catalog',permission:'iqc:dataset:view',api:listDatasets,start:()=>vm.refresh(2),reply:{records:[row()],total:1},value:()=>vm.rows,empty:[],total:()=>vm.total},
- {label:'candidates',permission:'iqc:sample:view',api:listSamples,start:()=>vm.loadCandidates(),reply:[{id:'sample-a',name:'candidate'}],value:()=>vm.candidates,empty:[]},
+ {label:'candidates',permission:'iqc:sample:view',api:listSamplePage,start:()=>vm.loadCandidates(),reply:{records:[{id:'sample-a',name:'candidate'}],total:1,current:1,size:20},value:()=>vm.candidates,empty:[],total:()=>vm.candidateListTotal},
  {label:'approved Gold versions',permission:'iqc:gold:versions:view',api:listGoldVersions,start:()=>vm.candidateVersions('sample-a',2),reply:{records:[{id:'gold-v',sampleId:'sample-a',versionNo:3,decision:'APPROVED'}],total:1},value:()=>vm.approved,empty:[],total:()=>vm.candidateTotal},
  {label:'dataset history',permission:'iqc:dataset:versions:view',api:listDatasetVersions,start:()=>vm.loadHistory(2),reply:{records:[{id:'dataset-v',datasetId:'dataset-a',versionNo:2}],total:1},value:()=>vm.history,empty:[],total:()=>vm.historyTotal},
  {label:'dataset snapshot',permission:'iqc:dataset:version:view',api:getDatasetVersion,start:()=>vm.viewVersion({versionNo:2}),reply:{id:'dataset-v',datasetId:'dataset-a',versionNo:2,snapshotJson:'private canonical snapshot'},value:()=>vm.snapshot,empty:''},
@@ -69,5 +69,22 @@ describe('dataset exact read resources and response ownership',()=>{
  it('shows the server projection without treating it as the original snapshot',async()=>{
   await mount();vi.mocked(getDatasetVersion).mockResolvedValueOnce({snapshotJson:'must not disclose',privacy:{policyVersion:'iqc-dataset-read-v1',canonicalPayloadVisible:false,canReadFull:false,canReadPii:false,members:[{sampleId:'sample-a',versionNo:3}],previewState:'RESTRICTED'}} as never);
   await vm.viewVersion({versionNo:2});expect(vm.snapshot).not.toContain('must not disclose');expect(vm.snapshot).toContain('sample-a');expect(vm.snapshotNotice).toContain('受限展示');expect(getDatasetVersion).toHaveBeenCalledExactlyOnceWith('dataset-a',2);
+ });
+});
+
+describe('candidate catalog paging and search',()=>{
+ it('requests the second authorized page and preserves frozen members',async()=>{
+  await mount();const members=JSON.stringify(vm.draft.members);
+  vi.mocked(listSamplePage).mockResolvedValueOnce({records:[{id:'page-two',name:'second page'}],total:41,current:2,size:20} as never);
+  await vm.loadCandidates(2);
+  expect(listSamplePage).toHaveBeenCalledExactlyOnceWith({current:2,size:20,keyword:undefined});
+  expect(vm.candidates.map((r:any)=>r.id)).toEqual(['page-two']);expect(vm.candidateListTotal).toBe(41);expect(JSON.stringify(vm.draft.members)).toBe(members);
+ });
+ it('ignores an older catalog page after a newer request',async()=>{
+  await mount();const old=deferred();vi.mocked(listSamplePage).mockReturnValueOnce(old.promise);
+  const pending=vm.loadCandidates(1);
+  vi.mocked(listSamplePage).mockResolvedValueOnce({records:[{id:'new'}],total:21,current:2,size:20} as never);await vm.loadCandidates(2);
+  old.resolve({records:[{id:'old-private'}],total:99,current:1,size:20} as never);await pending;
+  expect(vm.candidates.map((r:any)=>r.id)).toEqual(['new']);expect(vm.candidateListTotal).toBe(21);
  });
 });
