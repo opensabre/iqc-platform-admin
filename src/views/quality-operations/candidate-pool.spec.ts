@@ -107,3 +107,20 @@ describe('quality operations exact read grants and response ownership',()=>{
   const next=deferred();vi.mocked(listFeedbacks).mockReturnValueOnce(next.promise);await selectTab('误判/漏判');const vm=(app as any)._instance.setupState;app.unmount();next.resolve([{id:'f',comment:'unmounted data'}] as never);await flush();expect(vm.feedbacks).toEqual([]);
  });
 });
+
+describe('candidate sample cross-page search',()=>{
+ it('returns to page one and keeps filters when searching',async()=>{
+  reply([]);mount();await selectSamples();const vm=(app as any)._instance.setupState;
+  vi.mocked(listSamplePage).mockResolvedValue(page([]) as never);vm.sampleType='UNCLASSIFIED';await flush();vm.samplePage=3;
+  vi.mocked(listSamplePage).mockClear();vm.searchSamples('  exact sample  ');await flush();
+  expect(listSamplePage).toHaveBeenCalledExactlyOnceWith({current:1,size:20,type:'UNCLASSIFIED',status:undefined,keyword:'exact sample'});
+  expect(vm.samplePage).toBe(1);
+ });
+ it('does not adopt an old keyword response after a newer search',async()=>{
+  reply([]);mount();await selectSamples();const vm=(app as any)._instance.setupState;const old=deferred();
+  vi.mocked(listSamplePage).mockReturnValueOnce(old.promise);vm.searchSamples('old');await flush();
+  reply([{...sample(),name:'current match'}]);vm.searchSamples('new');await flush();
+  old.resolve(page([{...sample(),name:'obsolete private match'}]) as never);await flush();
+  expect(host.textContent).toContain('current match');expect(host.textContent).not.toContain('obsolete private match');
+ });
+});

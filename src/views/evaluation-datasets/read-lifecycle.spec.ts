@@ -88,3 +88,23 @@ describe('candidate catalog paging and search',()=>{
   expect(vm.candidates.map((r:any)=>r.id)).toEqual(['new']);expect(vm.candidateListTotal).toBe(21);
  });
 });
+
+describe('cross-page candidate search ownership',()=>{
+ beforeEach(()=>{state.permissions!['iqc:dataset:update']=true;});
+ it('searches page one and invalidates pending approved versions while preserving frozen members',async()=>{
+  await mount();vm.candidateListPage=3;vm.versionNo=3;const members=JSON.stringify(vm.draft.members);
+  const old=deferred();vi.mocked(listGoldVersions).mockReturnValueOnce(old.promise);const pending=vm.candidateVersions('sample-a');
+  vi.mocked(listSamplePage).mockResolvedValueOnce({records:[{id:'match'}],total:1,current:1,size:20} as never);
+  vm.searchCandidates('  exact sample  ');await flush();
+  expect(listSamplePage).toHaveBeenCalledExactlyOnceWith({current:1,size:20,keyword:'exact sample'});
+  expect(vm.candidateListPage).toBe(1);expect(vm.candidateId).toBeUndefined();expect(vm.versionNo).toBeUndefined();
+  old.resolve({records:[{id:'obsolete',decision:'APPROVED',versionNo:9}],total:1} as never);await pending;
+  expect(vm.approved).toEqual([]);expect(JSON.stringify(vm.draft.members)).toBe(members);
+ });
+ it('rejects the previous search response after a newer keyword',async()=>{
+  await mount();const old=deferred();vi.mocked(listSamplePage).mockReturnValueOnce(old.promise);vm.searchCandidates('old');
+  vi.mocked(listSamplePage).mockResolvedValueOnce({records:[{id:'new'}],total:1,current:1,size:20} as never);vm.searchCandidates('new');await flush();
+  old.resolve({records:[{id:'obsolete private match'}],total:99,current:1,size:20} as never);await flush();
+  expect(vm.candidates.map((r:any)=>r.id)).toEqual(['new']);expect(vm.candidateListTotal).toBe(1);
+ });
+});
