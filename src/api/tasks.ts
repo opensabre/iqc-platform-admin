@@ -129,3 +129,26 @@ export async function changeTaskPriority(id:string, priority:number) {
 export async function deleteTask(id:string) {
   await http.delete(`/iqc/tasks/${id}`);
 }
+
+/** Selection mode is separate from inspection/labeling and from the execution schedule. */
+export interface TaskConversationFilter {
+  fileName?: string; employeeId?: string; customerExternalId?: string; channel?: string;
+  businessNo?: string; startedFrom?: string; startedTo?: string;
+}
+export interface TaskDataSelection {
+  mode: "BATCH" | "RANDOM" | "FILTER";
+  conversationIds?: string[];
+  filter?: TaskConversationFilter;
+  sampleSize?: number;
+  /** Preview stability only; formal random selection is resolved when execution starts. */
+  sampleSeed?: string;
+}
+export interface SelectionPreview {
+  mode: "RANDOM" | "FILTER"; matchedTotal: number; selectedTotal: number; sampleSeed?: string;
+  conversations: PageResult<import("./conversations").ConversationSummary>;
+}
+export async function previewTaskSelection(selection: TaskDataSelection, current = 1, size = 10) {
+  const { data } = await http.post<SelectionPreview>("/iqc/conversations/selection-preview", selection,
+    { params: { current, size } });
+  return data;
+}

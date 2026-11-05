@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import http from "./http";
-import { createTask, type CreateTaskRequest } from "./tasks";
+import { createTask, previewTaskSelection, type CreateTaskRequest } from "./tasks";
 
 vi.mock("./http", () => ({ default: { post: vi.fn() } }));
 
@@ -24,5 +24,14 @@ describe("task-owned execution strategy", () => {
     };
     await createTask(request);
     expect(http.post).toHaveBeenLastCalledWith("/iqc/tasks", request);
+  });
+});
+
+// Selection simulation is read-only and must not silently create an old-format sampled task.
+describe("task selection preview", () => {
+  it("sends the selection definition to the preview endpoint", async () => {
+    const definition = { mode: "RANDOM" as const, filter: { channel: "WEB" }, sampleSize: 30 };
+    await previewTaskSelection(definition, 2, 10);
+    expect(http.post).toHaveBeenLastCalledWith("/iqc/conversations/selection-preview", definition, { params: { current: 2, size: 10 } });
   });
 });
