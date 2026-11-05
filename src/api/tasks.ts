@@ -85,7 +85,15 @@ export interface TaskExecutionSummary {
 export interface ScheduledSelectionFilter { createdFrom?: string; createdTo?: string; fileName?: string; status?: string; ownerGroupId?: string; limit?: number; employeeId?: string; customerExternalId?: string; channel?: string; businessNo?: string; }
 export interface LabelOptions { runCount?:number; confidenceThreshold?:number; autoExpandEnabled?:boolean; autoExpandPrompt?:string; }
 export type ExecutionMode = "RULE_ONLY" | "RULE_THEN_LLM" | "LLM_THEN_RULE" | "AGENT_LLM" | "INDEPENDENT";
-export interface CreateTaskRequest { name?: string; taskType: "BATCH" | "SCHEDULED" | "SAMPLE"; conversationId?: string; conversationIds?: string[]; selectionFilter?: ScheduledSelectionFilter; scheduledTime?: string; sampleSize?:number; sampleSeed?:string; agentId?: string; executionMode?: ExecutionMode; ruleSetId?: string; ruleIds?: string[]; labelSelection?:LabelSelection; labelOptions?:LabelOptions; concurrencyLimit: number; }
+export interface LegacyCreateTaskRequest { name?: string; taskType: "BATCH" | "SCHEDULED" | "SAMPLE"; conversationId?: string; conversationIds?: string[]; selectionFilter?: ScheduledSelectionFilter; scheduledTime?: string; sampleSize?:number; sampleSeed?:string; agentId?: string; executionMode?: ExecutionMode; ruleSetId?: string; ruleIds?: string[]; labelSelection?:LabelSelection; labelOptions?:LabelOptions; concurrencyLimit: number; }
+/** The runtime-selection contract cannot accidentally submit legacy creation-time sampling fields. */
+export type SelectedCreateTaskRequest = Omit<LegacyCreateTaskRequest,
+  "taskType" | "conversationId" | "conversationIds" | "selectionFilter" | "scheduledTime" | "sampleSize" | "sampleSeed"> & {
+  dataSelection: Omit<TaskDataSelection, "sampleSeed"> & { sampleSeed?: never };
+  taskType?: never; conversationId?: never; conversationIds?: never; selectionFilter?: never;
+  scheduledTime?: never; sampleSize?: never; sampleSeed?: never;
+};
+export type CreateTaskRequest = (LegacyCreateTaskRequest & { dataSelection?: never }) | SelectedCreateTaskRequest;
 export interface PageResult<T> { records: T[]; current: number; size: number; total: number; }
 
 export interface TaskFilters { keyword?: string; status?: string; taskType?: string; }

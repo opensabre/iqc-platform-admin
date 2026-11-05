@@ -35,3 +35,16 @@ describe("task selection preview", () => {
     expect(http.post).toHaveBeenLastCalledWith("/iqc/conversations/selection-preview", definition, { params: { current: 2, size: 10 } });
   });
 });
+
+describe("execution-time selection creation", () => {
+  it("submits conditions without a fixed list, legacy task type or preview seed", async () => {
+    const request: CreateTaskRequest = { name: "执行时抽样", concurrencyLimit: 1,
+      dataSelection: { mode: "RANDOM", filter: { channel: "WEB" }, sampleSize: 100 },
+      ruleIds: ["r1"], executionMode: "RULE_ONLY" };
+    await createTask(request);
+    expect(http.post).toHaveBeenLastCalledWith("/iqc/tasks", request);
+    expect(request).not.toHaveProperty("taskType");
+    expect(request).not.toHaveProperty("conversationIds");
+    expect(request.dataSelection).not.toHaveProperty("sampleSeed");
+  });
+});
