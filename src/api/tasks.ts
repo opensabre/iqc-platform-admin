@@ -160,3 +160,15 @@ export async function previewTaskSelection(selection: TaskDataSelection, current
     { params: { current, size } });
   return data;
 }
+
+/** Task-type step: array position is execution order independently within inspection and labeling. */
+export interface TaskEngineConfiguration {
+  schemaVersion: "iqc-task-processing-v1";
+  inspection?: { engines: TaskEngine[] };
+  labeling?: { engines: TaskEngine[] };
+}
+export interface TaskEngine {
+  id: string;
+  type: "REGEX" | "DLS" | "LLM";
+  parameters: { targetId?: string; ruleId?: string; agentId?: string };
+}
