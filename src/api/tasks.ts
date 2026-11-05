@@ -93,7 +93,8 @@ export type SelectedCreateTaskRequest = Omit<LegacyCreateTaskRequest,
   taskType?: never; conversationId?: never; conversationIds?: never; selectionFilter?: never;
   scheduledTime?: never; sampleSize?: never; sampleSeed?: never;
 };
-export type CreateTaskRequest = (LegacyCreateTaskRequest & { dataSelection?: never }) | SelectedCreateTaskRequest;
+export type CreateTaskRequest = ((LegacyCreateTaskRequest & { dataSelection?: never }) | SelectedCreateTaskRequest)
+  & { processingConfiguration?: never; resultProcessing?: never } | WizardCreateTaskRequest;
 export interface PageResult<T> { records: T[]; current: number; size: number; total: number; }
 
 export interface TaskFilters { keyword?: string; status?: string; taskType?: string; }
@@ -171,4 +172,29 @@ export interface TaskEngine {
   id: string;
   type: "REGEX" | "DLS" | "LLM";
   parameters: { targetId?: string; ruleId?: string; agentId?: string };
+}
+
+export type LabelValueType = import("./labels").LabelValueRequest["valueType"];
+export type TaskMappedValue = string | number | boolean | null;
+export interface TaskResultProcessingConfiguration {
+  schemaVersion: "iqc-task-result-processing-v1";
+  inspection?: {
+    aggregation: "REQUIRE_AGREEMENT";
+    scoring: { version: "iqc-score-v2"; mode: "DEDUCTION" | "POINTS"; baseScore: number; passingScore: number;
+      items: { itemCode: string; points: number; veto: boolean }[] };
+    checks: { targetId: string; engines: { engineInstanceId: string; onHit: "PASS" | "FAIL"; onMiss: "PASS" | "FAIL" }[] }[];
+  };
+  labeling: { targetId: string; valueCode: string; valueType: LabelValueType; aggregation: "REQUIRE_AGREEMENT";
+    engines: { engineInstanceId: string; onHit: TaskMappedValue; onMiss: TaskMappedValue }[] }[];
+}
+/** Prototype creation sends separate operation and result policies, never the legacy mutually exclusive task fields. */
+export interface WizardCreateTaskRequest {
+  name: string;
+  dataSelection: Omit<TaskDataSelection, "sampleSeed"> & { sampleSeed?: never };
+  processingConfiguration: TaskEngineConfiguration;
+  resultProcessing: TaskResultProcessingConfiguration;
+  concurrencyLimit: number;
+  taskType?: never; conversationId?: never; conversationIds?: never; selectionFilter?: never; scheduledTime?: never;
+  sampleSize?: never; sampleSeed?: never; agentId?: never; ruleSetId?: never; ruleIds?: never;
+  labelSelection?: never; labelOptions?: never; executionMode?: never;
 }
