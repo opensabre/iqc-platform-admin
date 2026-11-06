@@ -139,7 +139,7 @@ function mappingSummary(op: "inspection" | "labeling", instance: string) {
       <section v-for="op in (['inspection','labeling'] as const).filter(op => engines[op])" :key="op" class="confirmation-section">
         <h3>{{ op === 'inspection' ? '质检' : '打标' }} · 引擎执行顺序</h3>
         <ol><li v-for="engine in engines[op]!.engines" :key="engine.id">{{ engine.name || engine.id }} · {{ engine.type }} · {{ targetName(op, engine.parameters.targetId) }} · {{ rules.find(rule => rule.id === engine.parameters.ruleId)?.name }}
-          <span v-if="engine.type === 'LLM'"> · {{ agents.find(agent => agent.id === engine.parameters.agentId)?.name }}</span><p class="muted">{{ mappingSummary(op, engine.id) }}</p></li></ol>
+          <span v-if="engine.type === 'LLM'"> · {{ agents.find(agent => agent.id === engine.parameters.agentId)?.name }} · 温度 {{ engine.parameters.temperature }} · 超时 {{ engine.parameters.timeoutSeconds }} 秒</span><p v-if="engine.type === 'LLM'" class="muted">{{ engine.parameters.prompt }}</p><p class="muted">{{ mappingSummary(op, engine.id) }}</p></li></ol>
       </section>
       <h3>结果处理</h3>
       <template v-if="resultConfig?.inspection"><p>{{ resultConfig.inspection.scoring.mode === 'DEDUCTION' ? '扣分制' : '得分制（加权百分制）' }} · 基础分 {{ resultConfig.inspection.scoring.baseScore }} · 及格线 {{ resultConfig.inspection.scoring.passingScore }}</p>
