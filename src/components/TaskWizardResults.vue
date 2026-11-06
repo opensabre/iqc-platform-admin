@@ -24,6 +24,9 @@ function display(value:unknown):string { return value === undefined || value ===
 function state(value:string) { return ({KNOWN:"已确定",CONFLICT:"冲突",UNKNOWN:"未知",ERROR:"错误",SUCCEEDED:"成功",FAILED:"失败",SKIPPED:"已跳过",MISSING:"无结果",DETERMINED:"已判断",INVALID:"无效"} as Record<string,string>)[value] || value; }
 function judgment(item:TaskProcessedItem) { return item.status !== "KNOWN" ? state(item.status) : item.value === "PASS" ? "通过" : item.value === "FAIL" ? "不通过" : display(item.value); }
 function contribution(id:string) { if (!score.value) return "待确认"; const line = score.value?.lines.find(line => line.itemCode === id); return !line ? "不计分" : line.contribution == null ? "待确认" : `${score.value?.mode === 'DEDUCTION' ? '扣' : '得'} ${line.contribution} 分${line.vetoTriggered ? '（一票否决）' : ''}`; }
+function engineName(candidate:TaskProcessedItem["candidates"][number]) {
+  return raw.value?.engines.find(engine => engine.engineResultId === candidate.sourceEngineResultId)?.configuration.engineName || candidate.engineInstanceId;
+}
 function evidence(candidate:TaskProcessedItem["candidates"][number]) {
   const engine = raw.value?.engines.find(engine => engine.engineResultId === candidate.sourceEngineResultId);
   return engine?.evidence.filter(item => candidate.evidenceIds?.includes(item.evidenceId)) || [];
@@ -71,7 +74,7 @@ onBeforeUnmount(() => { generation++; });
               <article v-for="item in output?.inspectionItems || []" :key="item.targetId" class="result-item">
                 <h3>{{ item.targetId }} <a-tag>{{ judgment(item) }}</a-tag></h3><p>{{ contribution(item.targetId) }}</p>
                 <details><summary>查看各引擎判断和证据</summary><div v-for="candidate in item.candidates" :key="candidate.engineInstanceId" class="candidate">
-                  <strong>{{ candidate.engineInstanceId }} · {{ state(candidate.status) }}</strong><p>映射判断：{{ candidate.mappedValue === 'PASS' ? '通过' : candidate.mappedValue === 'FAIL' ? '不通过' : display(candidate.mappedValue) }}</p>
+                  <strong>{{ engineName(candidate) }} · {{ state(candidate.status) }}</strong><p>映射判断：{{ candidate.mappedValue === 'PASS' ? '通过' : candidate.mappedValue === 'FAIL' ? '不通过' : display(candidate.mappedValue) }}</p>
                   <p v-if="candidate.reason || candidate.failure">{{ candidate.reason || candidate.failure?.message }}</p>
                   <blockquote v-for="quote in evidence(candidate)" :key="quote.evidenceId">{{ quote.messageId }}：“{{ quote.quote }}”</blockquote>
                 </div></details>
@@ -83,7 +86,7 @@ onBeforeUnmount(() => { generation++; });
                 <h3>{{ labelName(item.targetId) }} <a-tag>{{ state(item.status) }}</a-tag></h3>
                 <p>{{ item.valueCode }}：{{ item.status === 'KNOWN' ? display(item.value) : state(item.status) }}</p>
                 <details><summary>查看各引擎候选和证据</summary><div v-for="candidate in item.candidates" :key="candidate.engineInstanceId" class="candidate">
-                  <strong>{{ candidate.engineInstanceId }} · {{ state(candidate.status) }}</strong><p>候选值：{{ display(candidate.mappedValue) }}</p>
+                  <strong>{{ engineName(candidate) }} · {{ state(candidate.status) }}</strong><p>候选值：{{ display(candidate.mappedValue) }}</p>
                   <p v-if="candidate.reason || candidate.failure">{{ candidate.reason || candidate.failure?.message }}</p>
                   <blockquote v-for="quote in evidence(candidate)" :key="quote.evidenceId">{{ quote.messageId }}：“{{ quote.quote }}”</blockquote>
                 </div></details>
@@ -92,7 +95,7 @@ onBeforeUnmount(() => { generation++; });
             <a-tab-pane key="trace" tab="引擎记录">
               <a-empty v-if="!engines.length" description="已固定输入，等待引擎执行" />
               <article v-for="engine in engines" :key="engine.engineResultId" class="result-item">
-                <h3>{{ engine.operation === 'INSPECTION' ? '质检' : '打标' }} · {{ engine.sequence }}. {{ engine.engineType }} <a-tag :color="engine.status === 'FAILED' ? 'error' : engine.status === 'SUCCEEDED' ? 'success' : 'default'">{{ state(engine.status) }}</a-tag></h3>
+                <h3>{{ engine.operation === 'INSPECTION' ? '质检' : '打标' }} · {{ engine.sequence }}. {{ engine.configuration.engineName || engine.engineInstanceId }} · {{ engine.engineType }} <a-tag :color="engine.status === 'FAILED' ? 'error' : engine.status === 'SUCCEEDED' ? 'success' : 'default'">{{ state(engine.status) }}</a-tag></h3>
                 <small>{{ engine.engineInstanceId }}</small><p v-if="engine.failure">{{ engine.failure.code }}：{{ engine.failure.message }}</p>
                 <p v-for="(observation,index) in engine.observations" :key="index">{{ observation.targetId }} · {{ state(observation.status) }} · {{ display(observation.value) }}<span v-if="observation.reason"> · {{ observation.reason }}</span></p>
                 <blockquote v-for="quote in engine.evidence" :key="quote.evidenceId">{{ quote.messageId }}（{{ quote.start }}–{{ quote.end }}）：“{{ quote.quote }}”</blockquote>

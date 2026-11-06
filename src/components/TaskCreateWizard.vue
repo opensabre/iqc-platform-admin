@@ -138,7 +138,7 @@ function mappingSummary(op: "inspection" | "labeling", instance: string) {
       <p v-if="selection.mode !== 'BATCH'" class="muted">{{ conditions.length ? '' : '未限制筛选范围；' }}执行时确定名单，数据不足时有多少处理多少。</p>
       <section v-for="op in (['inspection','labeling'] as const).filter(op => engines[op])" :key="op" class="confirmation-section">
         <h3>{{ op === 'inspection' ? '质检' : '打标' }} · 引擎执行顺序</h3>
-        <ol><li v-for="engine in engines[op]!.engines" :key="engine.id">{{ engine.type }} · {{ targetName(op, engine.parameters.targetId) }} · {{ rules.find(rule => rule.id === engine.parameters.ruleId)?.name }}
+        <ol><li v-for="engine in engines[op]!.engines" :key="engine.id">{{ engine.name || engine.id }} · {{ engine.type }} · {{ targetName(op, engine.parameters.targetId) }} · {{ rules.find(rule => rule.id === engine.parameters.ruleId)?.name }}
           <span v-if="engine.type === 'LLM'"> · {{ agents.find(agent => agent.id === engine.parameters.agentId)?.name }}</span><p class="muted">{{ mappingSummary(op, engine.id) }}</p></li></ol>
       </section>
       <h3>结果处理</h3>

@@ -47,7 +47,7 @@ export interface TaskEngineResultSet {
 }
 export interface TaskEngineResult {
   engineResultId:string;operation:"INSPECTION"|"LABELING";engineInstanceId:string;engineType:string;sequence:number;
-  status:"SUCCEEDED"|"FAILED"|"SKIPPED";startedAt:string|number;finishedAt:string|number;configuration:unknown;
+  status:"SUCCEEDED"|"FAILED"|"SKIPPED";startedAt:string|number;finishedAt:string|number;configuration:{engineName?:string;[key:string]:unknown};
   rawOutput:string|null;failure?:{code:string;message:string}|null;
   observations:Array<{targetId:string;status:string;value:unknown;reason?:string;evidenceIds:string[]}>;
   evidence:Array<{evidenceId:string;messageId:string;start:number;end:number;quote:string}>;

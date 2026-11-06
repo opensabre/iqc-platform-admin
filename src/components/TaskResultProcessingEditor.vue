@@ -56,7 +56,7 @@ defineExpose({ validate: () => { showErrors.value = true; return Boolean(policy.
           :options="(labels[id]?.values || []).map(value => ({ value: value.valueCode, label: `${value.description || value.valueCode} · ${value.valueType}` }))"
           @update:value="(value: string) => setDefinition(id, value)" /></a-form-item>
         <div v-for="engine in engines[operation.key]!.engines.filter(engine => engine.parameters.targetId === id)" :key="engine.id" class="engine-mapping">
-          <strong>{{ engines[operation.key]!.engines.findIndex(item => item.id === engine.id) + 1 }} · {{ engine.type }}引擎</strong>
+          <strong>{{ engines[operation.key]!.engines.findIndex(item => item.id === engine.id) + 1 }} · {{ engine.name || engine.id }} · {{ engine.type }}</strong>
           <a-row :gutter="16">
             <a-col v-for="field in [{key:'onHit' as const,label:'命中时'},{key:'onMiss' as const,label:'未命中时'}]" :key="field.key" :xs="24" :md="12">
               <a-form-item :label="field.label" required>
