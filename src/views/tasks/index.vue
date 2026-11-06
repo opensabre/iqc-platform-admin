@@ -623,7 +623,7 @@ onBeforeUnmount(() => {
         <section v-for="operation in (['INSPECTION','LABELING'] as const).filter(op => wizardDetail!.enginePlan.engines.some(engine => engine.operation === op))" :key="operation">
           <h3>{{ operation === 'INSPECTION' ? '质检' : '打标' }}</h3>
           <ol><li v-for="engine in wizardDetail.enginePlan.engines.filter(engine => engine.operation === operation)" :key="engine.instanceId">
-            {{ engine.type }} · {{ frozenTargetName(engine.configuration.targetId) }} · {{ engine.configuration.rule.name }} · V{{ engine.configuration.rule.versionNo }}
+            {{ engine.configuration.engineName || engine.instanceId }} · {{ engine.type }} · {{ frozenTargetName(engine.configuration.targetId) }} · {{ engine.configuration.rule.name }} · V{{ engine.configuration.rule.versionNo }}
             <span v-if="engine.configuration.agentSnapshot"> · {{ engine.configuration.agentSnapshot.name }} · V{{ engine.configuration.agentSnapshot.versionNo }}</span>
           </li></ol>
         </section>

@@ -43,7 +43,7 @@ function setEngines(operation: Operation, engines: TaskEngine[]) {
 function add(operation: Operation, type: TaskEngine["type"]) {
   const engines = props.modelValue[operation]?.engines || [];
   if (engines.length >= 32) return;
-  setEngines(operation, [...engines, { id: `engine-${crypto.randomUUID()}`, type, parameters: {} }]);
+  setEngines(operation, [...engines, { id: `engine-${crypto.randomUUID()}`, type, name: `${engineTypes.find(item => item.value === type)?.label}引擎 ${engines.length + 1}`, parameters: {} }]);
 }
 function move(operation: Operation, index: number, direction: number) {
   const engines = [...(props.modelValue[operation]?.engines || [])];
@@ -51,6 +51,9 @@ function move(operation: Operation, index: number, direction: number) {
   if (next < 0 || next >= engines.length) return;
   [engines[index], engines[next]] = [engines[next]!, engines[index]!];
   setEngines(operation, engines);
+}
+function setName(operation: Operation, id: string, name: string) {
+  setEngines(operation, (props.modelValue[operation]?.engines || []).map(engine => engine.id === id ? { ...engine, name } : engine));
 }
 function setParameter(operation: Operation, id: string, field: keyof TaskEngine["parameters"], value?: string) {
   setEngines(operation, (props.modelValue[operation]?.engines || []).map(engine => engine.id === id
@@ -68,6 +71,7 @@ const errors = computed(() => {
       const name = `${operation.label}第 ${index + 1} 个引擎`;
       if (ids.has(engine.id)) result.push(`${name}标识重复`);
       ids.add(engine.id);
+      if (!engine.name?.trim() || engine.name.trim().length > 80) result.push(`${name}名称需为 1 到 80 个字符`);
       if (!targets(operation.key).some(target => target.value === engine.parameters.targetId)) result.push(`${name}请选择识别目标`);
       if (!availableRules(engine.type).some(rule => rule.id === engine.parameters.ruleId)) result.push(`${name}请选择对应类型的已发布规则`);
       if (engine.type === "LLM" && !availableAgents.value.some(agent => agent.id === engine.parameters.agentId)) result.push(`${name}请选择已发布大模型配置`);
@@ -98,6 +102,8 @@ defineExpose({ validate: () => { showErrors.value = true; return errors.value.le
         </a-space>
       </div>
       <a-form layout="vertical">
+        <a-form-item label="引擎名称" required><a-input :value="engine.name" :maxlength="80" :disabled="disabled" :aria-label="`${operation.label}第${index + 1}个引擎名称`"
+          placeholder="填写便于识别的名称" @update:value="(value: string) => setName(operation.key, engine.id, value)" /></a-form-item>
         <a-form-item :label="operation.key === 'inspection' ? '质检项' : '标签目标'" required>
           <a-select :value="engine.parameters.targetId" :options="targets(operation.key)" :disabled="disabled" allow-clear placeholder="选择识别目标"
             @update:value="(value?: string) => setParameter(operation.key, engine.id, 'targetId', value)" />

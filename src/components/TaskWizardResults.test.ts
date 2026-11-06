@@ -13,7 +13,7 @@ function fixture():ResultHierarchy {
     resultSetId:"rs1",taskId:"t1",executionId:"run-1",conversationId:"c1",
     input:{snapshotId:"s1",messages:[{messageId:"m1",sequence:1,speakerRole:"CUSTOMER",relativeTime:"00:01",content:"退款"}]},
     taskConfiguration:{enginePlan:{engines:[]},resultProcessing:{labelSnapshot:{labels:[{id:"label1",name:"是否退款"}]}}},
-    engines:[{engineResultId:"r1",operation:"LABELING",engineInstanceId:"regex1",engineType:"REGEX",sequence:1,status:"SUCCEEDED",startedAt:0,finishedAt:1,configuration:{},rawOutput:"原始退款响应",observations:[],evidence:[{evidenceId:"proof1",messageId:"m1",start:0,end:2,quote:"退款"}]},
+    engines:[{engineResultId:"r1",operation:"LABELING",engineInstanceId:"regex1",engineType:"REGEX",sequence:1,status:"SUCCEEDED",startedAt:0,finishedAt:1,configuration:{engineName:"退款标签判断"},rawOutput:"原始退款响应",observations:[],evidence:[{evidenceId:"proof1",messageId:"m1",start:0,end:2,quote:"退款"}]},
     {engineResultId:"r2",operation:"INSPECTION",engineInstanceId:"llm1",engineType:"LLM",sequence:1,status:"FAILED",startedAt:0,finishedAt:1,configuration:{},rawOutput:"invalid",failure:{code:"TIMEOUT",message:"调用超时"},observations:[],evidence:[]}]},
     processedResult:{sourceResultSetId:"rs1",sourceEngineResultIds:["r1","r2"],output:{inspectionItems:[{targetId:"服务规范",status:"CONFLICT",candidates:[]}],labels:[{targetId:"label1",valueCode:"yes",status:"KNOWN",value:false,candidates:[{engineInstanceId:"regex1",sourceEngineResultId:"r1",status:"DETERMINED",mappedValue:false,evidenceIds:["proof1"]}]}]}}};
 }
@@ -29,7 +29,7 @@ afterEach(() => {app?.unmount();root?.remove();});
 describe("wizard result presentation", () => {
   it("shows unresolved quality as pending and preserves false label values with source evidence", async () => {
     mount();await settle(); expect(root.textContent).toContain("最终评分：待确认");expect(root.textContent).toContain("冲突");
-    await tab("打标标签");expect(root.textContent).toContain("是否退款");expect(root.textContent).toContain("yes：false");
+    await tab("打标标签");expect(root.textContent).toContain("是否退款");expect(root.textContent).toContain("yes：false");expect(root.textContent).toContain("退款标签判断");
     expect(root.textContent).toContain('m1：“退款”');
     await tab("引擎记录"); expect(root.textContent).toContain("TIMEOUT：调用超时");expect(root.textContent).toContain("原始退款响应");
   });
