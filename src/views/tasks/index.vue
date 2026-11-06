@@ -625,6 +625,7 @@ onBeforeUnmount(() => {
           <ol><li v-for="engine in wizardDetail.enginePlan.engines.filter(engine => engine.operation === operation)" :key="engine.instanceId">
             {{ engine.configuration.engineName || engine.instanceId }} · {{ engine.type }} · {{ frozenTargetName(engine.configuration.targetId) }} · {{ engine.configuration.rule.name }} · V{{ engine.configuration.rule.versionNo }}
             <span v-if="engine.configuration.agentSnapshot"> · {{ engine.configuration.agentSnapshot.name }} · V{{ engine.configuration.agentSnapshot.versionNo }}</span>
+            <p v-if="engine.configuration.agentSnapshot?.taskOverrides" style="white-space:pre-wrap;overflow-wrap:anywhere">任务提示词：{{ engine.configuration.agentSnapshot.taskOverrides.prompt || '沿用发布配置' }}<br>温度：{{ engine.configuration.agentSnapshot.taskOverrides.temperature ?? '沿用发布配置' }} · 超时：{{ engine.configuration.agentSnapshot.taskOverrides.timeoutSeconds ?? '沿用发布配置' }} 秒</p>
           </li></ol>
         </section>
         <a-divider orientation="left">结果处理</a-divider>

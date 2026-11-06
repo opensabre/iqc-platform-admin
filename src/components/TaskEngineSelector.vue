@@ -43,7 +43,7 @@ function setEngines(operation: Operation, engines: TaskEngine[]) {
 function add(operation: Operation, type: TaskEngine["type"]) {
   const engines = props.modelValue[operation]?.engines || [];
   if (engines.length >= 32) return;
-  setEngines(operation, [...engines, { id: `engine-${crypto.randomUUID()}`, type, name: `${engineTypes.find(item => item.value === type)?.label}引擎 ${engines.length + 1}`, parameters: {} }]);
+  setEngines(operation, [...engines, { id: `engine-${crypto.randomUUID()}`, type, name: `${engineTypes.find(item => item.value === type)?.label}引擎 ${engines.length + 1}`, parameters: type === "LLM" ? {temperature:0,timeoutSeconds:30} : {} }]);
 }
 function move(operation: Operation, index: number, direction: number) {
   const engines = [...(props.modelValue[operation]?.engines || [])];
@@ -55,9 +55,9 @@ function move(operation: Operation, index: number, direction: number) {
 function setName(operation: Operation, id: string, name: string) {
   setEngines(operation, (props.modelValue[operation]?.engines || []).map(engine => engine.id === id ? { ...engine, name } : engine));
 }
-function setParameter(operation: Operation, id: string, field: keyof TaskEngine["parameters"], value?: string) {
+function setParameter(operation: Operation, id: string, field: keyof TaskEngine["parameters"], value?: string | number | null) {
   setEngines(operation, (props.modelValue[operation]?.engines || []).map(engine => engine.id === id
-    ? { ...engine, parameters: { ...engine.parameters, [field]: value || undefined } } : engine));
+    ? { ...engine, parameters: { ...engine.parameters, [field]: value === "" || value == null ? undefined : value } } : engine));
 }
 const errors = computed(() => {
   const result: string[] = [];
@@ -74,7 +74,14 @@ const errors = computed(() => {
       if (!engine.name?.trim() || engine.name.trim().length > 80) result.push(`${name}名称需为 1 到 80 个字符`);
       if (!targets(operation.key).some(target => target.value === engine.parameters.targetId)) result.push(`${name}请选择识别目标`);
       if (!availableRules(engine.type).some(rule => rule.id === engine.parameters.ruleId)) result.push(`${name}请选择对应类型的已发布规则`);
-      if (engine.type === "LLM" && !availableAgents.value.some(agent => agent.id === engine.parameters.agentId)) result.push(`${name}请选择已发布大模型配置`);
+      if (engine.type === "LLM") {
+        if (!availableAgents.value.some(agent => agent.id === engine.parameters.agentId)) result.push(`${name}请选择已发布大模型配置`);
+        if (!engine.parameters.prompt?.trim() || engine.parameters.prompt.trim().length > 8000) result.push(`${name}请填写1到8000字符的任务提示词`);
+        const temperature = engine.parameters.temperature;
+        if (temperature == null || !Number.isFinite(temperature) || temperature < 0 || temperature > 1) result.push(`${name}温度需在0到1之间`);
+        const timeout = engine.parameters.timeoutSeconds;
+        if (timeout == null || !Number.isInteger(timeout) || timeout < 1 || timeout > 120) result.push(`${name}超时需为1到120秒的整数`);
+      }
     });
   }
   return result;
@@ -118,6 +125,14 @@ defineExpose({ validate: () => { showErrors.value = true; return errors.value.le
             :disabled="disabled" allow-clear placeholder="选择已发布大模型配置"
             @update:value="(value?: string) => setParameter(operation.key, engine.id, 'agentId', value)" />
         </a-form-item>
+        <template v-if="engine.type === 'LLM'">
+          <a-form-item label="任务提示词" required><a-textarea :value="engine.parameters.prompt" :disabled="disabled" :maxlength="8000" :rows="4" placeholder="说明本次任务需要判断的内容"
+            @update:value="(value: string) => setParameter(operation.key, engine.id, 'prompt', value)" /></a-form-item>
+          <a-row :gutter="16"><a-col :span="12"><a-form-item label="温度" required><a-input-number :value="engine.parameters.temperature" :disabled="disabled" :min="0" :max="1" :step="0.1" :aria-label="`${operation.label}第${index+1}个引擎温度`"
+            @update:value="(value: number | null) => setParameter(operation.key, engine.id, 'temperature', value)" /></a-form-item></a-col>
+          <a-col :span="12"><a-form-item label="超时（秒）" required><a-input-number :value="engine.parameters.timeoutSeconds" :disabled="disabled" :min="1" :max="120" :precision="0"
+            @update:value="(value: number | null) => setParameter(operation.key, engine.id, 'timeoutSeconds', value)" /></a-form-item></a-col></a-row>
+        </template>
         <p v-if="engine.parameters.ruleId" class="parameter-summary">{{ availableRules(engine.type).find(rule => rule.id === engine.parameters.ruleId)?.expression }}</p>
       </a-form>
     </article>
