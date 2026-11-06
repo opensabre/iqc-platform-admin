@@ -45,6 +45,7 @@ import {
   getLabelTree,
   type LabelTree,
 } from "@/api/labels";
+import TaskWizardResults from "@/components/TaskWizardResults.vue";
 import TaskCreateWizard from "@/components/TaskCreateWizard.vue";
 import LabelValueReviewPanel from "@/components/LabelValueReviewPanel.vue";
 import { countConversationLabelStates, presentEffectiveLabel, presentLabel } from "./label-results";
@@ -66,6 +67,7 @@ const resultOpen = ref(false),
   conversationResultOpen = ref(false),
   resultLoading = ref(false);
 const batchResult = ref<BatchResultSummary>();
+const wizardResultTask = ref<InspectionTask>();
 const labelResults = ref<LabelResult[]>([]);
 const selectedLabelReview = ref<LabelResult>();
 const labelRows = computed(() => labelResults.value.map(result => ({ ...result, presentation: presentLabel(result) })));
@@ -329,19 +331,24 @@ async function showResults(id: string, labelResultId?: string, openLabels = fals
   resultTab.value = openLabels ? "labels" : "inspection";
   selectedLabelConversationId.value = undefined;
   batchResult.value = undefined;
+  wizardResultTask.value = undefined;
   labelResults.value = [];
   labelInsights.value = undefined;
   resultLoading.value = true;
   try {
-    const results = await Promise.all([
-      getBatchResultSummary(id),
-      getTaskLabelResults(id),
-      getTaskLabelInsights(id),
-    ]);
+    const [summary, task] = await Promise.all([getBatchResultSummary(id), getTask(id)]);
     if (request !== resultRequest) return;
-    [batchResult.value, labelResults.value, labelInsights.value] = results;
+    batchResult.value = summary;
+    if (parseSnapshot<TaskWizardSnapshot>(task.ruleSnapshotJson)?.schemaVersion === "iqc-task-wizard-v1") {
+      wizardResultTask.value = task;
+    } else {
+      const [labels, insights] = await Promise.all([getTaskLabelResults(id), getTaskLabelInsights(id)]);
+      if (request !== resultRequest) return;
+      labelResults.value = labels;
+      labelInsights.value = insights;
+    }
     resultOpen.value = true;
-    if (labelResultId) {
+    if (labelResultId && !wizardResultTask.value) {
       resultTab.value = "labels";
       const label = labelResults.value.find(row => row.id === labelResultId);
       if (label && can("iqc:review:view")) selectedLabelReview.value = label;
@@ -685,10 +692,11 @@ onBeforeUnmount(() => {
   >
   <a-drawer
     v-model:open="resultOpen"
-    title="批次质检结果"
+    :title="wizardResultTask ? '任务结果' : '批次质检结果'"
     width="min(900px, calc(100vw - 24px))"
     ><a-spin :spinning="resultLoading"
-      ><template v-if="batchResult"
+      ><TaskWizardResults v-if="batchResult && wizardResultTask" :key="batchResult.taskId" :summary="batchResult" :task="wizardResultTask" />
+      <template v-else-if="batchResult"
         ><a-tabs v-model:activeKey="resultTab"><a-tab-pane key="inspection" tab="质检结论"><a-row :gutter="12" style="margin-bottom: 16px"
           ><a-col :span="6"
             ><a-statistic

@@ -50,14 +50,14 @@ const labelOnlyScheme = computed(() => {
     return Array.isArray(definition?.items) && definition.items.length === 0 && Array.isArray(definition.labels) && definition.labels.length > 0;
   } catch { return false; }
 });
-const businessItems = computed(() => parseArray<BusinessItemResult>(hierarchy.value?.conversation.businessItemResultsJson));
-const businessScoring = computed<BusinessScoringResult | undefined>(() => { try { return JSON.parse(hierarchy.value?.conversation.scoringResultJson || "null") || undefined; } catch { return undefined; } });
-const detailScore = computed(() => schemeTask.value ? (hierarchy.value?.conversation.scoreStatus === "FINAL" ? hierarchy.value.conversation.finalScore : null) : hierarchy.value?.conversation.score ?? detail.value?.summary?.averageScore ?? detail.value?.result?.score);
+const businessItems = computed(() => parseArray<BusinessItemResult>(hierarchy.value?.conversation?.businessItemResultsJson));
+const businessScoring = computed<BusinessScoringResult | undefined>(() => { try { return JSON.parse(hierarchy.value?.conversation?.scoringResultJson || "null") || undefined; } catch { return undefined; } });
+const detailScore = computed(() => schemeTask.value ? (hierarchy.value?.conversation?.scoreStatus === "FINAL" ? hierarchy.value.conversation.finalScore : null) : hierarchy.value?.conversation?.score ?? detail.value?.summary?.averageScore ?? detail.value?.result?.score);
 const businessFailureCount = computed(() => businessItems.value.filter((item) => item.status === "FAIL").length);
 function businessStatus(status:string) { return ({PASS:"满足",FAIL:"不满足",NOT_APPLICABLE:"不适用",NOT_EVALUATED:"未评估",REVIEW_REQUIRED:"待复核",ERROR:"执行错误"} as Record<string,string>)[status] || status; }
 function scoreContribution(itemCode:string) { const line = businessScoring.value?.lines.find((item) => item.itemCode === itemCode); return !line ? "不计分" : line.contribution == null ? "待确认" : `${businessScoring.value?.mode === "DEDUCTION" ? "扣" : "得"} ${line.contribution} 分${line.vetoTriggered ? "（一票否决）" : ""}`; }
-const detailDeduction = computed(() => hierarchy.value?.conversation.deduction ?? displayedResults.value.reduce((sum, result) => sum + (result.deduction || 0), 0));
-const detailRisk = computed(() => hierarchy.value?.conversation.riskLevel ?? (displayedResults.value.some((result) => result.riskLevel === "HIGH") ? "HIGH" : displayedResults.value.some((result) => result.riskLevel === "MEDIUM") ? "MEDIUM" : detail.value?.result?.riskLevel));
+const detailDeduction = computed(() => hierarchy.value?.conversation?.deduction ?? displayedResults.value.reduce((sum, result) => sum + (result.deduction || 0), 0));
+const detailRisk = computed(() => hierarchy.value?.conversation?.riskLevel ?? (displayedResults.value.some((result) => result.riskLevel === "HIGH") ? "HIGH" : displayedResults.value.some((result) => result.riskLevel === "MEDIUM") ? "MEDIUM" : detail.value?.result?.riskLevel));
 const breakdown = computed(() => {
   const rules = snapshotRules();
   if (hierarchy.value) return hierarchy.value.rules.map((item) => {
@@ -138,7 +138,7 @@ async function showConversation(row: Pick<TaskConversationResultSummary, "taskId
   conversationMessages.value = []; conversationResults.value = [];
   try {
     const [data, structured] = await Promise.all([getConversationResultDetail(row.taskId, row.conversationId), getResultHierarchy(row.taskId, row.conversationId)]);
-    if (row.sourceResultId && structured?.conversation.id !== row.sourceResultId) {
+    if (row.sourceResultId && structured?.conversation?.id !== row.sourceResultId) {
       message.warning("该复核对应的结果已被新执行替代，请返回待办刷新或查看原复核历史。");
       detailOpen.value = false; return;
     }
@@ -247,14 +247,14 @@ onMounted(() => {
       <h3>机器质检项与独立评分</h3>
       <a-button v-if="can('iqc:result:export')" @click="exportBusinessCsv">导出本任务业务质检项 CSV</a-button>
       <a-button v-if="can('iqc:result:export') && can('iqc:review:view')" :loading="reviewExporting" :disabled="reviewExporting || !reviewTaskFinished" title="任务结束后导出覆盖清单与已完成复核明细" @click="exportTaskReviews">导出本任务人工复核 ZIP</a-button>
-      <a-alert v-if="hierarchy?.conversation.resultStatus === 'PENDING' || !businessScoring" type="warning" show-icon message="存在未评估、错误或待复核的质检项，请先处理后确认结果。"/>
+      <a-alert v-if="hierarchy?.conversation?.resultStatus === 'PENDING' || !businessScoring" type="warning" show-icon message="存在未评估、错误或待复核的质检项，请先处理后确认结果。"/>
       <a-table :data-source="businessItems" :pagination="false" row-key="itemCode" size="small">
         <a-table-column title="质检项" data-index="name"/>
         <a-table-column title="结论"><template #default="{record}"><a-tag :color="record.status === 'PASS' ? 'success' : record.status === 'FAIL' ? 'error' : 'warning'">{{businessStatus(record.status)}}</a-tag></template></a-table-column>
         <a-table-column title="计分"><template #default="{record}">{{scoreContribution(record.itemCode)}}</template></a-table-column>
         <a-table-column title="匹配消息"><template #default="{record}"><a-space wrap><a-button v-for="id in record.matchedMessageIds" :key="id" type="link" size="small" @click="locateMessage(conversationMessages.find((item) => item.id === id)?.sequenceNo)">#{{conversationMessages.find((item) => item.id === id)?.sequenceNo ?? id}}</a-button><span v-if="!record.matchedMessageIds.length">无匹配证据</span></a-space></template></a-table-column>
       </a-table>
-      <BusinessReviewPanel v-if="hierarchy?.conversation.id" :key="hierarchy.conversation.id" :result-id="hierarchy.conversation.id" :task-status="detail.task?.status || ''" :items="businessItems" :messages="conversationMessages" @locate="locateMessage" />
+      <BusinessReviewPanel v-if="hierarchy?.conversation?.id" :key="hierarchy.conversation.id" :result-id="hierarchy.conversation.id" :task-status="detail.task?.status || ''" :items="businessItems" :messages="conversationMessages" @locate="locateMessage" />
     </section>
     <a-alert v-for="(item,index) in diagnostics" :key="`error-${index}`" type="error" show-icon :message="`${ruleTitle(item,index)}执行异常`" :description="item.reason" class="section-block"/>
     <section v-if="conversationMessages.length" class="section-block"><h3>会话消息明细（{{conversationMessages.length}} 条）</h3><a-list bordered size="small"><a-list-item v-for="item in conversationMessages" :id="messageAnchorId(item.sequenceNo)" :key="item.id" class="conversation-message" :class="{ 'message-highlight': highlightedSequenceNo === item.sequenceNo }"><a-list-item-meta :title="`消息 #${item.sequenceNo} · ${item.speakerRole || '未知角色'}`" :description="item.content || '—'"/><a-tag v-if="conversationResults.some((result) => result.messageId === item.id)" color="error">有质检结果</a-tag></a-list-item></a-list></section>
