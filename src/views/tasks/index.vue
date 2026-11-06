@@ -55,6 +55,7 @@ const total = ref(0);
 const page = ref(1);
 const pageSize = ref(20);
 const loading = ref(false);
+const referenceErrors = ref<string[]>([]);
 const modalOpen = ref(false);
 const router = useRouter();
 const agents = ref<QualityAgent[]>([]);
@@ -180,32 +181,31 @@ async function loadDictionaries() {
   }
 }
 
+/** Reference catalog failures must not hide tasks or block the other operation's catalog. */
 async function refresh() {
   loading.value = true;
   try {
-    const [taskPage, agentList, ruleList, ruleSetList, taxonomy] =
-      await Promise.all([
-        listTasks({ current: page.value, size: pageSize.value, ...filters.value }),
-        listAgents().catch(() => {
-          message.warning("智能体列表不可用，仍可创建纯规则任务");
-          return [] as QualityAgent[];
-        }),
-        listRules(),
-        listRuleSets(),
-        getLabelTree(),
-      ]);
-    tasks.value = taskPage.records;
-    total.value = taskPage.total;
-    agents.value = agentList.filter((item) => item.status === "PUBLISHED");
-    rules.value = ruleList.filter((item) => item.status === "PUBLISHED");
-    ruleSets.value = ruleSetList.filter((item) => item.status === "PUBLISHED");
-    labelTree.value = taxonomy;
-  } catch {
-    message.error("任务列表加载失败");
+    const [taskPage, agentList, ruleList, ruleSetList, taxonomy] = await Promise.allSettled([
+      listTasks({ current: page.value, size: pageSize.value, ...filters.value }),
+      listAgents(), listRules(), listRuleSets(), getLabelTree(),
+    ]);
+    if (taskPage.status === "fulfilled") {
+      tasks.value = taskPage.value.records;
+      total.value = taskPage.value.total;
+    } else message.error("任务列表加载失败");
+    agents.value = agentList.status === "fulfilled" ? agentList.value.filter(item => item.status === "PUBLISHED") : [];
+    rules.value = ruleList.status === "fulfilled" ? ruleList.value.filter(item => item.status === "PUBLISHED") : [];
+    ruleSets.value = ruleSetList.status === "fulfilled" ? ruleSetList.value.filter(item => item.status === "PUBLISHED") : [];
+    labelTree.value = taxonomy.status === "fulfilled" ? taxonomy.value : { categories: [], groups: [], labels: [] };
+    referenceErrors.value = [
+      { result: agentList, name: "智能体" }, { result: ruleList, name: "规则" },
+      { result: ruleSetList, name: "规则集" }, { result: taxonomy, name: "标签" },
+    ].filter(item => item.result.status === "rejected").map(item => item.name);
   } finally {
     loading.value = false;
   }
 }
+
 async function poll() {
   if (
     !tasks.value.some((item) =>
@@ -576,6 +576,9 @@ onBeforeUnmount(() => {
       description="暂无质检任务，请先导入会话"
     />
   </a-card>
+  <a-alert v-if="referenceErrors.length" type="warning" show-icon
+    :message="`${referenceErrors.join('、')}配置加载失败；已加载的任务和其他配置仍可使用。`"
+    style="margin-bottom: 16px"><template #action><a-button size="small" :loading="loading" @click="refresh">重试加载</a-button></template></a-alert>
   <TaskCreateWizard v-if="modalOpen" :agents="agents" :rules="rules"
     :labeling-targets="labelTree.labels.filter(label => label.status === 'PUBLISHED').map(label => ({ value: label.id, label: label.name }))"
     @cancel="modalOpen = false" @created="createdTask" />
