@@ -9,6 +9,7 @@ import BusinessReviewPanel from "@/components/BusinessReviewPanel.vue";
 import ReviewTaskSelector from "@/components/ReviewTaskSelector.vue";
 import { businessConversationRow, groupResultsByTaskAndConversation, type TaskConversationResultSummary } from "./group-results";
 import { listBusinessResults, type BusinessConversationResult } from "@/api/results";
+import TaskWizardResults from "@/components/TaskWizardResults.vue";
 import ConversationDetailDrawer from "@/components/ConversationDetailDrawer.vue";
 import { dictionaryLabel, getCachedDictionaries, type DictionaryItem } from "@/api/dictionaries";
 import { usePermission } from "@/composables/permission";
@@ -28,6 +29,8 @@ const conversationMessages = ref<any[]>([]), conversationResults = ref<Inspectio
 const hierarchy = ref<ResultHierarchy>();
 const routeContexts = computed(() => routeContextRows(hierarchy.value?.rules ?? [], businessItems.value));
 const canonicalSummaries = ref<Record<string, BatchResultSummary>>({});
+const wizardDetailSummary = ref<BatchResultSummary>();
+let detailRequest = 0;
 const detailOpen = ref(false), detailLoading = ref(false); const detail = ref<any>();
 const copiedConversationId = ref<string>(); let copyResetTimer: number | undefined;
 const highlightedSequenceNo = ref<number>(); let highlightResetTimer: number | undefined;
@@ -132,22 +135,43 @@ async function refresh() {
 }
 function changeResultView() { filters.value.status = undefined; filters.value.agentId = undefined; page.value = 1; void refresh(); }
 async function changePage(current: number, size: number) { page.value = current; pageSize.value = size; await refresh(); }
-async function showDetail(id: string) { conversationMessages.value = []; conversationResults.value = []; hierarchy.value = undefined; detailLoading.value = true; detailOpen.value = true; try { detail.value = await getResultDetail(id); } catch { message.error("结果详情加载失败"); detailOpen.value = false; } finally { detailLoading.value = false; } }
+async function showDetail(id: string) {
+  const request = ++detailRequest;
+  wizardDetailSummary.value = undefined; detail.value = undefined;
+  conversationMessages.value = []; conversationResults.value = []; hierarchy.value = undefined;
+  detailLoading.value = true; detailOpen.value = true;
+  try { const value = await getResultDetail(id); if (request === detailRequest) detail.value = value; }
+  catch { if (request === detailRequest) { message.error("结果详情加载失败"); detailOpen.value = false; } }
+  finally { if (request === detailRequest) detailLoading.value = false; }
+}
 async function showConversation(row: Pick<TaskConversationResultSummary, "taskId" | "conversationId"> & { sourceResultId?: string }) {
+  const request = ++detailRequest;
+  wizardDetailSummary.value = undefined;
   detailLoading.value = true; detailOpen.value = true; hierarchy.value = undefined; detail.value = undefined;
   conversationMessages.value = []; conversationResults.value = [];
   try {
     const [data, structured] = await Promise.all([getConversationResultDetail(row.taskId, row.conversationId), getResultHierarchy(row.taskId, row.conversationId)]);
+    if (request !== detailRequest) return;
     if (row.sourceResultId && structured?.conversation?.id !== row.sourceResultId) {
       message.warning("该复核对应的结果已被新执行替代，请返回待办刷新或查看原复核历史。");
       detailOpen.value = false; return;
+    }
+    if (JSON.parse(data.task?.ruleSnapshotJson || "{}").schemaVersion === "iqc-task-wizard-v1") {
+      const summary = await getBatchResultSummary(row.taskId);
+      if (request !== detailRequest) return;
+      const selected = summary.conversations.filter(item => item.conversationId === row.conversationId);
+      if (!selected.length) throw new Error("所选会话已不在任务结果范围内");
+      // The shared result component must open the clicked conversation, not the task's first one.
+      wizardDetailSummary.value = {...summary, conversations:selected};
+      detail.value = {task:data.task, conversation:data.conversation, summary:data.summary};
+      return;
     }
     hierarchy.value = structured; conversationMessages.value = data.messages || []; conversationResults.value = data.results || [];
     const first = conversationResults.value[0];
     detail.value = first ? { result: first, task: data.task || { id: first.taskId, name: `会话 ${row.conversationId}` }, message: conversationMessages.value.find((item: any) => item.id === first.messageId) || conversationMessages.value[0], conversation: data.conversation, summary: data.summary }
       : { task: data.task || { name: `会话 ${row.conversationId}` }, conversation: data.conversation, summary: data.summary };
-  } catch { message.error("会话质检明细加载失败"); detailOpen.value = false; }
-  finally { detailLoading.value = false; }
+  } catch { if (request === detailRequest) { message.error("会话质检明细加载失败"); detailOpen.value = false; } }
+  finally { if (request === detailRequest) detailLoading.value = false; }
 }
 function showRawConversation(conversationId?: string) { if (!conversationId) return; detailOpen.value = false; conversationDetailId.value = conversationId; conversationDrawerOpen.value = true; }
 async function exportCsv() { try { const response = await exportResults(filters.value); const url = URL.createObjectURL(response.data); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "iqc-results.csv"; anchor.click(); URL.revokeObjectURL(url); } catch { message.error("结果导出失败"); } }
@@ -231,7 +255,7 @@ onMounted(() => {
 
   <a-card :bordered="false"><div class="table-hint">{{resultView === "BUSINESS" ? "每个任务/会话只显示当前业务结果；分页按会话计数，结果数为质检项数。待确认不推断分数，标签任务不计分。" : "消息观察兼容视图：分页按历史观察计数，会话合并仅限当前页，不代表完整会话统计。"}}</div><a-table :data-source="conversationRows" :loading="loading" :pagination="false" row-key="rowKey" table-layout="fixed" :scroll="{x:1430}"><a-table-column title="质检任务" :width="190"><template #default="{record}"><a-typography-text :ellipsis="{ tooltip: record.taskName || record.taskId }" :content="record.taskName || record.taskId"/><div v-if="record.taskName" class="task-id-secondary">{{record.taskId}}</div></template></a-table-column><a-table-column title="会话得分" :width="110"><template #default="{record}"><strong>{{record.averageScore == null ? (record.scoreStatus === "NOT_APPLICABLE" ? "不计分" : "—") : Number(record.averageScore).toFixed(2)}}</strong></template></a-table-column><a-table-column :title="resultView === 'BUSINESS' ? '不满足项' : '命中'" data-index="hitCount" :width="80"/><a-table-column title="高风险" :width="90"><template #default="{record}"><a-tag v-if="record.highRiskCount" color="error">{{record.highRiskCount}}</a-tag><span v-else>0</span></template></a-table-column><a-table-column title="异常" data-index="errorCount" :width="80"/><a-table-column title="会话 ID" :width="250"><template #default="{record}"><a-space><a-typography-text :ellipsis="{ tooltip: record.conversationId }" :content="record.conversationId"/><a-tooltip :title="copiedConversationId === record.conversationId ? '已复制' : '复制会话 ID'"><a-button type="link" size="small" class="copy-button" :aria-label="copiedConversationId === record.conversationId ? '已复制会话 ID' : '复制会话 ID'" @click.stop="copyText(record.conversationId, record.conversationId)"><CheckOutlined v-if="copiedConversationId === record.conversationId" class="copy-success"/><CopyOutlined v-else /></a-button></a-tooltip></a-space></template></a-table-column><a-table-column title="会话名称" :width="220"><template #default="{record}"><a-typography-text :ellipsis="{ tooltip: record.sourceFileName }" :content="record.sourceFileName || '—'"/></template></a-table-column><a-table-column title="结果数" data-index="resultCount" :width="90"/><a-table-column title="操作" :width="220" fixed="right"><template #default="{record}"><a-space><a-button type="link" @click="showConversation(record)">本次质检明细</a-button><a-button type="link" @click="showRawConversation(record.conversationId)">原始会话</a-button></a-space></template></a-table-column></a-table><a-pagination v-if="total" v-model:current="page" v-model:page-size="pageSize" :total="total" show-size-changer class="pagination" @change="changePage"/></a-card>
 
-  <a-drawer v-model:open="detailOpen" title="质检结果详情" width="min(860px, calc(100vw - 24px))"><a-spin :spinning="detailLoading"><template v-if="detail">
+  <a-drawer v-model:open="detailOpen" title="质检结果详情" width="min(860px, calc(100vw - 24px))"><a-spin :spinning="detailLoading"><TaskWizardResults v-if="wizardDetailSummary && detail" :key="`${wizardDetailSummary.taskId}:${wizardDetailSummary.conversations[0]?.conversationId}`" :summary="wizardDetailSummary" :task="detail.task" /><template v-else-if="detail">
     <a-card :bordered="false" class="result-overview"><a-row :gutter="16"><a-col :span="6"><a-statistic v-if="detailScore != null" title="得分" :value="detailScore" :precision="schemeTask ? 2 : 1" suffix="分"/><template v-else><div class="overview-label">得分</div><strong>{{labelOnlyScheme || businessScoring?.scoreStatus === "NOT_APPLICABLE" ? "不计分" : "待确认"}}</strong></template></a-col><a-col :span="6"><a-statistic v-if="!schemeTask" title="总扣分" :value="detailDeduction" prefix="-"/><template v-else><div class="overview-label">方案类型</div>{{labelOnlyScheme ? "仅识别标签" : businessScoring?.mode === "POINTS" ? "得分制" : "扣分制"}}</template></a-col><a-col :span="6"><div class="overview-label">风险等级</div><a-tag :color="detailRisk==='HIGH'?'error':detailRisk==='MEDIUM'?'warning':'success'">{{riskLabel(detailRisk)}}</a-tag></a-col><a-col :span="6"><div class="overview-label">{{labelOnlyScheme ? "质检项" : "不满足项"}}</div><strong class="violation-count">{{labelOnlyScheme ? "无" : `${schemeTask ? businessFailureCount : violations.length} 项`}}</strong></a-col></a-row></a-card>
     <a-alert v-if="!schemeTask&&!violations.length&&!diagnostics.length" type="success" show-icon message="本条消息未发现不满足项" description="所选规则均未命中。" class="section-block"/>
     <section v-if="!schemeTask&&violations.length" class="section-block"><div class="section-title"><div><h3>不满足项与扣分明细</h3><p>每一项均可追溯到规则、判断理由和证据。</p></div><a-tag color="error">共扣 {{detailDeduction}} 分</a-tag></div>
