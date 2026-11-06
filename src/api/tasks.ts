@@ -198,3 +198,13 @@ export interface WizardCreateTaskRequest {
   sampleSize?: never; sampleSeed?: never; agentId?: never; ruleSetId?: never; ruleIds?: never;
   labelSelection?: never; labelOptions?: never; executionMode?: never;
 }
+
+/** Server-frozen task snapshot returned by the existing task detail endpoint. */
+export interface TaskWizardSnapshot {
+  schemaVersion: "iqc-task-wizard-v1";
+  enginePlan: { schemaVersion: "iqc-task-engine-plan-v1"; engines: {
+    operation: "INSPECTION" | "LABELING"; instanceId: string; type: TaskEngine["type"]; sequence: number;
+    configuration: { targetId: string; ruleId: string; rule: TaskRuleSnapshot; agentSnapshot?: TaskAgentSnapshot };
+  }[] };
+  resultProcessing: { configuration: TaskResultProcessingConfiguration; labelSnapshot: { labels: { id: string; name: string }[] } | null };
+}

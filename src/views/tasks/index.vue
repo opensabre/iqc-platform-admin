@@ -4,7 +4,6 @@ import { message, Modal } from "ant-design-vue";
 import { useRouter } from "vue-router";
 import {
   cancelTask,
-  createTask,
   getTask,
   listTasks,
   runTask,
@@ -15,6 +14,8 @@ import {
   type TaskAgentConfigSnapshot,
   type TaskAgentSnapshot,
   type TaskRuleSnapshot,
+  type TaskWizardSnapshot,
+  type TaskDataSelection,
   type InspectionTask,
   type ExecutionMode,
 } from "@/api/tasks";
@@ -29,10 +30,6 @@ import {
 import { usePermission } from "@/composables/permission";
 import { getCachedDictionaries, type DictionaryItem } from "@/api/dictionaries";
 import {
-  listConversations,
-  type ConversationSummary,
-} from "@/api/conversations";
-import {
   getBatchResultSummary,
   getConversationResultDetail,
   getTaskLabelResults,
@@ -46,11 +43,9 @@ import {
 } from "@/api/results";
 import {
   getLabelTree,
-  listLabelCollections,
-  type LabelCollection,
   type LabelTree,
 } from "@/api/labels";
-import LabelTreeSelector from "@/components/LabelTreeSelector.vue";
+import TaskCreateWizard from "@/components/TaskCreateWizard.vue";
 import LabelValueReviewPanel from "@/components/LabelValueReviewPanel.vue";
 import { countConversationLabelStates, presentEffectiveLabel, presentLabel } from "./label-results";
 
@@ -60,21 +55,11 @@ const page = ref(1);
 const pageSize = ref(20);
 const loading = ref(false);
 const modalOpen = ref(false);
-const creating = ref(false);
-const currentStep = ref(0);
 const router = useRouter();
-const createSteps = [
-  { title: "任务信息", description: "名称与执行方式" },
-  { title: "数据范围", description: "会话或筛选条件" },
-  { title: "质检方案", description: "Agent 与规则" },
-  { title: "执行与确认", description: "并发及配置预览" },
-];
 const agents = ref<QualityAgent[]>([]);
 const rules = ref<QualityRule[]>([]);
 const ruleSets = ref<QualityRuleSet[]>([]);
-const conversations = ref<ConversationSummary[]>([]);
 const labelTree = ref<LabelTree>({ categories: [], groups: [], labels: [] });
-const labelCollections = ref<LabelCollection[]>([]);
 const detailOpen = ref(false);
 const detail = ref<InspectionTask>();
 const resultOpen = ref(false),
@@ -103,58 +88,6 @@ const conversationResult = ref<ConversationResultDetail>();
 const taskStatuses = ref<DictionaryItem[]>([]);
 const filters = ref({ keyword: "", status: undefined as string | undefined, taskType: undefined as string | undefined });
 let pollingTimer: number | undefined;
-const form = ref({
-  name: "",
-  taskType: "BATCH" as "BATCH" | "SCHEDULED" | "SAMPLE",
-  conversationIds: [] as string[],
-  scheduledTime: "",
-  createdRange: [] as string[],
-  fileName: "",
-  status: "IMPORTED",
-  ownerGroupId: "",
-  employeeId: "",
-  customerExternalId: "",
-  channel: "",
-  businessNo: "",
-  limit: 1000,
-  sampleSize: 100,
-  sampleSeed: "",
-  agentId: "",
-  executionMode: "RULE_ONLY" as ExecutionMode,
-  ruleSetId: "",
-  ruleIds: [] as string[],
-  schemeMode: "RULE" as "RULE" | "LABEL",
-  categoryIds: [] as string[],
-  groupIds: [] as string[],
-  labelIds: [] as string[],
-  collectionIds: [] as string[],
-  runCount: 1,
-  confidenceThreshold: 0.8,
-  autoExpandEnabled: false,
-  autoExpandPrompt: "",
-  concurrencyLimit: 4,
-});
-const selectedAgent = computed(() =>
-  agents.value.find((item) => item.id === form.value.agentId)
-);
-const selectedRules = computed(() =>
-  rules.value.filter((item) => form.value.ruleIds.includes(item.id))
-);
-const selectedRuleSet = computed(() =>
-  ruleSets.value.find((item) => item.id === form.value.ruleSetId)
-);
-const labelSelectionKeys = computed({
-  get: () => [
-    ...form.value.categoryIds.map((id) => `CATEGORY:${id}`),
-    ...form.value.groupIds.map((id) => `GROUP:${id}`),
-    ...form.value.labelIds.map((id) => `LABEL:${id}`),
-  ],
-  set: (keys: string[]) => {
-    form.value.categoryIds = keys.filter((key) => key.startsWith("CATEGORY:")).map((key) => key.substring(9));
-    form.value.groupIds = keys.filter((key) => key.startsWith("GROUP:")).map((key) => key.substring(6));
-    form.value.labelIds = keys.filter((key) => key.startsWith("LABEL:")).map((key) => key.substring(6));
-  },
-});
 function parseSnapshot<T>(value?: string | T): T | undefined {
   if (!value) return undefined;
   if (typeof value !== "string") return value;
@@ -167,6 +100,13 @@ function parseSnapshot<T>(value?: string | T): T | undefined {
 const detailAgent = computed(() =>
   parseSnapshot<TaskAgentSnapshot>(detail.value?.agentSnapshotJson)
 );
+const wizardDetail = computed(() => {
+  const snapshot = parseSnapshot<TaskWizardSnapshot>(detail.value?.ruleSnapshotJson);
+  return snapshot?.schemaVersion === "iqc-task-wizard-v1" ? snapshot : undefined;
+});
+function frozenTargetName(targetId: string) {
+  return wizardDetail.value?.resultProcessing.labelSnapshot?.labels.find(label => label.id === targetId)?.name || targetId;
+}
 const detailAgentConfig = computed(() =>
   parseSnapshot<TaskAgentConfigSnapshot>(detailAgent.value?.configJson)
 );
@@ -241,7 +181,7 @@ async function loadDictionaries() {
 async function refresh() {
   loading.value = true;
   try {
-    const [taskPage, agentList, ruleList, ruleSetList, conversationPage, taxonomy, collections] =
+    const [taskPage, agentList, ruleList, ruleSetList, taxonomy] =
       await Promise.all([
         listTasks({ current: page.value, size: pageSize.value, ...filters.value }),
         listAgents().catch(() => {
@@ -250,20 +190,14 @@ async function refresh() {
         }),
         listRules(),
         listRuleSets(),
-        listConversations({ current: 1, size: 100 }),
         getLabelTree(),
-        listLabelCollections(),
       ]);
     tasks.value = taskPage.records;
     total.value = taskPage.total;
     agents.value = agentList.filter((item) => item.status === "PUBLISHED");
     rules.value = ruleList.filter((item) => item.status === "PUBLISHED");
     ruleSets.value = ruleSetList.filter((item) => item.status === "PUBLISHED");
-    conversations.value = conversationPage.records.filter(
-      (item) => item.status === "IMPORTED"
-    );
     labelTree.value = taxonomy;
-    labelCollections.value = collections.filter((item) => item.status === "PUBLISHED");
   } catch {
     message.error("任务列表加载失败");
   } finally {
@@ -313,90 +247,12 @@ async function showDetail(id: string) {
     message.error("任务详情加载失败");
   }
 }
-function openCreate() {
-  const recent = localStorage.getItem("iqc-last-conversation-id");
-  form.value = {
-    name: "",
-    taskType: "BATCH",
-    conversationIds:
-      recent && conversations.value.some((item) => item.id === recent)
-        ? [recent]
-        : [],
-    scheduledTime: "",
-    createdRange: [],
-    fileName: "",
-    status: "IMPORTED",
-    ownerGroupId: "",
-    employeeId: "",
-    customerExternalId: "",
-    channel: "",
-    businessNo: "",
-    limit: 1000,
-    sampleSize: 100,
-    sampleSeed: "",
-    agentId: agents.value[0]?.id || "",
-    executionMode: "RULE_ONLY",
-    ruleSetId: ruleSets.value[0]?.id || "",
-    ruleIds: [],
-    schemeMode: "RULE",
-    categoryIds: [],
-    groupIds: [],
-    labelIds: [],
-    collectionIds: [],
-    runCount: 1,
-    confidenceThreshold: 0.8,
-    autoExpandEnabled: false,
-    autoExpandPrompt: "",
-    concurrencyLimit: 4,
-  };
-  currentStep.value = 0;
-  modalOpen.value = true;
-}
-function validateStep(step: number) {
-  if (
-    step === 1 &&
-    form.value.taskType === "BATCH" &&
-    !form.value.conversationIds.length
-  ) {
-    message.warning("请至少选择一个会话");
-    return false;
-  }
-  if (
-    step === 1 &&
-    form.value.taskType === "SCHEDULED" &&
-    !form.value.scheduledTime
-  ) {
-    message.warning("请选择计划执行时间");
-    return false;
-  }
-  if (step === 2 && form.value.executionMode !== "RULE_ONLY" && !form.value.agentId) {
-    message.warning("请选择已发布 Agent");
-    return false;
-  }
-  if (step === 2 && form.value.schemeMode === "RULE" && !form.value.ruleSetId && !form.value.ruleIds.length) {
-    message.warning("请选择已发布规则集或至少一条规则");
-    return false;
-  }
-  if (step === 2 && form.value.schemeMode === "RULE") {
-    const ids = parseSnapshot<string[]>(selectedRuleSet.value?.ruleIdsJson) || form.value.ruleIds;
-    const selected = rules.value.filter(rule => ids.includes(rule.id));
-    if (form.value.executionMode === "RULE_ONLY" && selected.some(rule => rule.ruleType === "LLM")) {
-      message.warning("所选规则包含 LLM 检测，请选择逐项独立执行或调整规则");
-      return false;
-    }
-    if (form.value.executionMode === "AGENT_LLM" && selected.some(rule => rule.ruleType !== "LLM")) {
-      message.warning("纯 LLM 策略不能跳过普通规则，请选择逐项独立执行或调整规则");
-      return false;
-    }
-  }
-  if (step === 2 && form.value.schemeMode === "LABEL" && !form.value.categoryIds.length && !form.value.groupIds.length && !form.value.labelIds.length && !form.value.collectionIds.length) {
-    message.warning("请至少选择一个标签分类、标签组、标签或标签集合");
-    return false;
-  }
-  return true;
-}
-function nextStep() {
-  if (validateStep(currentStep.value)) currentStep.value += 1;
+function openCreate() { modalOpen.value = true; }
+async function createdTask(task: InspectionTask) {
+  modalOpen.value = false;
+  message.success("任务已创建");
+  await refresh();
+  try { await showDetail(task.id); } catch { message.error("任务已创建，详情加载失败，可从列表重试"); }
 }
 function openRelated(path: string) {
   window.open(router.resolve(path).href, "_blank", "noopener,noreferrer");
@@ -405,68 +261,6 @@ function openSnapshotRule(rule: TaskRuleSnapshot) {
   if (!rule.id) return;
   const path = rule.ruleType === "DLS" ? "/rules/conversation" : "/rules/library";
   openRelated(`${path}?ruleId=${encodeURIComponent(rule.id)}`);
-}
-async function submit() {
-  if (![1, 2].every(validateStep)) return;
-  creating.value = true;
-  try {
-    await createTask({
-      name: form.value.name || undefined,
-      taskType: form.value.taskType,
-      conversationIds:
-        form.value.taskType === "BATCH"
-          ? form.value.conversationIds
-          : undefined,
-      scheduledTime:
-        form.value.taskType === "SCHEDULED"
-          ? form.value.scheduledTime
-          : undefined,
-      sampleSize: form.value.taskType === "SAMPLE" ? form.value.sampleSize : undefined,
-      sampleSeed: form.value.taskType === "SAMPLE" ? form.value.sampleSeed || undefined : undefined,
-      selectionFilter:
-        form.value.taskType !== "BATCH"
-          ? {
-              createdFrom: form.value.createdRange?.[0],
-              createdTo: form.value.createdRange?.[1],
-              fileName: form.value.fileName || undefined,
-              status: form.value.status || undefined,
-              ownerGroupId: form.value.ownerGroupId || undefined,
-              employeeId: form.value.employeeId || undefined,
-              customerExternalId: form.value.customerExternalId || undefined,
-              channel: form.value.channel || undefined,
-              businessNo: form.value.businessNo || undefined,
-              limit: form.value.limit,
-            }
-          : undefined,
-      agentId: form.value.executionMode === "RULE_ONLY" ? undefined : form.value.agentId,
-      executionMode: form.value.executionMode,
-      ruleSetId: form.value.schemeMode === "RULE" ? form.value.ruleSetId || undefined : undefined,
-      ruleIds: form.value.schemeMode === "RULE" ? (form.value.ruleSetId ? undefined : form.value.ruleIds) : undefined,
-      labelSelection: form.value.schemeMode === "LABEL" ? {
-        categoryIds: form.value.categoryIds,
-        groupIds: form.value.groupIds,
-        labelIds: form.value.labelIds,
-        collectionIds: form.value.collectionIds,
-      } : undefined,
-      labelOptions: form.value.schemeMode === "LABEL" ? {
-        runCount: form.value.runCount,
-        confidenceThreshold: form.value.confidenceThreshold,
-        autoExpandEnabled: form.value.autoExpandEnabled,
-        autoExpandPrompt: form.value.autoExpandEnabled ? form.value.autoExpandPrompt || undefined : undefined,
-      } : undefined,
-      concurrencyLimit: form.value.concurrencyLimit,
-    });
-    message.success(
-      form.value.taskType === "SCHEDULED" ? "定时质检任务已创建"
-        : form.value.taskType === "SAMPLE" ? "抽样质检任务已创建" : "批量质检任务已创建"
-    );
-    modalOpen.value = false;
-    await refresh();
-  } catch (error) {
-    message.error(error instanceof Error ? error.message : "任务创建失败，请检查会话、执行策略和规则");
-  } finally {
-    creating.value = false;
-  }
 }
 function conversationCount(task: InspectionTask) {
   try {
@@ -478,6 +272,19 @@ function conversationCount(task: InspectionTask) {
   } catch {
     return task.conversationId ? 1 : 0;
   }
+}
+function taskSelection(task: InspectionTask) {
+  const snapshot = parseSnapshot<{ schemaVersion: string; selection: TaskDataSelection; resolvedAt?: string }>(task.selectionFilterJson);
+  return snapshot?.schemaVersion === "iqc-data-selection-v1" ? snapshot : undefined;
+}
+function selectionLabel(task: InspectionTask) {
+  const mode = taskSelection(task)?.selection.mode;
+  return mode ? ({ BATCH: "批量选择", RANDOM: "随机抽样", FILTER: "条件筛选" })[mode] : taskTypeLabel(task.taskType);
+}
+function conversationCountLabel(task: InspectionTask) {
+  const selection = taskSelection(task);
+  return selection && selection.selection.mode !== "BATCH" && !selection.resolvedAt && !task.currentExecutionId
+    ? "执行时确定" : conversationCount(task);
 }
 async function cancel(id: string) {
   Modal.confirm({
@@ -620,11 +427,10 @@ onBeforeUnmount(() => {
   <section class="page-intro task-page-intro">
     <div>
       <span class="section-kicker">INSPECTION TASKS</span>
-      <h2>质检任务</h2>
-      <p>使用业务模板创建质检任务，跟踪执行进度、评分和证据；专家仍可使用自定义任务。</p>
+      <h2>任务中心</h2>
+      <p>从会话中心选择数据，配置质检或打标引擎，查看评分、标签和执行记录。</p>
     </div>
-    <a-space><router-link v-if="can('iqc:template:view')" to="/templates"><a-button type="primary">使用业务模板</a-button></router-link>
-      <a-button v-if="can('iqc:task:create')" @click="openCreate">自定义任务（高级）</a-button></a-space>
+    <a-button v-if="can('iqc:task:create')" type="primary" @click="openCreate">创建任务</a-button>
   </section>
   <a-card :bordered="false" class="task-filter-card">
     <a-form layout="inline" @submit.prevent="search">
@@ -662,10 +468,10 @@ onBeforeUnmount(() => {
         </template>
       </a-table-column>
       <a-table-column key="name" title="任务名称" data-index="name" />
-      <a-table-column key="taskType" title="任务类型" :width="110"><template #default="{ record }">{{ taskTypeLabel(record.taskType) }}</template></a-table-column>
+      <a-table-column key="taskType" title="数据筛选" :width="110"><template #default="{ record }">{{ selectionLabel(record) }}</template></a-table-column>
       <a-table-column key="conversations" title="会话数" :width="90"
         ><template #default="{ record }">{{
-          conversationCount(record)
+          conversationCountLabel(record)
         }}</template></a-table-column
       >
       <a-table-column key="status" title="状态" :width="120"
@@ -763,311 +569,23 @@ onBeforeUnmount(() => {
       description="暂无质检任务，请先导入会话"
     />
   </a-card>
-  <a-modal
-    v-model:open="modalOpen"
-    title="新建质检任务"
-    width="min(860px, calc(100vw - 32px))"
-    :styles="{
-      body: {
-        maxHeight: 'calc(100vh - 190px)',
-        overflowY: 'auto',
-        overflowX: 'hidden',
-      },
-    }"
-  >
-    <a-steps
-      :current="currentStep"
-      :items="createSteps"
-      size="small"
-      class="task-wizard-steps"
-    />
-    <div class="task-wizard-body">
-      <a-form v-show="currentStep === 0" layout="vertical">
-        <a-alert
-          type="info"
-          show-icon
-          message="选择立即处理指定会话，或按条件在计划时间自动选取会话。"
-          style="margin-bottom: 16px"
-        />
-        <a-form-item label="任务类型"
-          ><a-radio-group v-model:value="form.taskType"
-            ><a-radio-button value="BATCH">立即批量</a-radio-button
-            ><a-radio-button value="SAMPLE">随机抽样</a-radio-button
-            ><a-radio-button value="SCHEDULED"
-              >定时筛选</a-radio-button
-            ></a-radio-group
-          ></a-form-item
-        >
-        <a-form-item label="任务名称"
-          ><a-input v-model:value="form.name" placeholder="不填则自动生成名称"
-        /></a-form-item>
-      </a-form>
-
-      <a-form v-show="currentStep === 1" layout="vertical">
-        <div class="wizard-heading">
-          <div>
-            <h3>选择质检数据</h3>
-            <p>
-              {{
-                form.taskType === "BATCH"
-                  ? "选择本次要立即质检的已导入会话。"
-                  : "设置执行时间和会话筛选范围。"
-              }}
-            </p>
-          </div>
-          <a-button type="link" @click="openRelated('/conversations')"
-            >管理会话 ↗</a-button
-          >
-        </div>
-        <template v-if="form.taskType === 'BATCH'">
-          <a-empty v-if="!conversations.length" description="暂无已导入会话"
-            ><a-button type="primary" @click="openRelated('/conversations')"
-              >去导入会话</a-button
-            ></a-empty
-          >
-          <a-form-item v-else label="会话数据" required
-            ><a-select
-              v-model:value="form.conversationIds"
-              mode="multiple"
-              show-search
-              option-filter-prop="label"
-              placeholder="选择一个或多个已导入会话"
-              ><a-select-option
-                v-for="item in conversations"
-                :key="item.id"
-                :value="item.id"
-                :label="item.sourceFileName"
-                >{{ item.sourceFileName }} ·
-                {{ item.messageCount }}条消息</a-select-option
-              ></a-select
-            ></a-form-item
-          >
-        </template>
-        <a-row v-else-if="form.taskType === 'SAMPLE'" :gutter="16">
-          <a-col :span="12"><a-form-item label="抽样数量" required><a-input-number v-model:value="form.sampleSize" :min="1" :max="1000" style="width:100%" /></a-form-item></a-col>
-          <a-col :span="12"><a-form-item label="抽样种子"><a-input v-model:value="form.sampleSeed" placeholder="相同种子可复现相同样本" /></a-form-item></a-col>
-          <a-col :span="24"><a-alert type="info" show-icon message="从当前可见、已导入会话中稳定随机抽样；创建后会固化会话 ID 和种子。" /></a-col>
-        </a-row>
-        <template v-else
-          ><a-form-item label="计划执行时间" required
-            ><a-date-picker
-              v-model:value="form.scheduledTime"
-              show-time
-              value-format="YYYY-MM-DDTHH:mm:ss"
-              style="width: 100%" /></a-form-item
-          ><a-form-item label="会话创建时间"
-            ><a-range-picker
-              v-model:value="form.createdRange"
-              show-time
-              value-format="YYYY-MM-DDTHH:mm:ss"
-              style="width: 100%" /></a-form-item
-          ><a-form-item label="来源文件名包含"
-            ><a-input v-model:value="form.fileName" allow-clear /></a-form-item
-          ><a-row :gutter="12"><a-col :span="12"><a-form-item label="沟通员工 ID"><a-input v-model:value="form.employeeId" allow-clear /></a-form-item></a-col><a-col :span="12"><a-form-item label="客户外部 ID"><a-input v-model:value="form.customerExternalId" allow-clear /></a-form-item></a-col></a-row
-          ><a-row :gutter="12"><a-col :span="12"><a-form-item label="渠道"><a-input v-model:value="form.channel" allow-clear placeholder="WEB / PHONE / WECHAT" /></a-form-item></a-col><a-col :span="12"><a-form-item label="业务编号"><a-input v-model:value="form.businessNo" allow-clear /></a-form-item></a-col></a-row
-          ><a-row :gutter="12"
-            ><a-col :span="12"
-              ><a-form-item label="会话状态"
-                ><a-select v-model:value="form.status"
-                  ><a-select-option value="IMPORTED">已导入</a-select-option
-                  ><a-select-option value="PARTIAL"
-                    >部分导入</a-select-option
-                  ></a-select
-                ></a-form-item
-              ></a-col
-            ><a-col :span="12"
-              ><a-form-item label="最多选取"
-                ><a-input-number
-                  v-model:value="form.limit"
-                  :min="1"
-                  :max="1000"
-                  style="width: 100%" /></a-form-item></a-col></a-row
-          ><a-form-item label="归属部门 ID"
-            ><a-input
-              v-model:value="form.ownerGroupId"
-              allow-clear
-              placeholder="留空则按当前数据权限范围" /></a-form-item
-        ></template>
-      </a-form>
-
-      <a-form v-show="currentStep === 2" layout="vertical">
-        <div class="wizard-heading">
-          <div>
-            <h3>配置质检方案</h3>
-            <p>规则与执行策略在任务创建时冻结；纯规则任务无需 Agent。</p>
-          </div>
-        </div>
-        <a-form-item label="方案入口">
-          <a-radio-group v-model:value="form.schemeMode">
-            <a-radio-button value="RULE">按规则质检</a-radio-button>
-            <a-radio-button value="LABEL">按业务标签质检</a-radio-button>
-          </a-radio-group>
-          <template #extra>标签会在任务创建时解析为固定的标签、绑定规则及版本快照。</template>
-        </a-form-item>
-        <a-form-item label="任务执行策略" required>
-          <a-select v-model:value="form.executionMode">
-            <a-select-option value="RULE_ONLY">仅普通规则（无需 Agent）</a-select-option>
-            <a-select-option value="INDEPENDENT">逐项独立执行（规则与 LLM）</a-select-option>
-            <a-select-option value="AGENT_LLM">仅 LLM 规则</a-select-option>
-            <a-select-option value="RULE_THEN_LLM">规则初筛 → LLM 复核（专项兼容）</a-select-option>
-            <a-select-option value="LLM_THEN_RULE">LLM 候选 → 规则验证（专项兼容）</a-select-option>
-          </a-select>
-          <template #extra>综合检查请选择逐项独立执行；初筛路线可能跳过未命中候选的检查，不适合独立画像识别。</template>
-        </a-form-item>
-        <a-form-item v-if="form.executionMode !== 'RULE_ONLY'" label="LLM 智能体" required
-          ><a-select v-model:value="form.agentId" placeholder="选择已发布 Agent"
-            ><a-select-option
-              v-for="agent in agents"
-              :key="agent.id"
-              :value="agent.id"
-              >{{ agent.name }} · {{ agent.code }}</a-select-option
-            ></a-select
-          ><a-button
-            type="link"
-            class="related-link"
-            @click="openRelated('/agents')"
-            >管理 Agent ↗</a-button
-          ></a-form-item
-        >
-        <a-alert
-          v-if="form.executionMode !== 'RULE_ONLY' && !agents.length"
-          type="warning"
-          show-icon
-          message="暂无已发布 Agent，请先创建并完成审批发布。"
-          style="margin-bottom: 16px"
-        />
-        <template v-if="form.schemeMode === 'RULE'">
-        <a-form-item label="已发布规则集"
-          ><a-select
-            v-model:value="form.ruleSetId"
-            allow-clear
-            placeholder="优先选择专业规则集"
-            ><a-select-option
-              v-for="set in ruleSets"
-              :key="set.id"
-              :value="set.id"
-              >{{ set.name }} · v{{ set.versionNo }}</a-select-option
-            ></a-select
-          ><a-button
-            type="link"
-            class="related-link"
-            @click="openRelated('/rules/sets')"
-            >管理规则集 ↗</a-button
-          ></a-form-item
-        ><a-form-item label="临时规则组合" :required="!form.ruleSetId"
-          ><a-select
-            v-model:value="form.ruleIds"
-            mode="multiple"
-            :disabled="Boolean(form.ruleSetId)"
-            placeholder="未选规则集时可临时多选规则"
-            ><a-select-option
-              v-for="rule in rules"
-              :key="rule.id"
-              :value="rule.id"
-              >{{ rule.name }}</a-select-option
-            ></a-select
-          ></a-form-item
-        >
-        <a-alert
-          v-if="!rules.length"
-          type="warning"
-          show-icon
-          message="暂无已发布规则，请先创建并发布规则。"
-        />
-        </template>
-        <template v-else>
-          <a-alert type="info" show-icon message="标签是任务的业务目标；系统仍复用标签绑定的已发布规则执行检测，并额外沉淀标签命中结果。" style="margin-bottom:16px"/>
-          <a-form-item label="标签集合">
-            <a-select v-model:value="form.collectionIds" mode="multiple" allow-clear placeholder="选择已发布标签集合">
-              <a-select-option v-for="item in labelCollections" :key="item.id" :value="item.id">{{ item.name }} · V{{ item.versionNo }}</a-select-option>
-            </a-select>
-          </a-form-item>
-          <a-form-item label="标签范围"><LabelTreeSelector v-model="labelSelectionKeys" :taxonomy="labelTree" /><a-button type="link" class="related-link" @click="openRelated('/labels/tree')">管理标签 ↗</a-button></a-form-item>
-        </template>
-      </a-form>
-
-      <a-form v-show="currentStep === 3" layout="vertical">
-        <div class="wizard-heading">
-          <div>
-            <h3>执行参数与确认</h3>
-            <p>确认数据范围和质检方案后创建任务。</p>
-          </div>
-        </div>
-        <a-form-item label="并发数"
-          ><a-input-number
-            v-model:value="form.concurrencyLimit"
-            :min="1"
-            :max="32"
-          /><template #extra
-            >限制同时处理的会话数，同一会话内消息仍按顺序执行。</template
-          ></a-form-item
-        >
-        <template v-if="form.schemeMode === 'LABEL'">
-          <a-row :gutter="12">
-            <a-col :span="12"><a-form-item label="重复运行次数"><a-input-number v-model:value="form.runCount" :min="1" :max="5" style="width:100%"/></a-form-item></a-col>
-            <a-col :span="12"><a-form-item label="置信度阈值"><a-input-number v-model:value="form.confidenceThreshold" :min="0" :max="1" :step="0.05" style="width:100%"/></a-form-item></a-col>
-          </a-row>
-          <a-form-item><a-checkbox v-model:checked="form.autoExpandEnabled">允许根据标签分类提示词生成候选标签</a-checkbox></a-form-item>
-          <a-form-item v-if="form.autoExpandEnabled" label="本次扩展提示"><a-textarea v-model:value="form.autoExpandPrompt" :maxlength="1000" show-count/></a-form-item>
-        </template>
-        <a-card size="small" title="任务摘要" class="wizard-summary"
-          ><a-descriptions :column="2" size="small"
-            ><a-descriptions-item label="任务名称">{{
-              form.name || "自动生成"
-            }}</a-descriptions-item
-            ><a-descriptions-item label="任务类型">{{
-              form.taskType === "BATCH" ? "立即批量" : "定时筛选"
-            }}</a-descriptions-item
-            ><a-descriptions-item label="数据范围">{{
-              form.taskType === "BATCH"
-                ? `${form.conversationIds.length} 个会话`
-                : `最多 ${form.limit} 个会话`
-            }}</a-descriptions-item
-            ><a-descriptions-item label="执行时间">{{
-              form.taskType === "BATCH" ? "创建后手动执行" : form.scheduledTime
-            }}</a-descriptions-item
-            ><a-descriptions-item label="Agent">{{
-              form.executionMode === 'RULE_ONLY' ? '无需 Agent' : selectedAgent?.name || "未选择"
-            }}</a-descriptions-item
-            ><a-descriptions-item label="规则方案">{{
-              form.schemeMode === "LABEL"
-                ? `标签入口（集合 ${form.collectionIds.length}、分类 ${form.categoryIds.length}、组 ${form.groupIds.length}、标签 ${form.labelIds.length}）`
-                : selectedRuleSet?.name || selectedRules.map((item) => item.name).join("、") || "未选择"
-            }}</a-descriptions-item
-            ><a-descriptions-item label="并发数">{{
-              form.concurrencyLimit
-            }}</a-descriptions-item></a-descriptions
-          ></a-card
-        >
-      </a-form>
-    </div>
-    <template #footer
-      ><a-button @click="modalOpen = false">取消</a-button
-      ><a-button v-if="currentStep > 0" @click="currentStep--">上一步</a-button
-      ><a-button
-        v-if="currentStep < createSteps.length - 1"
-        type="primary"
-        @click="nextStep"
-        >下一步</a-button
-      ><a-button v-else type="primary" :loading="creating" @click="submit"
-        >创建任务</a-button
-      ></template
-    >
-  </a-modal>
-  <a-drawer v-model:open="detailOpen" title="质检任务详情" width="min(820px, calc(100vw - 24px))"
+  <TaskCreateWizard v-if="modalOpen" :agents="agents" :rules="rules"
+    :labeling-targets="labelTree.labels.filter(label => label.status === 'PUBLISHED').map(label => ({ value: label.id, label: label.name }))"
+    @cancel="modalOpen = false" @created="createdTask" />
+  <a-drawer v-model:open="detailOpen" title="任务详情" width="min(820px, calc(100vw - 24px))"
     ><template v-if="detail"
       ><a-divider orientation="left">任务概况</a-divider
       ><a-descriptions bordered :column="1"
         ><a-descriptions-item label="任务名称">{{
           detail.name
         }}</a-descriptions-item
-        ><a-descriptions-item label="任务类型">{{ taskTypeLabel(detail.taskType) }}</a-descriptions-item
+        ><a-descriptions-item label="数据筛选">{{ selectionLabel(detail) }}</a-descriptions-item
         ><a-descriptions-item label="状态"
           ><a-tag :color="statusMap[detail.status]?.color">{{
             statusMap[detail.status]?.label || detail.status
           }}</a-tag></a-descriptions-item
         ><a-descriptions-item label="会话/并发"
-          >{{ conversationCount(detail) }} 个 /
+          >{{ conversationCountLabel(detail) }} /
           {{ detail.concurrencyLimit }}</a-descriptions-item
         ><a-descriptions-item label="进度"
           ><a-progress
@@ -1091,7 +609,27 @@ onBeforeUnmount(() => {
         ><a-descriptions-item label="创建时间">{{
           detail.createdTime || "—"
         }}</a-descriptions-item></a-descriptions
-      ><a-divider orientation="left">创建时执行策略与 Agent 配置</a-divider
+      >
+      <template v-if="wizardDetail">
+        <a-divider orientation="left">创建时引擎配置</a-divider>
+        <a-alert type="info" show-icon message="以下为创建时冻结配置。各操作按自己的顺序执行，失败保留记录并继续。" />
+        <section v-for="operation in (['INSPECTION','LABELING'] as const).filter(op => wizardDetail!.enginePlan.engines.some(engine => engine.operation === op))" :key="operation">
+          <h3>{{ operation === 'INSPECTION' ? '质检' : '打标' }}</h3>
+          <ol><li v-for="engine in wizardDetail.enginePlan.engines.filter(engine => engine.operation === operation)" :key="engine.instanceId">
+            {{ engine.type }} · {{ frozenTargetName(engine.configuration.targetId) }} · {{ engine.configuration.rule.name }} · V{{ engine.configuration.rule.versionNo }}
+            <span v-if="engine.configuration.agentSnapshot"> · {{ engine.configuration.agentSnapshot.name }} · V{{ engine.configuration.agentSnapshot.versionNo }}</span>
+          </li></ol>
+        </section>
+        <a-divider orientation="left">结果处理</a-divider>
+        <template v-if="wizardDetail.resultProcessing.configuration.inspection">
+          <p>{{ wizardDetail.resultProcessing.configuration.inspection.scoring.mode === 'DEDUCTION' ? '扣分制' : '得分制（加权百分制）' }} · 基础分 {{ wizardDetail.resultProcessing.configuration.inspection.scoring.baseScore }} · 及格线 {{ wizardDetail.resultProcessing.configuration.inspection.scoring.passingScore }}</p>
+          <p v-for="item in wizardDetail.resultProcessing.configuration.inspection.scoring.items" :key="item.itemCode">{{ item.itemCode }}：{{ item.points }} 分{{ item.veto ? '，不通过时总分为零' : '' }}</p>
+        </template>
+        <p v-for="label in wizardDetail.resultProcessing.configuration.labeling" :key="label.targetId">{{ frozenTargetName(label.targetId) }} · {{ label.valueCode }} · {{ label.valueType }}</p>
+        <p>所有已配置来源一致时确定；否则保留冲突、未知或错误。原始结果和证据不覆盖。</p>
+      </template>
+      <template v-else>
+      <a-divider orientation="left">创建时执行策略与 Agent 配置</a-divider
       ><a-alert type="info" show-icon message="以下内容来自任务创建时的不可变快照，后续修改 Agent 不会影响这里。" class="snapshot-tip"/>
       <a-descriptions bordered :column="1">
         <a-descriptions-item label="Agent">{{ detailAgent?.name || "—" }}<span v-if="detailAgent?.code"> · {{ detailAgent.code }}</span></a-descriptions-item>
@@ -1141,7 +679,8 @@ onBeforeUnmount(() => {
           <a-empty v-else description="该规则快照没有配置内容" :image-style="{ height: '36px' }" />
         </a-collapse-panel>
       </a-collapse>
-      ></template
+      </template>
+      </template
     ></a-drawer
   >
   <a-drawer
@@ -1299,37 +838,6 @@ onBeforeUnmount(() => {
 <style scoped>
 .task-filter-card {
   margin-bottom: 16px;
-}
-.task-wizard-steps {
-  margin: 4px 0 24px;
-}
-.task-wizard-body {
-  min-height: 350px;
-  padding: 8px 4px 0;
-}
-.wizard-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
-}
-.wizard-heading h3 {
-  margin: 0 0 6px;
-  color: var(--iqc-slate-900);
-  font-size: 18px;
-}
-.wizard-heading p {
-  margin: 0;
-  color: var(--iqc-slate-600);
-}
-.related-link {
-  height: auto;
-  padding: 6px 0 0;
-}
-.wizard-summary {
-  margin-top: 18px;
-  background: var(--iqc-canvas);
 }
 .snapshot-tip,
 .rule-set-summary {
