@@ -13,7 +13,7 @@ export interface HierarchicalRuleResult { id:string; ruleId:string; ruleVersionN
 export interface HierarchicalEvidence { ruleResultId:string; messageId:string; sequenceNo?:number; internalDefinition?:string; evidenceType:string; matchedText?:string; startOffset?:number; endOffset?:number; }
 export interface BusinessItemResult { itemCode:string; name:string; ruleId:string; ruleVersionNo:number; status:"PASS"|"FAIL"|"NOT_APPLICABLE"|"NOT_EVALUATED"|"REVIEW_REQUIRED"|"ERROR"; matchedMessageIds:string[]; }
 export interface BusinessScoringResult { mode:"DEDUCTION"|"POINTS"; scoreStatus:string; finalScore:number|null; conclusion:string; lines:Array<{itemCode:string;configuredPoints:number;contribution:number|null;vetoTriggered:boolean}>; }
-export interface ResultHierarchy { conversation:{id:string;resultStatus:string;score:number|null;finalScore?:number|null;scoreStatus?:string;scoringResultJson?:string;businessItemResultsJson?:string;riskLevel:string;deduction:number;reason:string;aggregationMode:string}; rules:HierarchicalRuleResult[]; evidenceByRuleResult:Record<string,HierarchicalEvidence[]>; }
+export interface ResultHierarchy { executionId?:string; engineResultSet?:TaskEngineResultSet|null; processedResult?:TaskProcessedResult|null; conversation:null|{id:string;resultStatus:string;score:number|null;finalScore?:number|null;scoreStatus?:string;scoringResultJson?:string;businessItemResultsJson?:string;riskLevel:string;deduction:number;reason:string;aggregationMode:string}; rules:HierarchicalRuleResult[]; evidenceByRuleResult:Record<string,HierarchicalEvidence[]>; }
 export interface ResultFilters { taskId?: string; agentId?: string; ownerId?: string; groupId?: string; status?: string; minScore?: number; maxScore?: number; speakerRole?: string; riskLevel?: string; }
 export interface ResultPage { records: InspectionResult[]; current: number; size: number; total: number; }
 export interface LabelReviewOverlay { latestRevision:number; latestStatus:string; effectiveReviewId?:string; effectiveRevision?:number; effectiveStatus?:"KNOWN"|"UNKNOWN"; effectiveValue?:string|number|boolean|null; evidenceMessageIds:string[]; }
@@ -35,5 +35,22 @@ export function normalizeResultHierarchy(value: ResultHierarchy | string | undef
   const parsed = JSON.parse(value);
   return parsed && typeof parsed === "object" && "code" in parsed ? parsed.data as ResultHierarchy | undefined : parsed as ResultHierarchy;
 }
-export async function getResultHierarchy(taskId:string,conversationId:string){const {data}=await http.get<ResultHierarchy|string|undefined>(`/iqc/tasks/${taskId}/conversations/${conversationId}/result-hierarchy`);return normalizeResultHierarchy(data);}
+export async function getResultHierarchy(taskId:string,conversationId:string,executionId?:string){const {data}=await http.get<ResultHierarchy|string|undefined>(`/iqc/tasks/${taskId}/conversations/${conversationId}/result-hierarchy`,{params:{executionId}});return normalizeResultHierarchy(data);}
 export async function getConversationResults(conversationId:string){const {data}=await http.get<ConversationResultDetail>(`/iqc/conversations/${conversationId}/result-detail`);return data;}
+
+/** Evidence is returned verbatim; derived values belong exclusively to processedResult. */
+export interface TaskEngineResultSet {
+  resultSetId:string; taskId:string; executionId:string; conversationId:string;
+  input:{snapshotId:string;messages:Array<{messageId:string;sequence:number;speakerRole:string;relativeTime:string;content:string}>};
+  taskConfiguration:{enginePlan:{engines:Array<{operation:string}>};resultProcessing:{labelSnapshot:{labels?:Array<{id:string;name:string}>}|null}};
+  engines:TaskEngineResult[];
+}
+export interface TaskEngineResult {
+  engineResultId:string;operation:"INSPECTION"|"LABELING";engineInstanceId:string;engineType:string;sequence:number;
+  status:"SUCCEEDED"|"FAILED"|"SKIPPED";startedAt:string|number;finishedAt:string|number;configuration:unknown;
+  rawOutput:string|null;failure?:{code:string;message:string}|null;
+  observations:Array<{targetId:string;status:string;value:unknown;reason?:string;evidenceIds:string[]}>;
+  evidence:Array<{evidenceId:string;messageId:string;start:number;end:number;quote:string}>;
+}
+export interface TaskProcessedItem {targetId:string;valueCode?:string;valueType?:string;status:string;value?:unknown;candidates:Array<{sourceEngineResultId?:string;engineInstanceId:string;status:string;mappedValue?:unknown;evidenceIds?:string[];reason?:string;failure?:{code:string;message:string}}>}
+export interface TaskProcessedResult {sourceResultSetId:string;sourceEngineResultIds:string[];output:{inspectionItems?:TaskProcessedItem[];labels:TaskProcessedItem[];scoring?:BusinessScoringResult}}
