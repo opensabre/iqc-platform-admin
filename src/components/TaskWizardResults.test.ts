@@ -61,4 +61,45 @@ describe("wizard result presentation", () => {
     expect(root.textContent).toContain("yes：false");
     expect(root.textContent).not.toContain("最终评分");
   });
+  it("switches between old and successful executions through the history selector", async () => {
+    const previous = fixture();
+    const latest = fixture();
+    latest.executionId = "run-2";
+    latest.engineResultSet!.executionId = "run-2";
+    latest.engineResultSet!.engines[1]!.status = "SUCCEEDED";
+    delete latest.engineResultSet!.engines[1]!.failure;
+    latest.engineResultSet!.engines[0]!.rawOutput = "重试后原始响应";
+    latest.processedResult!.output.scoring = {mode:"DEDUCTION",scoreStatus:"FINAL",finalScore:90,conclusion:"PASS",lines:[]};
+    latest.processedResult!.output.labels[0]!.value = true;
+    vi.mocked(listTaskExecutions).mockResolvedValue([
+      {id:"run-1",attemptNo:1,status:"PARTIAL_FAILED",processedMessages:1,failedMessages:0,current:false},
+      {id:"run-2",attemptNo:2,status:"SUCCEEDED",processedMessages:1,failedMessages:0,current:true},
+    ]);
+    vi.mocked(getResultHierarchy).mockImplementation(async (_task, _conversation, execution) => execution === "run-1" ? previous : latest);
+    async function selectExecution(label:string) {
+      const selector = root.querySelector<HTMLElement>('#result-execution')!.closest('.ant-select')!.querySelector<HTMLElement>('.ant-select-selector')!;
+      selector.dispatchEvent(new MouseEvent("mousedown", {bubbles:true}));
+      await settle();
+      const option = [...document.querySelectorAll<HTMLElement>('.ant-select-item-option')].find(item => item.textContent?.includes(label));
+      expect(option).toBeDefined();
+      option!.click();
+      await settle();
+    }
+    mount(); await settle();
+    expect(root.textContent).toContain("来源执行：run-2");
+    await selectExecution("第 1 次");
+    expect(getResultHierarchy).toHaveBeenLastCalledWith("t1","c1","run-1");
+    expect(root.textContent).toContain("来源执行：run-1");
+    expect(root.textContent).toContain("最终评分：待确认");
+    await tab("打标标签"); expect(root.textContent).toContain("yes：false");
+    await tab("引擎记录"); expect(root.textContent).toContain("TIMEOUT：调用超时");
+    await selectExecution("第 2 次");
+    expect(getResultHierarchy).toHaveBeenLastCalledWith("t1","c1","run-2");
+    expect(root.textContent).toContain("来源执行：run-2");
+    expect(root.textContent).not.toContain("TIMEOUT：调用超时");
+    expect(root.textContent).toContain("重试后原始响应");
+    await tab("质检评分"); expect(root.textContent).toContain("90.00");
+    await tab("打标标签"); expect(root.textContent).toContain("yes：true");
+  });
+
 });
