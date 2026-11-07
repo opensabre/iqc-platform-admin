@@ -72,8 +72,8 @@ describe("task operation engines", () => {
   });
 
   it("requires real published references and validates separate targets", async () => {
-    mount({ schemaVersion: "iqc-task-processing-v1", inspection: { engines: [{ id: "i1", type: "REGEX", parameters: {} }] },
-      labeling: { engines: [{ id: "l1", type: "LLM", parameters: {} }] } });
+    mount({ schemaVersion: "iqc-task-processing-v1", inspection: { engines: [{ id: "i1", name: "退款质检", type: "REGEX", parameters: {} }] },
+      labeling: { engines: [{ id: "l1", name: "咨询打标", type: "LLM", parameters: { prompt: "判断咨询类型", temperature: 0, timeoutSeconds: 30 } }] } });
     expect(control.validate()).toBe(false); await settle();
     expect(host.textContent).toContain("请选择识别目标");
     expect(host.textContent).not.toContain("未发布规则");
@@ -83,7 +83,7 @@ describe("task operation engines", () => {
     select(2, "label"); await settle(); select(3, "llm"); await settle(); select(4, "model"); await settle();
     expect(control.validate()).toBe(true);
     expect(model.value.inspection!.engines[0]!.parameters).toEqual({ targetId: "check", ruleId: "regex" });
-    expect(model.value.labeling!.engines[0]!.parameters).toEqual({ targetId: "label", ruleId: "llm", agentId: "model" });
+    expect(model.value.labeling!.engines[0]!.parameters).toEqual({ targetId: "label", ruleId: "llm", agentId: "model", prompt: "判断咨询类型", temperature: 0, timeoutSeconds: 30 });
     click("移除", host.querySelectorAll("section")[0]); await settle();
     expect(control.validate()).toBe(false); expect(model.value.labeling!.engines).toHaveLength(1);
   });

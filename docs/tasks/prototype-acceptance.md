@@ -159,3 +159,28 @@ LLM 完整页面、正式入口与历史往返选择补验仍待完成。
 切回成功执行后显示 90.00、true 标签及该次原始输出，旧超时记录消失。
 六项结果组件测试通过。本测试使用受控 API 数据，属于组件交互回归，
 不补写此前真实 Spring/H2 浏览器历史往返未完成的结论；该整页补验仍保留为未完成。
+
+## 2026-11-07 原型源码核对及完整前端回归
+
+以当前前端和后端 `2c6ba76` 逐项核对，不以功能文件存在作为运行验收通过：
+
+| 原型约束 | 当前实现定位 | 证据边界 |
+|---|---|---|
+| 四步固定名称，质检/打标独立配置 | TaskCreateWizard.vue、TaskEngineSelector.vue | 已有页面执行证据；正式应用壳仍未覆盖 |
+| 动态模式创建不固定数据，预览不冻结 | TaskCreateWizard.submit 剔除预览种子；后端 TaskWizardService.create、InspectionExecutionService.materializeRuntimeSelection | 后端在执行时重新取数；重试复用已确定名单 |
+| 预览与执行使用相同筛选范围 | 后端 ConversationQueryService.preview / resolveForExecution | RANDOM 扫描全部授权范围并保留有界样本，FILTER 游标分批取全部；不是只取首个查询 LIMIT |
+| 参数及发布引用冻结 | TaskEnginePlanService、TaskWizardSnapshot；每实例 LLM 参数表单 | 已有本地 SDK HTTP 页面证据；真实供应商未验收 |
+| 引擎失败继续、旧结果保留 | TaskWizardRuntime、MultiEngineExecutor、EngineResultSetStore | 已有真实页面失败重试证据；历史往返组件通过，整页补验未完成 |
+| 独立结果处理、保留所有来源 | ConfiguredTaskResultProcessor、TaskWizardResultService、TaskWizardResults | 所有引擎结果 ID 保留；质检/标签冲突和单目标去重计分已有页面证据 |
+
+修正 data-selection.md、engine-selection.md、wizard.md 中早期“尚未接线”的过时描述，
+统一指向本记录中的分层证据和未完成项。
+
+完整前端首次回归为 202 通过、1 失败：旧引擎选择器用例缺少必填名称、提示词、温度和超时，
+却断言配置有效。仅补齐该用例数据并保留零温度断言，未放宽产品校验。
+数据库迁移 CI 配置仍仅由目标 main 的 PR 触发；当前堆叠 PR 的状态不能代替目标分支最终集成验证。
+正式入口登录、真实后端历史往返及最终目标分支集成/迁移门禁尚未证明完成。
+
+修正后完整回归：35 个文件、203 项测试全部通过；vue-tsc 与 git diff --check 通过。
+日志 `/private/tmp/iqc-prototype-full-ui-tests-final.log`、`/private/tmp/iqc-prototype-audit-types.log`。
+现有模板用例的组件 stub 警告及 Ant Design 提示仍存在，本轮未扩展处理。
