@@ -573,7 +573,7 @@ onBeforeUnmount(() => {
     />
     <a-empty
       v-if="!loading && !tasks.length"
-      description="暂无质检任务，请先导入会话"
+      description="暂无任务，请创建质检或打标任务"
     />
   </a-card>
   <a-alert v-if="referenceErrors.length" type="warning" show-icon
