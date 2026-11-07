@@ -49,4 +49,16 @@ describe("wizard result presentation", () => {
   it("shows an empty runtime selection without querying a made-up conversation", async () => {
     mount({summary:{...summary,conversations:[]}});await settle();expect(root.textContent).toContain("尚未确定执行数据");expect(getResultHierarchy).not.toHaveBeenCalled();
   });
+  it("opens labeling-only results without a quality tab or a fabricated score", async () => {
+    const data = fixture(); data.engineResultSet!.engines = data.engineResultSet!.engines.filter(engine => engine.operation === "LABELING");
+    data.processedResult!.output.inspectionItems = [];
+    vi.mocked(getResultHierarchy).mockResolvedValue(data);
+    mount({task:{...task,ruleSnapshotJson:JSON.stringify({enginePlan:{engines:[{operation:"LABELING"}]}})}});
+    await settle();
+    const tabs = [...root.querySelectorAll('[role="tab"]')].map(item => item.textContent);
+    expect(tabs).toEqual(["打标标签", "引擎记录"]);
+    expect(root.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("打标标签");
+    expect(root.textContent).toContain("yes：false");
+    expect(root.textContent).not.toContain("最终评分");
+  });
 });
