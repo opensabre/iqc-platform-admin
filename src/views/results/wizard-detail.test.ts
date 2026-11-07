@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createApp, h, nextTick, type App } from "vue";
 import Antd from "ant-design-vue";
 import Results from "./index.vue";
-import { getBatchResultSummary, getConversationResultDetail, getResultHierarchy, listBusinessResults } from "@/api/results";
+import { getBatchResultSummary, getConversationResultDetail, getResultHierarchy, listBusinessResults, listResults } from "@/api/results";
 const state = vi.hoisted(() => ({query:{taskId:"t1",conversationId:"c2",sourceResultId:"result2"}}));
 vi.mock("vue-router", () => ({useRoute:() => ({query:state.query}),useRouter:() => ({push:vi.fn()})}));
 vi.mock("@/composables/permission", () => ({usePermission:() => ({can:() => false})}));
@@ -11,12 +11,13 @@ vi.mock("@/components/ConversationDetailDrawer.vue", () => ({default:{render:() 
 vi.mock("@/components/TaskWizardResults.vue", () => ({default:{props:["summary","task"],render(this:any) {
   return h("div", {"data-wizard":true}, `${this.task.id}:${this.summary.conversations.map((row:any) => row.conversationId).join(",")}`);
 }}}));
-vi.mock("@/api/results", async original => ({...await original<any>(),getBatchResultSummary:vi.fn(),getConversationResultDetail:vi.fn(),getResultHierarchy:vi.fn(),listBusinessResults:vi.fn()}));
+vi.mock("@/api/results", async original => ({...await original<any>(),getBatchResultSummary:vi.fn(),getConversationResultDetail:vi.fn(),getResultHierarchy:vi.fn(),listBusinessResults:vi.fn(),listResults:vi.fn()}));
 vi.mock("@/api/dictionaries", () => ({getCachedDictionaries:async () => ({}),dictionaryLabel:(_items:unknown,value:string) => value}));
 let app:App, root:HTMLDivElement;
 async function settle() { for (let i=0;i<15;i++) { await Promise.resolve(); await nextTick(); } }
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(listResults).mockResolvedValue({records:[],total:0,current:1,size:20});
   vi.mocked(listBusinessResults).mockResolvedValue({records:[],total:0,current:1,size:20});
   vi.mocked(getConversationResultDetail).mockResolvedValue({task:{id:"t1",ruleSnapshotJson:'{"schemaVersion":"iqc-task-wizard-v1"}'},messages:[],results:[]} as any);
   vi.mocked(getResultHierarchy).mockResolvedValue({conversation:{id:"result2"}} as any);
@@ -42,4 +43,16 @@ it("keeps stale review result protection before opening the wizard component", a
   mount(); await settle();
   expect(getBatchResultSummary).not.toHaveBeenCalled();
   expect(document.querySelector("[data-wizard]")).toBeNull();
+});
+
+it("presents business task results without risk filters or risk columns and retains the legacy view", async () => {
+  mount(); await settle();
+  expect(root.textContent).toContain("任务结果");
+  expect(root.textContent).toContain("质检评分、打标标签");
+  expect(root.textContent).not.toContain("高风险");
+  expect(root.querySelectorAll('[title="风险"]')).toHaveLength(0);
+  expect(listBusinessResults).toHaveBeenCalledWith(expect.not.objectContaining({riskLevel:expect.anything()}), expect.anything());
+  root.querySelector<HTMLInputElement>('input[value="MESSAGE"]')!.click(); await settle();
+  expect(root.textContent).toContain("高风险");
+  expect(listResults).toHaveBeenCalled();
 });
