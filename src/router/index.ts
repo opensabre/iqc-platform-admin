@@ -15,12 +15,12 @@ const routes: RouteRecordRaw[] = [
       { path: "conversations/api", component: () => import("@/views/conversations/api.vue"), meta: { title: "接口对接", permission: "iqc:conversation:view" } },
       { path: "conversations/upload", component: () => import("@/views/conversations/index.vue"), meta: { title: "文本上传", permission: "iqc:conversation:view" } },
       { path: "conversations/list", component: () => import("@/views/conversations/list.vue"), meta: { title: "会话列表", permission: "iqc:conversation:view" } },
-      { path: "tasks", component: () => import("@/views/tasks/index.vue"), meta: { title: "质检任务", permission: "iqc:task:view" } },
+      { path: "tasks", component: () => import("@/views/tasks/index.vue"), meta: { title: "任务中心", permission: "iqc:task:view" } },
       { path: "labels", redirect: "/labels/tree" },
       { path: "labels/tree", component: () => import("@/views/labels/tree.vue"), meta: { title: "标签树", permission: "iqc:label:view" } },
       { path: "labels/collections", component: () => import("@/views/labels/collections.vue"), meta: { title: "标签集合", permission: "iqc:label-collection:view" } },
       { path: "labels/candidates", component: () => import("@/views/labels/candidates.vue"), meta: { title: "候选标签", permission: "iqc:label-candidate:view" } },
-      { path: "results", component: () => import("@/views/results/index.vue"), meta: { title: "质检结果", permission: "iqc:result:view" } },
+      { path: "results", component: () => import("@/views/results/index.vue"), meta: { title: "结果中心", permission: "iqc:result:view" } },
       { path: "quality-operations", component: () => import("@/views/quality-operations/index.vue"), meta: { title: "质量运营", permission: "iqc:review:view" } },
       { path: "agents", component: () => import("@/views/agents/index.vue"), meta: { title: "智能体列表", permission: "iqc:agent:view" } },
       { path: "agent-skills", component: () => import("@/views/agent-skills/index.vue"), meta: { title: "Skill 管理", permission: "iqc:skill:view" } },
@@ -43,13 +43,28 @@ const routes: RouteRecordRaw[] = [
 
 const router = createRouter({ history: createWebHistory(), routes });
 
+function takeOAuthReturnPath() {
+  const requestedPath = sessionStorage.getItem("iqc-oauth-return-to");
+  if (!requestedPath) return null;
+  sessionStorage.removeItem("iqc-oauth-return-to");
+  return requestedPath.startsWith("/") && !requestedPath.startsWith("//") ? requestedPath : null;
+}
+
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
   if (to.meta.public) {
-    if (to.path === "/login" && await auth.ensureAuthenticated()) return "/dashboard";
+    if (to.path === "/login" && await auth.ensureAuthenticated()) {
+      const redirect = typeof to.query.redirect === "string" && to.query.redirect.startsWith("/") && !to.query.redirect.startsWith("//")
+        ? to.query.redirect
+        : takeOAuthReturnPath() || "/dashboard";
+      takeOAuthReturnPath();
+      return redirect;
+    }
     return true;
   }
   if (!await auth.ensureAuthenticated()) return { path: "/login", query: { redirect: to.fullPath } };
+  const oauthReturnPath = takeOAuthReturnPath();
+  if (oauthReturnPath && oauthReturnPath !== to.fullPath) return oauthReturnPath;
   const requiredPermission = to.meta.permission as string | undefined;
   if (requiredPermission && auth.permissionsReady && !auth.permissions.includes(requiredPermission)) return "/403";
   return true;
