@@ -46,7 +46,12 @@ const router = createRouter({ history: createWebHistory(), routes });
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
   if (to.meta.public) {
-    if (to.path === "/login" && await auth.ensureAuthenticated()) return "/dashboard";
+    if (to.path === "/login" && await auth.ensureAuthenticated()) {
+      const redirect = typeof to.query.redirect === "string" && to.query.redirect.startsWith("/") && !to.query.redirect.startsWith("//")
+        ? to.query.redirect
+        : "/dashboard";
+      return redirect;
+    }
     return true;
   }
   if (!await auth.ensureAuthenticated()) return { path: "/login", query: { redirect: to.fullPath } };
