@@ -43,18 +43,28 @@ const routes: RouteRecordRaw[] = [
 
 const router = createRouter({ history: createWebHistory(), routes });
 
+function takeOAuthReturnPath() {
+  const requestedPath = sessionStorage.getItem("iqc-oauth-return-to");
+  if (!requestedPath) return null;
+  sessionStorage.removeItem("iqc-oauth-return-to");
+  return requestedPath.startsWith("/") && !requestedPath.startsWith("//") ? requestedPath : null;
+}
+
 router.beforeEach(async (to) => {
   const auth = useAuthStore();
   if (to.meta.public) {
     if (to.path === "/login" && await auth.ensureAuthenticated()) {
       const redirect = typeof to.query.redirect === "string" && to.query.redirect.startsWith("/") && !to.query.redirect.startsWith("//")
         ? to.query.redirect
-        : "/dashboard";
+        : takeOAuthReturnPath() || "/dashboard";
+      takeOAuthReturnPath();
       return redirect;
     }
     return true;
   }
   if (!await auth.ensureAuthenticated()) return { path: "/login", query: { redirect: to.fullPath } };
+  const oauthReturnPath = takeOAuthReturnPath();
+  if (oauthReturnPath && oauthReturnPath !== to.fullPath) return oauthReturnPath;
   const requiredPermission = to.meta.permission as string | undefined;
   if (requiredPermission && auth.permissionsReady && !auth.permissions.includes(requiredPermission)) return "/403";
   return true;

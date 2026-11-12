@@ -25,8 +25,10 @@ function enterPlatform() {
     ? "iqc-platform-local"
     : "iqc-platform");
   const requestedPath = typeof route.query.redirect === "string" && route.query.redirect.startsWith("/")
+    && !route.query.redirect.startsWith("//")
     ? route.query.redirect
     : "/dashboard";
+  sessionStorage.setItem("iqc-oauth-return-to", requestedPath);
   const state = encodeURIComponent(requestedPath);
   window.location.assign(`/oauth2/authorization/${registrationId}?state=${state}`);
 }
