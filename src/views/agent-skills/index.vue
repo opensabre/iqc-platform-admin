@@ -1,9 +1,16 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import AgentAssetUsage from "@/components/AgentAssetUsage.vue";
+import AgentAssetHistory from "@/components/AgentAssetHistory.vue";
+import { computed, onMounted, ref } from "vue";
 import { Modal, message } from "ant-design-vue";
 import { createSkill, disableSkill, enableSkill, listSkills, updateSkill, type IqcSkill, type IqcSkillRequest } from "@/api/config";
 import { usePermission } from "@/composables/permission";
 
+const search = ref("");
+const statusFilter = ref("");
+const filteredItems = computed(() => skills.value.filter(item =>
+  (!statusFilter.value || item.status === statusFilter.value) &&
+  `${item.name} ${item.code} ${item.description || ""}`.toLowerCase().includes(search.value.trim().toLowerCase())));
 const emptyForm = (): IqcSkillRequest => ({ name: "", code: "", description: "", instructions: "", inputSchemaJson: "", outputSchemaJson: "" });
 const skills = ref<IqcSkill[]>([]);
 const loading = ref(false);
@@ -48,14 +55,15 @@ onMounted(() => { void refresh(); });
 </script>
 
 <template>
-  <section class="page-intro"><div><span class="section-kicker">AGENT ASSETS</span><h2>Skill 管理</h2><p>集中维护可复用的专家指令和输入输出约束，Agent 创建时只选择已启用 Skill。</p></div><a-button v-if="can('iqc:skill:manage')" type="primary" @click="createNew">创建 Skill</a-button></section>
-  <a-card :bordered="false"><a-table :data-source="skills" :loading="loading" row-key="id" :pagination="{ pageSize: 10 }" :scroll="{ x: 900 }">
+  <section class="page-intro"><div><span class="section-kicker">AGENT ASSETS</span><h2>Skills 管理</h2><p>集中维护可复用的专家指令和输入输出约束，Agent 创建时只选择已启用 Skill。</p></div><a-button v-if="can('iqc:skill:manage')" type="primary" @click="createNew">创建 Skill</a-button></section>
+  <a-space style="margin-bottom:16px" wrap><a-input-search v-model:value="search" allow-clear placeholder="搜索名称、编码、说明"/><a-select v-model:value="statusFilter" style="width:160px"><a-select-option value="">全部状态</a-select-option><a-select-option value="ENABLED">启用</a-select-option><a-select-option value="DISABLED">停用</a-select-option></a-select></a-space>
+  <a-card :bordered="false"><a-table :data-source="filteredItems" :loading="loading" row-key="id" :pagination="{ pageSize: 10 }" :scroll="{ x: 900 }">
     <a-table-column title="名称" data-index="name" :width="180" />
     <a-table-column title="编码" data-index="code" :width="180" />
     <a-table-column title="说明" data-index="description" />
     <a-table-column title="版本" data-index="versionNo" :width="80" />
     <a-table-column title="状态" :width="90"><template #default="{ record }"><a-tag :color="record.status === 'ENABLED' ? 'green' : 'default'">{{ record.status === 'ENABLED' ? '启用' : '停用' }}</a-tag></template></a-table-column>
-    <a-table-column title="操作" :width="150" fixed="right"><template #default="{ record }"><a-button type="link" @click="edit(record)">查看<span v-if="can('iqc:skill:manage')">/编辑</span></a-button><a-button v-if="can('iqc:skill:manage')" type="link" :danger="record.status === 'ENABLED'" @click="changeStatus(record)">{{ record.status === "ENABLED" ? "停用" : "启用" }}</a-button></template></a-table-column>
+    <a-table-column title="操作" :width="150" fixed="right"><template #default="{ record }"><a-button type="link" @click="edit(record)">查看<span v-if="can('iqc:skill:manage')">/编辑</span></a-button><AgentAssetUsage :asset-id="record.id" kind="skill"/><AgentAssetHistory :asset-id="record.id" kind="skill" @changed="refresh"/><a-button v-if="can('iqc:skill:manage')" type="link" :danger="record.status === 'ENABLED'" @click="changeStatus(record)">{{ record.status === "ENABLED" ? "停用" : "启用" }}</a-button></template></a-table-column>
   </a-table></a-card>
   <a-modal v-model:open="modalOpen" :title="selected ? `编辑 Skill：${selected.name}` : '创建 Skill'" width="min(720px, calc(100vw - 32px))" :styles="{ body: { maxHeight: 'calc(100vh - 190px)', overflowY: 'auto' } }" :confirm-loading="saving" :ok-button-props="{ disabled: !can('iqc:skill:manage') }" @ok="save">
     <a-form layout="vertical"><a-row :gutter="16"><a-col :span="12"><a-form-item label="名称" required><a-input v-model:value="form.name" :disabled="!can('iqc:skill:manage')" /></a-form-item></a-col><a-col :span="12"><a-form-item label="编码" required><a-input v-model:value="form.code" :disabled="Boolean(selected) || !can('iqc:skill:manage')" placeholder="例如 COMPLIANCE_REVIEW" /></a-form-item></a-col></a-row>

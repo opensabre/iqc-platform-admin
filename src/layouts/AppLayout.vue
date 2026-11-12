@@ -39,9 +39,9 @@ const menuItems: MenuItem[] = [
   { key: "quality-operations", path: "/quality-operations", label: "质量运营", icon: CheckCircleOutlined, permission: "iqc:review:view" },
   { key: "agents", label: "智能体管理", icon: ClusterOutlined, children: [
     { key: "agents-list", path: "/agents", label: "智能体列表", permission: "iqc:agent:view" },
-    { key: "agent-models", path: "/agent-models", label: "模型配置", permission: "iqc:model:view" },
-    { key: "agent-mcps", path: "/agent-mcps", label: "MCP 管理", permission: "iqc:mcp:view" },
-    { key: "agent-skills", path: "/agent-skills", label: "Skill 管理", permission: "iqc:skill:view" },
+    { key: "agent-skills", path: "/agent-skills", label: "Skills 管理", permission: "iqc:skill:view" },
+    { key: "agent-models", path: "/agent-models", label: "模型管理", permission: "iqc:model:view" },
+    { key: "agent-mcps", path: "/agent-mcps", label: "MCP 工具管理", permission: "iqc:mcp:view" },
   ] },
   { key: "rules", label: "规则中心", icon: SettingOutlined, children: [
     { key: "rules-library", path: "/rules/library", label: "规则库", permission: "iqc:rule:view" },
@@ -59,7 +59,7 @@ const routePaths = new Set(router.getRoutes().map((record) => `/${String(record.
 const canonicalLabels: Record<string, string> = {
   "/dashboard": "睿检总览", "/profile": "个人中心", "/conversations/api": "接口对接", "/conversations/list": "会话列表", "/conversations/upload": "文本上传",
   "/tasks": "任务中心", "/labels/tree": "标签树", "/labels/collections": "标签集合", "/labels/candidates": "候选标签", "/results": "结果中心", "/agents": "智能体列表", "/agent-models": "模型配置",
-  "/agent-mcps": "MCP 管理", "/agent-skills": "Skill 管理", "/rules/library": "规则库", "/rules/conversation": "会话规则",
+  "/agent-mcps": "MCP 工具管理", "/agent-skills": "Skills 管理", "/rules/library": "规则库", "/rules/conversation": "会话规则",
   "/rules/sets": "规则集", "/rules/test-center": "测试中心", "/rules/approvals": "审批与发布",
   "/templates": "模板中心", "/settings": "系统设置", "/audit-logs": "操作日志",
 };
@@ -81,7 +81,11 @@ function fromAuthorized(item: AuthorizedMenu): MenuItem | null {
   const path = localPath(item.href);
   const isMenu = item.type === "MENU" || children.length > 0;
   if (!isMenu || (!path && children.length === 0)) return null;
-  return { key: String(item.id ?? item.href ?? item.name), path, label: (path && canonicalLabels[path]) || item.name || "未命名菜单", icon: iconMap[item.icon || ""], permission: menuPermission(item), children: children.length ? children : undefined };
+  if (children.some(child => ["/agents", "/agent-skills", "/agent-models", "/agent-mcps"].includes(child.path || ""))) {
+    const order = ["/agents", "/agent-skills", "/agent-models", "/agent-mcps"];
+    children.sort((a,b) => (order.indexOf(a.path || "") < 0 ? 99 : order.indexOf(a.path || "")) - (order.indexOf(b.path || "") < 0 ? 99 : order.indexOf(b.path || "")));
+  }
+  return { key: String(item.id ?? item.href ?? item.name), path, label: (children.some(child => ["/agents", "/agent-skills", "/agent-models", "/agent-mcps"].includes(child.path || "")) ? "智能体管理" : undefined) || (path && canonicalLabels[path]) || item.name || "未命名菜单", icon: iconMap[item.icon || ""], permission: menuPermission(item), children: children.length ? children : undefined };
 }
 function dynamicMenuItems() {
   const iqcRoot = auth.menus.find((item) => item.href === "/iqc" || item.name === "IQC 质检平台");
