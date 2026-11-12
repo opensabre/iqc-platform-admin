@@ -24,7 +24,11 @@ function enterPlatform() {
   const registrationId = configuredRegistrationId || (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1"
     ? "iqc-platform-local"
     : "iqc-platform");
-  window.location.assign(`/oauth2/authorization/${registrationId}`);
+  const requestedPath = typeof route.query.redirect === "string" && route.query.redirect.startsWith("/")
+    ? route.query.redirect
+    : "/dashboard";
+  const state = encodeURIComponent(requestedPath);
+  window.location.assign(`/oauth2/authorization/${registrationId}?state=${state}`);
 }
 </script>
 
