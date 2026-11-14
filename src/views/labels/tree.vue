@@ -217,8 +217,8 @@ async function save() {
       };
       if (editId.value) await reviseLabelGroup(editId.value, payload); else await createLabelGroup(payload);
     } else {
-      if (!form.value.parentId || !form.value.ruleIds.length)
-        throw new Error("请选择标签群组和规则");
+      if (!form.value.parentId)
+        throw new Error("请选择标签群组");
       validateRuleBindings(form.value.ruleIds, publishedRules.value);
       if (locatableRules.value.some(rule => {
         const draft = hitMappings.value[rule.id];
@@ -433,7 +433,7 @@ onMounted(refresh);
               :disabled="!form.ruleIds.includes(rule.id) && rules.some(selectedRule => form.ruleIds.includes(selectedRule.id) && selectedRule.ruleType.toUpperCase() === rule.ruleType.toUpperCase())"
               >{{ rule.name }} · {{ rule.ruleType }}</a-select-option
             ></a-select
-          ><div>每种规则类型最多选择一条；同一规则可被多个标签复用。</div></a-form-item
+          ><div>每种规则类型最多选择一条；清空选择可解除全部绑定并保存草稿。发布前至少需绑定一条已发布规则。</div></a-form-item
         ><a-form-item label="标签值"
           ><LabelValueEditor v-model="form.values" /></a-form-item
         ><a-form-item v-if="locatableRules.length" label="普通规则命中值映射（联合标签）">
