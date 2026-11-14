@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { isAxiosError } from "axios";
-import { createTask, type InspectionTask, type TaskDataSelection, type TaskEngineConfiguration, type TaskResultProcessingConfiguration } from "@/api/tasks";
+import { createUnifiedTask, type UnifiedTagConfiguration, createTask, type InspectionTask, type TaskDataSelection, type TaskEngineConfiguration, type TaskResultProcessingConfiguration } from "@/api/tasks";
 import type { QualityAgent, QualityRule } from "@/api/config";
 import { getLabelDetail, type LabelDetail } from "@/api/labels";
+import UnifiedTagConfigurationEditor from "./UnifiedTagConfiguration.vue";
 import TaskDataSelector from "./TaskDataSelector.vue";
 import TaskEngineSelector from "./TaskEngineSelector.vue";
 import TaskResultProcessingEditor from "./TaskResultProcessingEditor.vue";
@@ -11,6 +12,14 @@ import { resultTargets, type ResultTarget } from "./task-result-policy";
 
 const props = defineProps<{ agents: QualityAgent[]; rules: QualityRule[]; labelingTargets: ResultTarget[] }>();
 const emit = defineEmits<{ cancel: []; created: [task: InspectionTask] }>();
+const unifiedMode = ref(false);
+const unified = ref<UnifiedTagConfiguration>({ engineSequence:["REGEX","DLS","LLM"], tagSelectionMode:"SELECTED", selectedTagIds:[] });
+function validateUnified() {
+  if (!unified.value.engineSequence.length) { error.value = "请选择至少一种执行引擎"; return false; }
+  if (unified.value.tagSelectionMode === "SELECTED" && (!unified.value.selectedTagIds.length || unified.value.selectedTagIds.length > 500)) { error.value = "请选择 1–500 个标签"; return false; }
+  if (unified.value.engineSequence.includes("LLM") && !unified.value.agentId) { error.value = "请选择 LLM 智能体配置"; return false; }
+  return true;
+}
 const step = ref(0), name = ref(""), concurrency = ref(1), saving = ref(false), error = ref("");
 const steps = ["数据筛选", "任务类型", "结果处理", "任务确认"].map(title => ({ title }));
 const selection = ref<TaskDataSelection>({ mode: "BATCH", conversationIds: [] });
@@ -78,23 +87,24 @@ function validateResults() {
 function next() {
   error.value = "";
   if (step.value === 0 && !validateData()) return;
-  if (step.value === 1 && !engineEditor.value?.validate()) { error.value = "请完成质检或打标的引擎配置"; return; }
-  if (step.value === 2 && !validateResults()) return;
+  if (step.value === 1 && !(unifiedMode.value ? validateUnified() : engineEditor.value?.validate())) { error.value = "请完成质检或打标的引擎配置"; return; }
+  if (step.value === 2 && !unifiedMode.value && !validateResults()) return;
   step.value++;
 }
 async function submit() {
   if (saving.value || submissionUncertain.value) return;
   error.value = "";
   if (!validateData()) { step.value = 0; return; }
-  if (!engineEditor.value?.validate()) { step.value = 1; return; }
-  if (!validateResults()) { step.value = 2; return; }
+  if (!(unifiedMode.value ? validateUnified() : engineEditor.value?.validate())) { step.value = 1; return; }
+  if (!unifiedMode.value && !validateResults()) { step.value = 2; return; }
   if (!name.value.trim() || name.value.trim().length > 80 || !Number.isInteger(concurrency.value) || concurrency.value < 1 || concurrency.value > 32) {
     error.value = "请填写任务名称（1–80 字），并将并发数设置为 1–32"; return;
   }
   saving.value = true;
   try {
     const { sampleSeed: _previewSeed, ...dataSelection } = selection.value;
-    const task = await createTask({ name: name.value.trim(), dataSelection, processingConfiguration: engines.value,
+    const task = unifiedMode.value ? await createUnifiedTask({ name:name.value.trim(), dataSelection,
+      configuration: unified.value, concurrencyLimit:concurrency.value }) : await createTask({ name: name.value.trim(), dataSelection, processingConfiguration: engines.value,
       resultProcessing: resultConfig.value!, concurrencyLimit: concurrency.value });
     emit("created", task);
   } catch (failure) {
@@ -119,6 +129,11 @@ function mappingSummary(op: "inspection" | "labeling", instance: string) {
     <a-steps :current="step" :items="steps" size="small" class="wizard-steps" />
     <div v-show="step === 0"><TaskDataSelector v-model="selection" :disabled="saving" /></div>
     <div v-show="step === 1">
+      <a-form layout="vertical"><a-form-item label="配置方式"><a-radio-group v-model:value="unifiedMode" :disabled="saving">
+        <a-radio :value="false">现有任务配置</a-radio><a-radio :value="true">统一标签识别 MVP</a-radio>
+      </a-radio-group></a-form-item></a-form>
+      <UnifiedTagConfigurationEditor v-if="unifiedMode" v-model="unified" :targets="labelingTargets" :agents="agents" :disabled="saving" />
+      <div v-show="!unifiedMode">
       <a-form layout="vertical"><a-form-item label="本任务的质检项"><a-space wrap>
         <a-input v-model:value="newCheck" :maxlength="64" placeholder="例如：服务用语规范" @press-enter="addCheck" />
         <a-button :disabled="saving" @click="addCheck">添加质检项</a-button>
@@ -126,26 +141,33 @@ function mappingSummary(op: "inspection" | "labeling", instance: string) {
         <a-tag v-for="check in checks" :key="check.value" :closable="!saving" @close="removeCheck(check.value)">{{ check.label }}</a-tag>
       </a-form-item></a-form>
       <TaskEngineSelector ref="engineEditor" v-model="engines" :rules="rules" :agents="agents" :inspection-targets="checks" :labeling-targets="labelingTargets" :disabled="saving" />
+      </div>
     </div>
     <div v-show="step === 2">
+      <a-alert v-if="unifiedMode" type="info" show-icon message="保留完整匹配结果，业务处置待确认"
+        description="每个引擎的命中、未命中、错误和跳过独立保存。MVP 不自动形成正式标签、合并冲突或扣分；结果中明确显示待处置。" />
+      <div v-show="!unifiedMode">
       <a-alert v-if="labelErrors.length" type="error" show-icon :message="`标签值定义加载失败：${labelErrors.join('、')}`"><template #action><a-button @click="loadLabels">重试</a-button></template></a-alert>
       <a-spin :spinning="loadingLabels"><TaskResultProcessingEditor ref="resultEditor" :engines="engines" :inspection-targets="checks" :labeling-targets="labelingTargets" :labels="labels" :disabled="saving || loadingLabels" /></a-spin>
+      </div>
     </div>
     <div v-show="step === 3">
+      <a-alert v-if="unifiedMode" type="info" show-icon :message="`统一标签识别 · ${unified.engineSequence.join(' → ')}`"
+        :description="`${unified.tagSelectionMode === 'ALL' ? '全部可用标签（执行时冻结）' : `选择 ${unified.selectedTagIds.length} 个标签`}；匹配结果保留，业务处置待确认`" />
       <a-form layout="vertical"><a-form-item label="任务名称" required><a-input v-model:value="name" :disabled="saving" :maxlength="80" placeholder="请输入任务名称" /></a-form-item>
         <a-form-item label="并发会话数" required><a-input-number v-model:value="concurrency" :disabled="saving" :min="1" :max="32" :precision="0" /></a-form-item></a-form>
       <h3>数据筛选</h3><p>{{ dataSummary }}</p><p v-for="condition in conditions" :key="condition" class="muted">{{ condition }}</p>
       <p v-if="selection.mode !== 'BATCH'" class="muted">{{ conditions.length ? '' : '未限制筛选范围；' }}执行时确定名单，数据不足时有多少处理多少。</p>
-      <section v-for="op in (['inspection','labeling'] as const).filter(op => engines[op])" :key="op" class="confirmation-section">
+      <section v-for="op in (['inspection','labeling'] as const).filter(op => !unifiedMode && engines[op])" :key="op" class="confirmation-section">
         <h3>{{ op === 'inspection' ? '质检' : '打标' }} · 引擎执行顺序</h3>
         <ol><li v-for="engine in engines[op]!.engines" :key="engine.id">{{ engine.name || engine.id }} · {{ engine.type }} · {{ targetName(op, engine.parameters.targetId) }} · {{ rules.find(rule => rule.id === engine.parameters.ruleId)?.name }}
           <span v-if="engine.type === 'LLM'"> · {{ agents.find(agent => agent.id === engine.parameters.agentId)?.name }} · 温度 {{ engine.parameters.temperature }} · 超时 {{ engine.parameters.timeoutSeconds }} 秒</span><p v-if="engine.type === 'LLM'" class="muted">{{ engine.parameters.prompt }}</p><p class="muted">{{ mappingSummary(op, engine.id) }}</p></li></ol>
       </section>
       <h3>结果处理</h3>
-      <template v-if="resultConfig?.inspection"><p>{{ resultConfig.inspection.scoring.mode === 'DEDUCTION' ? '扣分制' : '得分制（加权百分制）' }} · 基础分 {{ resultConfig.inspection.scoring.baseScore }} · 及格线 {{ resultConfig.inspection.scoring.passingScore }}</p>
+      <template v-if="!unifiedMode && resultConfig?.inspection"><p>{{ resultConfig.inspection.scoring.mode === 'DEDUCTION' ? '扣分制' : '得分制（加权百分制）' }} · 基础分 {{ resultConfig.inspection.scoring.baseScore }} · 及格线 {{ resultConfig.inspection.scoring.passingScore }}</p>
         <p v-for="item in resultConfig.inspection.scoring.items" :key="item.itemCode">{{ targetName('inspection', item.itemCode) }}：{{ item.points }} 分{{ item.veto ? '，不通过时总分为零' : '' }}</p></template>
-      <p v-for="label in resultConfig?.labeling" :key="label.targetId">{{ targetName('labeling', label.targetId) }} · {{ label.valueCode }} · {{ label.valueType }}</p>
-      <a-alert type="info" show-icon message="全部引擎原始结果及证据保留。按已选一致性规则处理冲突和未知；引擎失败记录原因并继续。创建后可在任务列表执行。" />
+      <p v-for="label in (!unifiedMode ? resultConfig?.labeling : [])" :key="label.targetId">{{ targetName('labeling', label.targetId) }} · {{ label.valueCode }} · {{ label.valueType }}</p>
+      <a-alert v-if="!unifiedMode" type="info" show-icon message="全部引擎原始结果及证据保留。按已选一致性规则处理冲突和未知；引擎失败记录原因并继续。创建后可在任务列表执行。" />
     </div>
     <a-alert v-if="error" type="error" show-icon :message="error" role="alert" class="wizard-error" />
     <template #footer><a-button :disabled="saving" @click="emit('cancel')">取消</a-button><a-button v-if="step > 0" :disabled="saving" @click="step--; error = ''">上一步</a-button>

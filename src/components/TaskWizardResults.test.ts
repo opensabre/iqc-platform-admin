@@ -61,6 +61,23 @@ describe("wizard result presentation", () => {
     expect(root.textContent).toContain("yes：false");
     expect(root.textContent).not.toContain("最终评分");
   });
+  it("shows unified stages and pending policy without a final label or score", async () => {
+    const data = fixture();
+    const config = {enginePlan:{engines:[{operation:"LABELING"}]},unifiedLabels:{labels:[{id:"label1",name:"是否退款"}]}};
+    data.engineResultSet!.taskConfiguration = config;
+    const engine = data.engineResultSet!.engines[0]!;
+    engine.configuration = {schemaVersion:"iqc-unified-tags-v1"};
+    engine.rawOutput = JSON.stringify({metadata:{applicableTagCount:2,pendingTagCount:1,filteredTagCount:1,elapsedMs:5,modelCalled:false}});
+    data.engineResultSet!.engines = [engine];
+    data.processedResult!.output = {labels:[],processingStatus:"PENDING_POLICY",reason:"匹配已保存；正式标签与扣分策略待确认"};
+    vi.mocked(getResultHierarchy).mockResolvedValue(data);
+    mount({task:{...task,ruleSnapshotJson:JSON.stringify(config)}});await settle();
+    expect(root.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("引擎记录");
+    expect(root.textContent).toContain("正式标签与扣分策略待确认");
+    expect(root.textContent).toContain("适用标签 2 个");
+    expect(root.textContent).toContain("已过滤 1 个");
+    expect(root.textContent).not.toContain("最终评分");
+  });
   it("switches between old and successful executions through the history selector", async () => {
     const previous = fixture();
     const latest = fixture();

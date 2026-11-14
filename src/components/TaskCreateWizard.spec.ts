@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, defineComponent, h, nextTick, type App } from "vue";
 import { AxiosError } from "axios";
-import { createTask } from "@/api/tasks";
+import { createTask, createUnifiedTask } from "@/api/tasks";
 import { getLabelDetail } from "@/api/labels";
 import TaskCreateWizard from "./TaskCreateWizard.vue";
 
-vi.mock("@/api/tasks", () => ({ createTask: vi.fn() }));
+vi.mock("@/api/tasks", () => ({ createTask: vi.fn(), createUnifiedTask: vi.fn() }));
 vi.mock("@/api/labels", () => ({ getLabelDetail: vi.fn() }));
 vi.mock("./TaskDataSelector.vue", async () => {
   const { defineComponent, h } = await import("vue");
@@ -20,6 +20,12 @@ vi.mock("./TaskEngineSelector.vue", async () => {
     return () => h("button", { onClick: () => emit("update:modelValue", { schemaVersion: "iqc-task-processing-v1",
       inspection: { engines: [{ id: "quality", type: "REGEX", parameters: { targetId: "check", ruleId: "rule" } }] },
       labeling: { engines: [{ id: "tag", type: "DLS", parameters: { targetId: "label", ruleId: "dls" } }] } }) }, "配置联合任务");
+  } }) };
+});
+vi.mock("./UnifiedTagConfiguration.vue", async () => {
+  const { defineComponent, h } = await import("vue");
+  return { default: defineComponent({ emits:["update:modelValue"], setup(_, { emit }) {
+    return () => h("button", { onClick:() => emit("update:modelValue", { engineSequence:["DLS","REGEX"], tagSelectionMode:"SELECTED", selectedTagIds:["label"] }) }, "配置统一标签");
   } }) };
 });
 vi.mock("./TaskResultProcessingEditor.vue", async () => {
@@ -37,6 +43,10 @@ function mount() {
   app = createApp({ render: () => h(TaskCreateWizard, { agents: [], rules: [], labelingTargets: [{ value: "label", label: "客户意向" }], onCreated: created }) });
   const pass = defineComponent({ setup(_, { slots }) { return () => h("div", [slots.default?.(), slots.footer?.()]); } });
   for (const name of ["AModal", "AForm", "AFormItem", "ASpace", "ARow", "ACol", "ASpin", "ATag"]) app.component(name, pass);
+  app.component("ARadio", pass);
+  app.component("ARadioGroup", defineComponent({ emits:["update:value"], setup(_, { emit, slots }) {
+    return () => h("div", [slots.default?.(), h("button", { onClick:() => emit("update:value", true) }, "切换统一模式")]);
+  } }));
   app.component("AButton", defineComponent({ setup(_, { attrs, slots }) { return () => h("button", attrs, slots.default?.()); } }));
   app.component("ASteps", defineComponent({ props: ["items", "current"], setup(props) {
     return () => h("nav", { "data-step": props.current }, props.items.map((item: { title: string }) => item.title).join(" / "));
@@ -62,6 +72,20 @@ beforeEach(() => {
 });
 afterEach(() => { app?.unmount(); host?.remove(); });
 describe("four-step task creation", () => {
+  it("submits unified bindings and order without a scoring or conflict policy", async () => {
+    vi.mocked(createUnifiedTask).mockResolvedValue({id:"unified"} as any);
+    mount(); click("选择抽样条件"); await settle(); click("下一步"); await settle();
+    click("切换统一模式"); await settle(); click("配置统一标签"); await settle();
+    click("下一步"); await settle(); click("下一步"); await settle();
+    const input = host.querySelector<HTMLInputElement>('input[placeholder="请输入任务名称"]')!;
+    input.value = "统一识别"; input.dispatchEvent(new Event("input")); await settle();
+    click("创建任务"); await settle();
+    expect(createUnifiedTask).toHaveBeenCalledWith({name:"统一识别",concurrencyLimit:1,
+      dataSelection:{mode:"RANDOM",filter:{channel:"WEB"},sampleSize:30},
+      configuration:{engineSequence:["DLS","REGEX"],tagSelectionMode:"SELECTED",selectedTagIds:["label"]}});
+    expect(createTask).not.toHaveBeenCalled();
+    expect(created).toHaveBeenCalledWith({id:"unified"});
+  });
   it("uses the approved names, validates each step, and submits separate operation/result policies without freezing preview sampling", async () => {
     mount(); await settle();
     expect(host.querySelector("nav")!.textContent).toBe("数据筛选 / 任务类型 / 结果处理 / 任务确认");

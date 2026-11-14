@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import LabelActionBindings from "@/components/LabelActionBindings.vue";
+import { validateRuleBindings } from "./rule-bindings";
 import { message, Modal } from "ant-design-vue";
 import {
   createInsightLabel,
@@ -217,6 +219,7 @@ async function save() {
     } else {
       if (!form.value.parentId || !form.value.ruleIds.length)
         throw new Error("请选择标签群组和规则");
+      validateRuleBindings(form.value.ruleIds, publishedRules.value);
       if (locatableRules.value.some(rule => {
         const draft = hitMappings.value[rule.id];
         const saved = mappedValue(rule.id);
@@ -328,7 +331,7 @@ onMounted(refresh);
               )
               .join("、") || "无"
           }}</a-descriptions-item></a-descriptions
-        ><a-button
+        ><LabelActionBindings v-if="selected" :key="selected.id" :label-id="selected.id" :editable="can('iqc:label:manage')" @changed="refresh" /><a-button
           v-if="selected?.status === 'DRAFT' && can('iqc:label:approve')"
           type="primary"
           style="margin-top: 16px"
@@ -427,9 +430,10 @@ onMounted(refresh);
               :key="rule.id"
               :value="rule.id"
               :label="rule.name"
+              :disabled="!form.ruleIds.includes(rule.id) && rules.some(selectedRule => form.ruleIds.includes(selectedRule.id) && selectedRule.ruleType.toUpperCase() === rule.ruleType.toUpperCase())"
               >{{ rule.name }} · {{ rule.ruleType }}</a-select-option
             ></a-select
-          ></a-form-item
+          ><div>每种规则类型最多选择一条；同一规则可被多个标签复用。</div></a-form-item
         ><a-form-item label="标签值"
           ><LabelValueEditor v-model="form.values" /></a-form-item
         ><a-form-item v-if="locatableRules.length" label="普通规则命中值映射（联合标签）">

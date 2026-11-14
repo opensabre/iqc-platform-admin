@@ -42,15 +42,15 @@ export async function getConversationResults(conversationId:string){const {data}
 export interface TaskEngineResultSet {
   resultSetId:string; taskId:string; executionId:string; conversationId:string;
   input:{snapshotId:string;messages:Array<{messageId:string;sequence:number;speakerRole:string;relativeTime:string;content:string}>};
-  taskConfiguration:{enginePlan:{engines:Array<{operation:string}>};resultProcessing:{labelSnapshot:{labels?:Array<{id:string;name:string}>}|null}};
+  taskConfiguration:{enginePlan:{engines:Array<{operation:string}>};resultProcessing?:{labelSnapshot:{labels?:Array<{id:string;name:string}>}|null};unifiedLabels?:{labels?:Array<{id:string;name:string}>}};
   engines:TaskEngineResult[];
 }
 export interface TaskEngineResult {
   engineResultId:string;operation:"INSPECTION"|"LABELING";engineInstanceId:string;engineType:string;sequence:number;
-  status:"SUCCEEDED"|"FAILED"|"SKIPPED";startedAt:string|number;finishedAt:string|number;configuration:{engineName?:string;[key:string]:unknown};
+  status:"SUCCEEDED"|"PARTIAL_SUCCESS"|"FAILED"|"SKIPPED";startedAt:string|number;finishedAt:string|number;configuration:{engineName?:string;[key:string]:unknown};
   rawOutput:string|null;failure?:{code:string;message:string}|null;
   observations:Array<{targetId:string;status:string;value:unknown;reason?:string;evidenceIds:string[]}>;
   evidence:Array<{evidenceId:string;messageId:string;start:number;end:number;quote:string}>;
 }
 export interface TaskProcessedItem {targetId:string;valueCode?:string;valueType?:string;status:string;value?:unknown;candidates:Array<{sourceEngineResultId?:string;engineInstanceId:string;status:string;mappedValue?:unknown;evidenceIds?:string[];reason?:string;failure?:{code:string;message:string}}>}
-export interface TaskProcessedResult {sourceResultSetId:string;sourceEngineResultIds:string[];output:{inspectionItems?:TaskProcessedItem[];labels:TaskProcessedItem[];scoring?:BusinessScoringResult}}
+export interface TaskProcessedResult {sourceResultSetId:string;sourceEngineResultIds:string[];output:{processingStatus?:string;reason?:string;actionStatuses?:Array<{tagId:string;status:string;reason:string;action:{actionId:string;name:string;versionNo:number;type:string}}>;inspectionItems?:TaskProcessedItem[];labels:TaskProcessedItem[];scoring?:BusinessScoringResult}}

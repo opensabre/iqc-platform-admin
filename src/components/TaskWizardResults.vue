@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { getResultHierarchy, type BatchResultSummary, type ResultHierarchy, type TaskProcessedItem } from "@/api/results";
+import { getResultHierarchy, type BatchResultSummary, type ResultHierarchy, type TaskProcessedItem, type TaskEngineResult } from "@/api/results";
 import { listTaskExecutions, type InspectionTask, type TaskExecutionSummary } from "@/api/tasks";
 const props = defineProps<{summary:BatchResultSummary;task:InspectionTask}>();
 const conversationId = ref<string>(), executionId = ref<string>(), tab = ref("inspection");
@@ -17,11 +17,18 @@ const labelingEnabled = computed(() => {
   try { return JSON.parse(props.task.ruleSnapshotJson || "{}").enginePlan.engines.some((engine:{operation:string}) => engine.operation === "LABELING"); }
   catch { return false; }
 });
+const unifiedEnabled = computed(() => {
+  try { return Boolean(JSON.parse(props.task.ruleSnapshotJson || "{}").unifiedLabels); } catch { return false; }
+});
 const score = computed(() => output.value?.scoring);
 const engines = computed(() => [...raw.value?.engines || []].sort((a,b) => a.operation.localeCompare(b.operation) || a.sequence-b.sequence));
-function labelName(id:string) { return raw.value?.taskConfiguration.resultProcessing.labelSnapshot?.labels?.find(label => label.id === id)?.name || id; }
+function labelName(id:string) { const config = raw.value?.taskConfiguration; return (config?.unifiedLabels?.labels || config?.resultProcessing?.labelSnapshot?.labels)?.find(label => label.id === id)?.name || id; }
+function stageDetails(engine: TaskEngineResult): { metadata?: {applicableTagCount:number;pendingTagCount:number;filteredTagCount:number;modelCalled:boolean;elapsedMs:number;provider?:{inputTokens?:number;outputTokens?:number}} } {
+  if (engine.configuration.schemaVersion !== "iqc-unified-tags-v1" || !engine.rawOutput) return {};
+  try { return JSON.parse(engine.rawOutput); } catch { return {}; }
+}
 function display(value:unknown):string { return value === undefined || value === null ? "未知" : typeof value === "object" ? JSON.stringify(value) : String(value); }
-function state(value:string) { return ({KNOWN:"已确定",CONFLICT:"冲突",UNKNOWN:"未知",ERROR:"错误",SUCCEEDED:"成功",FAILED:"失败",SKIPPED:"已跳过",MISSING:"无结果",DETERMINED:"已判断",INVALID:"无效"} as Record<string,string>)[value] || value; }
+function state(value:string) { return ({KNOWN:"已确定",CONFLICT:"冲突",UNKNOWN:"未知",ERROR:"错误",SUCCEEDED:"成功",FAILED:"失败",PARTIAL_SUCCESS:"部分失败",MATCHED:"命中",NOT_MATCHED:"未命中",SKIPPED:"已跳过",MISSING:"无结果",DETERMINED:"已判断",INVALID:"无效"} as Record<string,string>)[value] || value; }
 function judgment(item:TaskProcessedItem) { return item.status !== "KNOWN" ? state(item.status) : item.value === "PASS" ? "通过" : item.value === "FAIL" ? "不通过" : display(item.value); }
 function contribution(id:string) { if (!score.value) return "待确认"; const line = score.value?.lines.find(line => line.itemCode === id); return !line ? "不计分" : line.contribution == null ? "待确认" : `${score.value?.mode === 'DEDUCTION' ? '扣' : '得'} ${line.contribution} 分${line.vetoTriggered ? '（一票否决）' : ''}`; }
 function engineName(candidate:TaskProcessedItem["candidates"][number]) {
@@ -47,7 +54,7 @@ watch(() => props.task.id, async id => {
   try { const rows = await listTaskExecutions(id); if (props.task.id === id) executions.value = rows; }
   catch { if (props.task.id === id) historyError.value = true; }
 }, {immediate:true});
-watch(() => props.summary, summary => { conversationId.value = summary.conversations[0]?.conversationId; executionId.value = undefined; tab.value = inspectionEnabled.value ? "inspection" : labelingEnabled.value ? "labels" : "trace"; }, {immediate:true});
+watch(() => props.summary, summary => { conversationId.value = summary.conversations[0]?.conversationId; executionId.value = undefined; tab.value = unifiedEnabled.value ? "trace" : inspectionEnabled.value ? "inspection" : labelingEnabled.value ? "labels" : "trace"; }, {immediate:true});
 watch([conversationId, executionId], load, {immediate:true});
 onBeforeUnmount(() => { generation++; });
 </script>
@@ -66,7 +73,9 @@ onBeforeUnmount(() => { generation++; });
         <template v-else>
           <p class="source">来源执行：{{ hierarchy?.executionId }} · 输入消息 {{ raw.input.messages.length }} 条</p>
           <a-alert v-if="!output" type="info" show-icon message="结果处理尚未完成，以下保留已保存的引擎记录。" />
-          <a-alert v-if="engines.some(engine => engine.status === 'FAILED')" type="warning" show-icon message="存在引擎失败，原始记录已保留，请结合处理结果查看。" />
+          <a-alert v-if="engines.some(engine => engine.status === 'FAILED' || engine.status === 'PARTIAL_SUCCESS')" type="warning" show-icon message="存在引擎失败，原始记录已保留，请结合处理结果查看。" />
+          <a-alert v-if="output?.processingStatus" type="info" show-icon message="匹配结果已保存，业务处置待确认" :description="output.reason" />
+          <p v-for="entry in output?.actionStatuses || []" :key="`${entry.tagId}:${entry.action.actionId}`">{{ labelName(entry.tagId) }} · {{ entry.action.name }} V{{ entry.action.versionNo }}：{{ entry.reason }}</p>
           <a-tabs v-model:activeKey="tab">
             <a-tab-pane v-if="inspectionEnabled" key="inspection" tab="质检评分">
               <a-statistic v-if="score?.scoreStatus === 'FINAL' && score.finalScore != null" title="最终评分" :value="score.finalScore" :precision="2" suffix="分" />
@@ -81,7 +90,7 @@ onBeforeUnmount(() => { generation++; });
               </article>
             </a-tab-pane>
             <a-tab-pane v-if="labelingEnabled" key="labels" tab="打标标签">
-              <a-empty v-if="!output?.labels.length" description="尚无打标处理结果" />
+              <a-empty v-if="!output?.labels?.length" description="尚无打标处理结果" />
               <article v-for="item in output?.labels || []" :key="`${item.targetId}:${item.valueCode}`" class="result-item">
                 <h3>{{ labelName(item.targetId) }} <a-tag>{{ state(item.status) }}</a-tag></h3>
                 <p>{{ item.valueCode }}：{{ item.status === 'KNOWN' ? display(item.value) : state(item.status) }}</p>
@@ -96,8 +105,9 @@ onBeforeUnmount(() => { generation++; });
               <a-empty v-if="!engines.length" description="已固定输入，等待引擎执行" />
               <article v-for="engine in engines" :key="engine.engineResultId" class="result-item">
                 <h3>{{ engine.operation === 'INSPECTION' ? '质检' : '打标' }} · {{ engine.sequence }}. {{ engine.configuration.engineName || engine.engineInstanceId }} · {{ engine.engineType }} <a-tag :color="engine.status === 'FAILED' ? 'error' : engine.status === 'SUCCEEDED' ? 'success' : 'default'">{{ state(engine.status) }}</a-tag></h3>
-                <small>{{ engine.engineInstanceId }}</small><p v-if="engine.failure">{{ engine.failure.code }}：{{ engine.failure.message }}</p>
-                <p v-for="(observation,index) in engine.observations" :key="index">{{ observation.targetId }} · {{ state(observation.status) }} · {{ display(observation.value) }}<span v-if="observation.reason"> · {{ observation.reason }}</span></p>
+                <small>{{ engine.engineInstanceId }}</small>
+                <p v-if="stageDetails(engine).metadata">适用标签 {{ stageDetails(engine).metadata?.applicableTagCount }} 个 · 待分析 {{ stageDetails(engine).metadata?.pendingTagCount }} 个 · 已过滤 {{ stageDetails(engine).metadata?.filteredTagCount }} 个 · {{ stageDetails(engine).metadata?.elapsedMs }} ms<span v-if="engine.engineType === 'LLM'"> · 模型{{ stageDetails(engine).metadata?.modelCalled ? '已调用' : '未调用' }}</span><span v-if="stageDetails(engine).metadata?.provider?.inputTokens != null"> · 输入 {{ stageDetails(engine).metadata?.provider?.inputTokens }} / 输出 {{ stageDetails(engine).metadata?.provider?.outputTokens ?? '未知' }} Token</span></p><p v-if="engine.failure">{{ engine.failure.code }}：{{ engine.failure.message }}</p>
+                <p v-for="(observation,index) in engine.observations" :key="index">{{ labelName(observation.targetId) }} · {{ state(observation.status) }} · {{ display(observation.value) }}<span v-if="observation.reason"> · {{ observation.reason }}</span></p>
                 <blockquote v-for="quote in engine.evidence" :key="quote.evidenceId">{{ quote.messageId }}（{{ quote.start }}–{{ quote.end }}）：“{{ quote.quote }}”</blockquote>
                 <details><summary>原始输出</summary><pre>{{ engine.rawOutput ?? '未记录原始输出' }}</pre></details>
                 <details><summary>本次引擎配置</summary><pre>{{ JSON.stringify(engine.configuration,null,2) }}</pre></details>

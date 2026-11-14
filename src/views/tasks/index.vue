@@ -107,8 +107,8 @@ const wizardDetail = computed(() => {
   const snapshot = parseSnapshot<TaskWizardSnapshot>(detail.value?.ruleSnapshotJson);
   return snapshot?.schemaVersion === "iqc-task-wizard-v1" ? snapshot : undefined;
 });
-function frozenTargetName(targetId: string) {
-  return wizardDetail.value?.resultProcessing.labelSnapshot?.labels.find(label => label.id === targetId)?.name || targetId;
+function frozenTargetName(targetId?: string) {
+  return (wizardDetail.value?.unifiedLabels?.labels || wizardDetail.value?.resultProcessing?.labelSnapshot?.labels)?.find(label => label.id === targetId)?.name || targetId;
 }
 const detailAgentConfig = computed(() =>
   parseSnapshot<TaskAgentConfigSnapshot>(detailAgent.value?.configJson)
@@ -626,18 +626,19 @@ onBeforeUnmount(() => {
         <section v-for="operation in (['INSPECTION','LABELING'] as const).filter(op => wizardDetail!.enginePlan.engines.some(engine => engine.operation === op))" :key="operation">
           <h3>{{ operation === 'INSPECTION' ? '质检' : '打标' }}</h3>
           <ol><li v-for="engine in wizardDetail.enginePlan.engines.filter(engine => engine.operation === operation)" :key="engine.instanceId">
-            {{ engine.configuration.engineName || engine.instanceId }} · {{ engine.type }} · {{ frozenTargetName(engine.configuration.targetId) }} · {{ engine.configuration.rule.name }} · V{{ engine.configuration.rule.versionNo }}
+            {{ engine.configuration.engineName || engine.instanceId }} · {{ engine.type }} · {{ frozenTargetName(engine.configuration.targetId) }} · {{ engine.configuration.rule?.name }}<span v-if="engine.configuration.rule"> · V{{ engine.configuration.rule.versionNo }}</span>
+            <span v-if="engine.configuration.tags"> · {{ engine.configuration.tags.length }} 个适用标签</span>
             <span v-if="engine.configuration.agentSnapshot"> · {{ engine.configuration.agentSnapshot.name }} · V{{ engine.configuration.agentSnapshot.versionNo }}</span>
             <p v-if="engine.configuration.agentSnapshot?.taskOverrides" style="white-space:pre-wrap;overflow-wrap:anywhere">任务提示词：{{ engine.configuration.agentSnapshot.taskOverrides.prompt || '沿用发布配置' }}<br>温度：{{ engine.configuration.agentSnapshot.taskOverrides.temperature ?? '沿用发布配置' }} · 超时：{{ engine.configuration.agentSnapshot.taskOverrides.timeoutSeconds ?? '沿用发布配置' }} 秒</p>
           </li></ol>
         </section>
         <a-divider orientation="left">结果处理</a-divider>
-        <template v-if="wizardDetail.resultProcessing.configuration.inspection">
-          <p>{{ wizardDetail.resultProcessing.configuration.inspection.scoring.mode === 'DEDUCTION' ? '扣分制' : '得分制（加权百分制）' }} · 基础分 {{ wizardDetail.resultProcessing.configuration.inspection.scoring.baseScore }} · 及格线 {{ wizardDetail.resultProcessing.configuration.inspection.scoring.passingScore }}</p>
-          <p v-for="item in wizardDetail.resultProcessing.configuration.inspection.scoring.items" :key="item.itemCode">{{ item.itemCode }}：{{ item.points }} 分{{ item.veto ? '，不通过时总分为零' : '' }}</p>
+        <template v-if="wizardDetail.resultProcessing?.configuration.inspection">
+          <p>{{ wizardDetail.resultProcessing?.configuration.inspection.scoring.mode === 'DEDUCTION' ? '扣分制' : '得分制（加权百分制）' }} · 基础分 {{ wizardDetail.resultProcessing?.configuration.inspection.scoring.baseScore }} · 及格线 {{ wizardDetail.resultProcessing?.configuration.inspection.scoring.passingScore }}</p>
+          <p v-for="item in wizardDetail.resultProcessing?.configuration.inspection.scoring.items" :key="item.itemCode">{{ item.itemCode }}：{{ item.points }} 分{{ item.veto ? '，不通过时总分为零' : '' }}</p>
         </template>
-        <p v-for="label in wizardDetail.resultProcessing.configuration.labeling" :key="label.targetId">{{ frozenTargetName(label.targetId) }} · {{ label.valueCode }} · {{ label.valueType }}</p>
-        <p>所有已配置来源一致时确定；否则保留冲突、未知或错误。原始结果和证据不覆盖。</p>
+        <p v-for="label in wizardDetail.resultProcessing?.configuration.labeling" :key="label.targetId">{{ frozenTargetName(label.targetId) }} · {{ label.valueCode }} · {{ label.valueType }}</p>
+        <p v-if="wizardDetail.unifiedLabels">统一标签识别：LLM 跳过上游明确命中标签；匹配结果完整保留，正式标签与扣分处置待确认。</p><p v-else>所有已配置来源一致时确定；否则保留冲突、未知或错误。原始结果和证据不覆盖。</p>
       </template>
       <template v-else>
       <a-divider orientation="left">创建时执行策略与 Agent 配置</a-divider

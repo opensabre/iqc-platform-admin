@@ -205,7 +205,21 @@ export interface TaskWizardSnapshot {
   schemaVersion: "iqc-task-wizard-v1";
   enginePlan: { schemaVersion: "iqc-task-engine-plan-v1"; engines: {
     operation: "INSPECTION" | "LABELING"; instanceId: string; type: TaskEngine["type"]; sequence: number;
-    configuration: { engineName?: string; targetId: string; ruleId: string; rule: TaskRuleSnapshot; agentSnapshot?: TaskAgentSnapshot & { taskOverrides?: {prompt?:string;temperature?:number;timeoutSeconds?:number} } };
+    configuration: { engineName?: string; targetId?: string; ruleId?: string; rule?: TaskRuleSnapshot; tags?: Array<{tagId:string;name:string;ruleId:string;ruleVersionNo:number}>; agentSnapshot?: TaskAgentSnapshot & { taskOverrides?: {prompt?:string;temperature?:number;timeoutSeconds?:number} } };
   }[] };
-  resultProcessing: { configuration: TaskResultProcessingConfiguration; labelSnapshot: { labels: { id: string; name: string }[] } | null };
+  unifiedLabels?: {labels:Array<{id:string;name:string}>};
+  resultProcessing?: { configuration: TaskResultProcessingConfiguration; labelSnapshot: { labels: { id: string; name: string }[] } | null };
+}
+
+/** Unified matching uses existing published label bindings; no scoring policy is inferred. */
+export interface UnifiedTagConfiguration {
+  engineSequence: Array<"REGEX" | "DLS" | "LLM">;
+  tagSelectionMode: "ALL" | "SELECTED";
+  selectedTagIds: string[];
+  agentId?: string;
+}
+export async function createUnifiedTask(request: { name: string; dataSelection: TaskDataSelection;
+  configuration: UnifiedTagConfiguration; concurrencyLimit: number }) {
+  const { data } = await http.post<InspectionTask>("/iqc/tasks/unified", request);
+  return data;
 }
