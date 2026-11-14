@@ -78,6 +78,26 @@ describe("wizard result presentation", () => {
     expect(root.textContent).toContain("已过滤 1 个");
     expect(root.textContent).not.toContain("最终评分");
   });
+  it.each([
+    {provider:{model:"reported-model-v2",inputTokens:123,outputTokens:45}, expected:"输入 123 / 输出 45 Token"},
+    {provider:{inputTokens:0,outputTokens:0}, expected:"输入 0 / 输出 0 Token"},
+    {provider:undefined, expected:"输入 未知 / 输出 未知 Token"},
+  ])("shows provider usage without inventing missing counts: $expected", async ({provider,expected}) => {
+    const data = fixture();
+    const config = {enginePlan:{engines:[{operation:"LABELING"}]},unifiedLabels:{labels:[]}};
+    data.engineResultSet!.taskConfiguration = config;
+    const engine = data.engineResultSet!.engines[0]!;
+    engine.engineType = "LLM";
+    engine.configuration = {schemaVersion:"iqc-unified-tags-v1"};
+    engine.rawOutput = JSON.stringify({metadata:{applicableTagCount:2,pendingTagCount:1,
+      filteredTagCount:1,elapsedMs:5,modelCalled:true,provider}});
+    data.engineResultSet!.engines = [engine];
+    vi.mocked(getResultHierarchy).mockResolvedValue(data);
+    mount({task:{...task,ruleSnapshotJson:JSON.stringify(config)}});await settle();
+    expect(root.textContent).toContain(expected);
+    expect(root.textContent).toContain("已过滤 1 个");
+    if (provider?.model) expect(root.textContent).toContain("模型 reported-model-v2");
+  });
   it("switches between old and successful executions through the history selector", async () => {
     const previous = fixture();
     const latest = fixture();
