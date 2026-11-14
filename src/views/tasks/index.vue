@@ -46,6 +46,7 @@ import {
   getLabelTree,
   type LabelTree,
 } from "@/api/labels";
+import TaskExecutionSnapshot from "@/components/TaskExecutionSnapshot.vue";
 import TaskWizardResults from "@/components/TaskWizardResults.vue";
 import TaskCreateWizard from "@/components/TaskCreateWizard.vue";
 import LabelValueReviewPanel from "@/components/LabelValueReviewPanel.vue";
@@ -629,6 +630,7 @@ onBeforeUnmount(() => {
         }}</a-descriptions-item></a-descriptions
       >
       <template v-if="wizardDetail">
+        <TaskExecutionSnapshot :key="detail.id" :task-id="detail.id" />
         <a-divider orientation="left">最近冻结的引擎配置</a-divider>
         <a-alert type="info" show-icon message="以下为最近一次冻结配置。各引擎按配置顺序执行，完整保留阶段结果。" />
         <section v-for="operation in (['INSPECTION','LABELING'] as const).filter(op => wizardDetail!.enginePlan.engines.some(engine => engine.operation === op))" :key="operation">

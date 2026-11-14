@@ -113,6 +113,14 @@ export async function listTaskExecutions(id: string) {
   const { data } = await http.get<TaskExecutionSummary[]>(`/iqc/tasks/${id}/executions`);
   return data;
 }
+export interface TaskExecutionSnapshot {
+  executionId: string; runId: string; attemptNo: number; status: string;
+  configurationSnapshotJson: string; selectionSnapshotJson: string;
+}
+export async function getTaskExecutionSnapshot(taskId: string, executionId: string) {
+  const { data } = await http.get<TaskExecutionSnapshot>(`/iqc/tasks/${taskId}/executions/${executionId}/snapshot`);
+  return data;
+}
 export async function createTask(request: CreateTaskRequest) {
   const { data } = await http.post<InspectionTask>("/iqc/tasks", request);
   return data;
