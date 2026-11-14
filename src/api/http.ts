@@ -38,7 +38,8 @@ http.interceptors.response.use((response) => {
     return Promise.reject(new Error("当前会话已过期"));
   }
   const body = response.data;
-  if (body && typeof body === "object" && "code" in body && "data" in body) {
+  // Result omits null data, including business errors and successful void mutations.
+  if (body && typeof body === "object" && "code" in body && ("data" in body || "mesg" in body || "msg" in body)) {
     const successCode = String(body.code) === "000000" || String(body.code) === "0" || String(body.code) === "200";
     if (!successCode) return Promise.reject(new Error(body.msg || body.mesg || "请求失败"));
     response.data = body.data;

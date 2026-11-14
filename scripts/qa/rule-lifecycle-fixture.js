@@ -21,10 +21,10 @@ async page => {
       (method === 'DELETE' && /^\/api\/iqc\/config\/rules\/[^/]+$/.test(path))) {
       const id = path.split('/')[5];
       await page.evaluate(({method,path}) => { window.__iqcMutationLog ||= []; window.__iqcMutationLog.push({method,path}); }, {method,path});
-      if (id === 'referenced') { status = 400; code = 'IQC_INVALID_STATE'; msg = '规则仍被引用，不能删除或停用'; data = null; }
+      if (id === 'referenced') { code = 'IQC-1006'; msg = 'IQC 业务状态不允许当前操作：规则仍被引用，不能删除或停用'; data = undefined; }
       else if (method === 'DELETE') { rules = rules.filter(rule => rule.id !== id); data = null; }
       else { rules = rules.map(rule => rule.id === id ? {...rule,status:'DISABLED'} : rule); data = rules.find(rule => rule.id === id); }
     } else if (method !== 'GET') { status = 500; code = 'MOCK_UNEXPECTED_WRITE'; msg = 'Unexpected fixture mutation'; data = null; }
-    await route.fulfill({status,contentType:'application/json',body:JSON.stringify({code,msg,data})});
+    await route.fulfill({status,contentType:'application/json',body:JSON.stringify({code,mesg:msg,data})});
   });
 }
