@@ -62,7 +62,7 @@ onBeforeUnmount(() => { generation++; });
   <section aria-label="任务执行结果">
     <a-row :gutter="16" class="result-controls">
       <a-col :xs="24" :md="14"><label for="result-conversation">会话</label><a-select id="result-conversation" v-model:value="conversationId" style="width:100%" placeholder="选择会话" :options="summary.conversations.map(row => ({value:row.conversationId,label:row.sourceFileName || row.conversationId}))" /></a-col>
-      <a-col :xs="24" :md="10"><label for="result-execution">执行记录</label><a-select id="result-execution" v-model:value="executionId" allow-clear placeholder="最新可用结果" style="width:100%" :options="executions.map(run => ({value:run.id,label:`第 ${run.attemptNo} 次 · ${run.status}`}))" /></a-col>
+      <a-col :xs="24" :md="10"><label for="result-execution">执行记录</label><a-select id="result-execution" v-model:value="executionId" allow-clear placeholder="最新可用结果" style="width:100%" :options="executions.map(run => ({value:run.id,label:`轮次 ${run.runId} · 第 ${run.attemptNo} 次 · ${run.status}`}))" /></a-col>
     </a-row>
     <p v-if="historyError">执行历史加载失败，仍可查看最新可用结果。</p>
     <a-alert v-if="error" type="error" :message="error" show-icon><template #action><a-button size="small" @click="load">重试</a-button></template></a-alert>

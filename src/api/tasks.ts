@@ -55,6 +55,8 @@ export interface InspectionTask {
   conversationIdsJson?: string;
   selectionFilterJson?: string;
   scheduledTime?: string;
+  triggerConfigurationJson?: string;
+  enabled?: boolean;
   name: string;
   taskType: "BATCH" | "SCHEDULED" | "SAMPLE";
   concurrencyLimit: number;
@@ -79,7 +81,7 @@ export interface InspectionTask {
 }
 export interface TaskExecutionSummary {
   id: string; attemptNo: number; status: string; processedMessages: number; failedMessages: number;
-  createdTime?: string; current: boolean;
+  createdTime?: string; current: boolean; runId?: string;
 }
 
 export interface ScheduledSelectionFilter { createdFrom?: string; createdTo?: string; fileName?: string; status?: string; ownerGroupId?: string; limit?: number; employeeId?: string; customerExternalId?: string; channel?: string; businessNo?: string; }
@@ -218,8 +220,12 @@ export interface UnifiedTagConfiguration {
   selectedTagIds: string[];
   agentId?: string;
 }
+export interface TaskTrigger { type: "IMMEDIATE" | "SCHEDULED" | "PERIODIC"; scheduledAt?: string; cron?: string; enabled: boolean }
+export async function setTaskEnabled(id: string, enabled: boolean) {
+  const { data } = await http.put<InspectionTask>(`/iqc/tasks/${id}/enabled`, { enabled }); return data;
+}
 export async function createUnifiedTask(request: { name: string; dataSelection: TaskDataSelection;
-  configuration: UnifiedTagConfiguration; concurrencyLimit: number }) {
+  configuration: UnifiedTagConfiguration; concurrencyLimit: number; trigger: TaskTrigger }) {
   const { data } = await http.post<InspectionTask>("/iqc/tasks/unified", request);
   return data;
 }
