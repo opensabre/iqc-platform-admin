@@ -19,6 +19,7 @@ import {
 } from "@/api/config";
 import { dictionaryLabel, getCachedDictionaries, type DictionaryItem } from "@/api/dictionaries";
 import { usePermission } from "@/composables/permission";
+import RuleLabelUsage from "@/components/RuleLabelUsage.vue";
 import DlsDocumentEditor from "./DlsDocumentEditor.vue";
 
 const route = useRoute();
@@ -32,6 +33,8 @@ const testRuleId = ref("");
 const testContent = ref("");
 const testResult = ref<RuleTestResult>();
 const testingDls = computed(() => rules.value.find((rule) => rule.id === testRuleId.value)?.ruleType === "DLS");
+const usageRule = ref<QualityRule>();
+const usageOpen = ref(false);
 const versionOpen = ref(false);
 const versionSaving = ref(false);
 const dlsFileInput = ref<HTMLInputElement>();
@@ -436,6 +439,7 @@ onMounted(async () => {
             @click="openTest(record.id)"
             >测试</a-button
           ><a-button type="link" @click="openVersions(record)">版本</a-button
+          ><a-button v-if="can('iqc:label:view')" type="link" @click="usageRule=record; usageOpen=true">引用标签</a-button
           ><a-button
             v-if="record.status === 'DRAFT' && can('iqc:rule:manage')"
             type="link"
@@ -461,6 +465,9 @@ onMounted(async () => {
       ></a-table
     ></a-card
   >
+  <a-modal v-model:open="usageOpen" :title="`引用标签：${usageRule?.name || ''}`" :footer="null">
+    <RuleLabelUsage v-if="usageOpen && usageRule" :key="usageRule.id" :rule-id="usageRule.id" />
+  </a-modal>
   <a-modal v-model:open="dlsImportOpen" title="DLS 导入预检" width="860" :confirm-loading="dlsImporting"
     :ok-button-props="{ disabled: !dlsCanImport }"
     ok-text="创建草稿" @ok="confirmDlsImport">

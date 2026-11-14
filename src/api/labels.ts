@@ -49,3 +49,6 @@ export const disableLabelAction = (id:string) => http.post(`/iqc/label-actions/$
 export const deleteLabelAction = (id:string) => http.delete(`/iqc/label-actions/${id}`).then(r=>r.data);
 export const getLabelActions = (id:string) => http.get<LabelActionSnapshot[]>(`/iqc/labels/${id}/actions`).then(r=>r.data);
 export const replaceLabelActions = (id:string,actionIds:string[]) => http.put<LabelActionSnapshot[]>(`/iqc/labels/${id}/actions`,actionIds).then(r=>r.data);
+
+/** Current rule bindings, filtered and counted under the caller's label data scope. */
+export const listLabelsUsingRule = (ruleId:string,current=1,size=20) => http.get<{records:InsightLabel[];current:number;size:number;total:number}>(`/iqc/labels/using-rule/${ruleId}`,{params:{current,size}}).then(r=>r.data);
