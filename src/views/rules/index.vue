@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { message } from "ant-design-vue";
+import { message, Modal } from "ant-design-vue";
+import { isAxiosError } from "axios";
 import {
   approveRule,
   createRule,
   createRuleVersion,
+  disableRule,
+  deleteRule,
   importDlsRules,
   listRuleVersions,
   listRules,
@@ -204,6 +207,27 @@ async function reject(id: string) {
   } catch {
     message.error("规则驳回失败");
   }
+}
+function changeRuleLifecycle(rule: QualityRule, remove: boolean) {
+  Modal.confirm({
+    title: `${remove ? "删除" : "停用"}规则「${rule.name}」？`,
+    content: remove ? "仅能删除没有任何引用的规则及其版本，删除后无法恢复。" : "仅能停用没有任何引用的规则，停用后不能再用于新任务或绑定。",
+    okText: remove ? "删除" : "停用",
+    okType: "danger",
+    async onOk() {
+      try {
+        if (remove) await deleteRule(rule.id);
+        else await disableRule(rule.id);
+        message.success(remove ? "规则已删除" : "规则已停用");
+        await refresh();
+      } catch (error) {
+        const body = isAxiosError(error) ? error.response?.data : undefined;
+        const detail = body?.msg || body?.mesg || body?.message;
+        message.error(typeof detail === "string" ? detail : error instanceof Error ? error.message : "操作失败");
+        throw error;
+      }
+    },
+  });
 }
 function startCreate() {
   if (!ruleTypes.value.length) {
@@ -460,6 +484,10 @@ onMounted(async () => {
             danger
             @click="reject(record.id)"
             >驳回</a-button
+          ><a-button v-if="record.status !== 'DISABLED' && can('iqc:rule:manage')" type="link" danger
+            @click="changeRuleLifecycle(record, false)">停用</a-button
+          ><a-button v-if="can('iqc:rule:manage')" type="link" danger
+            @click="changeRuleLifecycle(record, true)">删除</a-button
           ></template
         ></a-table-column
       ></a-table
