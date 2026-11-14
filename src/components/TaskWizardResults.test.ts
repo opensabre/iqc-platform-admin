@@ -78,6 +78,25 @@ describe("wizard result presentation", () => {
     expect(root.textContent).toContain("已过滤 1 个");
     expect(root.textContent).not.toContain("最终评分");
   });
+  it("counts recorded tag statuses per stage without merging disagreements", async () => {
+    const data = fixture();
+    const config = {enginePlan:{engines:[{operation:"LABELING"}]},unifiedLabels:{labels:[]}};
+    data.engineResultSet!.taskConfiguration = config;
+    const regex = data.engineResultSet!.engines[0]!;
+    regex.configuration = {schemaVersion:"iqc-unified-tags-v1"};
+    regex.observations = ["MATCHED","MATCHED","NOT_MATCHED","ERROR","UNKNOWN","SKIPPED"]
+      .map((status,index) => ({targetId:`label${index}`,status,value:null,evidenceIds:[]}));
+    const llm = data.engineResultSet!.engines[1]!;
+    llm.configuration = {schemaVersion:"iqc-unified-tags-v1"};
+    llm.observations = [{targetId:"label0",status:"NOT_MATCHED",value:false,evidenceIds:[]}];
+    vi.mocked(getResultHierarchy).mockResolvedValue(data);
+    mount({task:{...task,ruleSnapshotJson:JSON.stringify(config)}});await settle();
+    const counts = [...root.querySelectorAll(".stage-counts")].map(item => item.textContent);
+    expect(counts).toContain("标签结果：命中 2 个 · 未命中 1 个 · 错误 1 个 · 未知 1 个 · 跳过 1 个");
+    expect(counts).toContain("标签结果：命中 0 个 · 未命中 1 个 · 错误 0 个 · 未知 0 个 · 跳过 0 个");
+    expect(data.engineResultSet!.engines[0]!.observations[0]!.status).toBe("MATCHED");
+    expect(data.engineResultSet!.engines[1]!.observations[0]!.status).toBe("NOT_MATCHED");
+  });
   it.each([
     {provider:{model:"reported-model-v2",inputTokens:123,outputTokens:45}, expected:"输入 123 / 输出 45 Token"},
     {provider:{inputTokens:0,outputTokens:0}, expected:"输入 0 / 输出 0 Token"},

@@ -27,6 +27,11 @@ function stageDetails(engine: TaskEngineResult): { metadata?: {applicableTagCoun
   if (engine.configuration.schemaVersion !== "iqc-unified-tags-v1" || !engine.rawOutput) return {};
   try { return JSON.parse(engine.rawOutput); } catch { return {}; }
 }
+// Count recorded outcomes within this stage only; never resolve cross-engine disagreements.
+function stageSummary(engine:TaskEngineResult):string {
+  return [["MATCHED","命中"],["NOT_MATCHED","未命中"],["ERROR","错误"],["UNKNOWN","未知"],["SKIPPED","跳过"]]
+    .map(([status,label]) => `${label} ${engine.observations.filter(item => item.status === status).length} 个`).join(" · ");
+}
 function display(value:unknown):string { return value === undefined || value === null ? "未知" : typeof value === "object" ? JSON.stringify(value) : String(value); }
 function state(value:string) { return ({KNOWN:"已确定",CONFLICT:"冲突",UNKNOWN:"未知",ERROR:"错误",SUCCEEDED:"成功",FAILED:"失败",PARTIAL_SUCCESS:"部分失败",MATCHED:"命中",NOT_MATCHED:"未命中",SKIPPED:"已跳过",MISSING:"无结果",DETERMINED:"已判断",INVALID:"无效"} as Record<string,string>)[value] || value; }
 function judgment(item:TaskProcessedItem) { return item.status !== "KNOWN" ? state(item.status) : item.value === "PASS" ? "通过" : item.value === "FAIL" ? "不通过" : display(item.value); }
@@ -106,6 +111,7 @@ onBeforeUnmount(() => { generation++; });
               <article v-for="engine in engines" :key="engine.engineResultId" class="result-item">
                 <h3>{{ engine.operation === 'INSPECTION' ? '质检' : '打标' }} · {{ engine.sequence }}. {{ engine.configuration.engineName || engine.engineInstanceId }} · {{ engine.engineType }} <a-tag :color="engine.status === 'FAILED' ? 'error' : engine.status === 'SUCCEEDED' ? 'success' : 'default'">{{ state(engine.status) }}</a-tag></h3>
                 <small>{{ engine.engineInstanceId }}</small>
+                <p v-if="engine.configuration.schemaVersion === 'iqc-unified-tags-v1'" class="stage-counts">标签结果：{{ stageSummary(engine) }}</p>
                 <p v-if="stageDetails(engine).metadata">适用标签 {{ stageDetails(engine).metadata?.applicableTagCount }} 个 · 待分析 {{ stageDetails(engine).metadata?.pendingTagCount }} 个 · 已过滤 {{ stageDetails(engine).metadata?.filteredTagCount }} 个 · {{ stageDetails(engine).metadata?.elapsedMs }} ms<span v-if="engine.engineType === 'LLM'"> · 模型{{ stageDetails(engine).metadata?.modelCalled ? '已调用' : '未调用' }}</span><span v-if="engine.engineType === 'LLM' && stageDetails(engine).metadata?.modelCalled"> · 输入 {{ stageDetails(engine).metadata?.provider?.inputTokens ?? '未知' }} / 输出 {{ stageDetails(engine).metadata?.provider?.outputTokens ?? '未知' }} Token</span><span v-if="stageDetails(engine).metadata?.provider?.model"> · 模型 {{ stageDetails(engine).metadata?.provider?.model }}</span></p><p v-if="engine.failure">{{ engine.failure.code }}：{{ engine.failure.message }}</p>
                 <p v-for="(observation,index) in engine.observations" :key="index">{{ labelName(observation.targetId) }} · {{ state(observation.status) }} · {{ display(observation.value) }}<span v-if="observation.reason"> · {{ observation.reason }}</span></p>
                 <blockquote v-for="quote in engine.evidence" :key="quote.evidenceId">{{ quote.messageId }}（{{ quote.start }}–{{ quote.end }}）：“{{ quote.quote }}”</blockquote>
