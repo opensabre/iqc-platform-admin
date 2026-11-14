@@ -213,6 +213,7 @@ function changeRuleLifecycle(rule: QualityRule, remove: boolean) {
     title: `${remove ? "删除" : "停用"}规则「${rule.name}」？`,
     content: remove ? "仅能删除没有任何引用的规则及其版本，删除后无法恢复。" : "仅能停用没有任何引用的规则，停用后不能再用于新任务或绑定。",
     okText: remove ? "删除" : "停用",
+    cancelText: "取消",
     okType: "danger",
     async onOk() {
       try {

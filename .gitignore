@@ -4,3 +4,5 @@ coverage/
 .env.local
 .env.development
 .DS_Store
+.playwright-cli/
+output/playwright/
