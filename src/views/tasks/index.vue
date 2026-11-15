@@ -4,6 +4,7 @@ import { message, Modal } from "ant-design-vue";
 import { useRouter } from "vue-router";
 import {
   cancelTask,
+  setTaskEnabled,
   getTask,
   listTasks,
   runTask,
@@ -45,6 +46,7 @@ import {
   getLabelTree,
   type LabelTree,
 } from "@/api/labels";
+import TaskExecutionSnapshot from "@/components/TaskExecutionSnapshot.vue";
 import TaskWizardResults from "@/components/TaskWizardResults.vue";
 import TaskCreateWizard from "@/components/TaskCreateWizard.vue";
 import LabelValueReviewPanel from "@/components/LabelValueReviewPanel.vue";
@@ -107,8 +109,8 @@ const wizardDetail = computed(() => {
   const snapshot = parseSnapshot<TaskWizardSnapshot>(detail.value?.ruleSnapshotJson);
   return snapshot?.schemaVersion === "iqc-task-wizard-v1" ? snapshot : undefined;
 });
-function frozenTargetName(targetId: string) {
-  return wizardDetail.value?.resultProcessing.labelSnapshot?.labels.find(label => label.id === targetId)?.name || targetId;
+function frozenTargetName(targetId?: string) {
+  return (wizardDetail.value?.unifiedLabels?.labels || wizardDetail.value?.resultProcessing?.labelSnapshot?.labels)?.find(label => label.id === targetId)?.name || targetId;
 }
 const detailAgentConfig = computed(() =>
   parseSnapshot<TaskAgentConfigSnapshot>(detailAgent.value?.configJson)
@@ -317,6 +319,10 @@ async function resume(id: string) {
   try { await resumeTask(id); message.success("任务已恢复执行"); await refresh(); }
   catch { message.error("任务恢复失败"); }
 }
+async function toggleEnabled(task: InspectionTask) {
+  try { await setTaskEnabled(task.id, task.enabled !== true); message.success(task.enabled ? "触发计划已停用" : "触发计划已启用"); await refresh(); }
+  catch (failure) { message.error(failure instanceof Error ? failure.message : "启停失败"); }
+}
 async function reprioritize(task: InspectionTask, offset:number) {
   try { await changeTaskPriority(task.id, (task.queuePriority || 0) + offset); message.success("任务优先级已调整"); await refresh(); }
   catch { message.error("当前状态不能调整优先级"); }
@@ -509,6 +515,7 @@ onBeforeUnmount(() => {
       <a-table-column key="actions" title="操作" :width="250"
         ><template #default="{ record }"
           ><a-button type="link" @click="showDetail(record.id)">详情</a-button
+          ><a-button v-if="record.triggerConfigurationJson && can('iqc:task:execute')" type="link" @click="toggleEnabled(record)">{{ record.enabled ? '停用计划' : '启用计划' }}</a-button
           ><a-button
             v-if="['CREATED','SCHEDULED','QUEUED','PAUSED'].includes(record.status) && can('iqc:task:execute')"
             type="link" @click="reprioritize(record, 1)">提权</a-button
@@ -527,6 +534,7 @@ onBeforeUnmount(() => {
           ><a-button
             v-if="
               ['CREATED', 'FAILED', 'PARTIAL_FAILED'].includes(record.status) &&
+              (!record.triggerConfigurationJson || (record.enabled && record.status !== 'CREATED')) &&
               can('iqc:task:execute')
             "
             type="link"
@@ -579,7 +587,7 @@ onBeforeUnmount(() => {
   <a-alert v-if="referenceErrors.length" type="warning" show-icon
     :message="`${referenceErrors.join('、')}配置加载失败；已加载的任务和其他配置仍可使用。`"
     style="margin-bottom: 16px"><template #action><a-button size="small" :loading="loading" @click="refresh">重试加载</a-button></template></a-alert>
-  <TaskCreateWizard v-if="modalOpen" :agents="agents" :rules="rules"
+  <TaskCreateWizard v-if="modalOpen" :agents="agents"
     :labeling-targets="labelTree.labels.filter(label => label.status === 'PUBLISHED').map(label => ({ value: label.id, label: label.name }))"
     @cancel="modalOpen = false" @created="createdTask" />
   <a-drawer v-model:open="detailOpen" title="任务详情" width="min(820px, calc(100vw - 24px))"
@@ -616,28 +624,31 @@ onBeforeUnmount(() => {
         ><a-descriptions-item label="当前执行实例">{{
           detail.currentExecutionId || "—"
         }}</a-descriptions-item
+        ><a-descriptions-item v-if="detail.triggerConfigurationJson" label="触发计划">{{ detail.enabled ? '已启用' : '已停用' }} · 下次 {{ detail.scheduledTime || '无' }}（北京时间）</a-descriptions-item
         ><a-descriptions-item label="创建时间">{{
           detail.createdTime || "—"
         }}</a-descriptions-item></a-descriptions
       >
       <template v-if="wizardDetail">
-        <a-divider orientation="left">创建时引擎配置</a-divider>
-        <a-alert type="info" show-icon message="以下为创建时冻结配置。各操作按自己的顺序执行，失败保留记录并继续。" />
+        <TaskExecutionSnapshot :key="detail.id" :task-id="detail.id" />
+        <a-divider orientation="left">最近冻结的引擎配置</a-divider>
+        <a-alert type="info" show-icon message="以下为最近一次冻结配置。各引擎按配置顺序执行，完整保留阶段结果。" />
         <section v-for="operation in (['INSPECTION','LABELING'] as const).filter(op => wizardDetail!.enginePlan.engines.some(engine => engine.operation === op))" :key="operation">
           <h3>{{ operation === 'INSPECTION' ? '质检' : '打标' }}</h3>
           <ol><li v-for="engine in wizardDetail.enginePlan.engines.filter(engine => engine.operation === operation)" :key="engine.instanceId">
-            {{ engine.configuration.engineName || engine.instanceId }} · {{ engine.type }} · {{ frozenTargetName(engine.configuration.targetId) }} · {{ engine.configuration.rule.name }} · V{{ engine.configuration.rule.versionNo }}
+            {{ engine.configuration.engineName || engine.instanceId }} · {{ engine.type }} · {{ frozenTargetName(engine.configuration.targetId) }} · {{ engine.configuration.rule?.name }}<span v-if="engine.configuration.rule"> · V{{ engine.configuration.rule.versionNo }}</span>
+            <span v-if="engine.configuration.tags"> · {{ engine.configuration.tags.length }} 个适用标签</span>
             <span v-if="engine.configuration.agentSnapshot"> · {{ engine.configuration.agentSnapshot.name }} · V{{ engine.configuration.agentSnapshot.versionNo }}</span>
             <p v-if="engine.configuration.agentSnapshot?.taskOverrides" style="white-space:pre-wrap;overflow-wrap:anywhere">任务提示词：{{ engine.configuration.agentSnapshot.taskOverrides.prompt || '沿用发布配置' }}<br>温度：{{ engine.configuration.agentSnapshot.taskOverrides.temperature ?? '沿用发布配置' }} · 超时：{{ engine.configuration.agentSnapshot.taskOverrides.timeoutSeconds ?? '沿用发布配置' }} 秒</p>
           </li></ol>
         </section>
         <a-divider orientation="left">结果处理</a-divider>
-        <template v-if="wizardDetail.resultProcessing.configuration.inspection">
-          <p>{{ wizardDetail.resultProcessing.configuration.inspection.scoring.mode === 'DEDUCTION' ? '扣分制' : '得分制（加权百分制）' }} · 基础分 {{ wizardDetail.resultProcessing.configuration.inspection.scoring.baseScore }} · 及格线 {{ wizardDetail.resultProcessing.configuration.inspection.scoring.passingScore }}</p>
-          <p v-for="item in wizardDetail.resultProcessing.configuration.inspection.scoring.items" :key="item.itemCode">{{ item.itemCode }}：{{ item.points }} 分{{ item.veto ? '，不通过时总分为零' : '' }}</p>
+        <template v-if="wizardDetail.resultProcessing?.configuration.inspection">
+          <p>{{ wizardDetail.resultProcessing?.configuration.inspection.scoring.mode === 'DEDUCTION' ? '扣分制' : '得分制（加权百分制）' }} · 基础分 {{ wizardDetail.resultProcessing?.configuration.inspection.scoring.baseScore }} · 及格线 {{ wizardDetail.resultProcessing?.configuration.inspection.scoring.passingScore }}</p>
+          <p v-for="item in wizardDetail.resultProcessing?.configuration.inspection.scoring.items" :key="item.itemCode">{{ item.itemCode }}：{{ item.points }} 分{{ item.veto ? '，不通过时总分为零' : '' }}</p>
         </template>
-        <p v-for="label in wizardDetail.resultProcessing.configuration.labeling" :key="label.targetId">{{ frozenTargetName(label.targetId) }} · {{ label.valueCode }} · {{ label.valueType }}</p>
-        <p>所有已配置来源一致时确定；否则保留冲突、未知或错误。原始结果和证据不覆盖。</p>
+        <p v-for="label in wizardDetail.resultProcessing?.configuration.labeling" :key="label.targetId">{{ frozenTargetName(label.targetId) }} · {{ label.valueCode }} · {{ label.valueType }}</p>
+        <p v-if="wizardDetail.unifiedLabels">统一标签识别：LLM 跳过上游明确命中标签；匹配结果完整保留，正式标签与扣分处置待确认。</p><p v-else>所有已配置来源一致时确定；否则保留冲突、未知或错误。原始结果和证据不覆盖。</p>
       </template>
       <template v-else>
       <a-divider orientation="left">创建时执行策略与 Agent 配置</a-divider

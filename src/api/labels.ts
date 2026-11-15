@@ -5,7 +5,7 @@ export interface LabelGroup { id:string; categoryId:string; name:string; code:st
 export interface InsightLabel { id:string; groupId:string; name:string; code:string; description?:string; targetRole:string; weight:number; status:string; versionNo:number; sourceType:string; }
 export interface LabelTree { categories:LabelCategory[]; groups:LabelGroup[]; labels:InsightLabel[]; }
 export interface LabelValueRequest { valueCode:string; valueType:"FIXED"|"BOOLEAN"|"PERCENTAGE"|"DURATION_MONTHS"|"MONTH"|"DATE"; description?:string; configJson?:string; }
-export interface LabelRuleBinding { id:string; labelId:string; ruleId:string; ruleVersionNo:number; bindingRole:string; displayOrder:number; }
+export interface LabelRuleBinding { id:string; labelId:string; ruleId:string; ruleVersionNo:number; ruleType?:string; bindingRole:string; displayOrder:number; }
 export interface LabelMember { id?:string; memberType:"CATEGORY"|"GROUP"|"LABEL"; memberId:string; displayOrder?:number; }
 export interface LabelCollection { id:string; name:string; code:string; description?:string; status:string; versionNo:number; }
 export interface LabelCollectionDetail { collection:LabelCollection; members:LabelMember[]; }
@@ -39,3 +39,16 @@ export const listCandidateSimilarities = (id:string) => http.get<LabelSimilarity
 export const rejectLabelCandidate = (id:string,comment?:string) => http.post<LabelCandidate>(`/iqc/label-candidates/${id}/reject`,{comment}).then(r=>r.data);
 export const mergeLabelCandidate = (id:string,labelId:string,comment?:string) => http.post<LabelCandidate>(`/iqc/label-candidates/${id}/merge`,{labelId,comment}).then(r=>r.data);
 export const approveLabelCandidate = (id:string,data:{groupId:string;targetRole:string;weight:number;comment?:string}) => http.post<LabelCandidate>(`/iqc/label-candidates/${id}/approve`,data).then(r=>r.data);
+
+export interface LabelActionDefinition { id:string; type:"RECORD_TAG"|"DEDUCT_SCORE"; name:string; description?:string; status:string; versionNo:number; }
+export interface LabelActionSnapshot { bindingId:string; actionId:string; versionNo:number; type:string; name:string; description?:string; status:string; }
+export const listLabelActions = (page=1,size=100) => http.get<LabelActionDefinition[]>("/iqc/label-actions",{params:{page,size}}).then(r=>r.data);
+export const createLabelAction = (data:{type:string;name:string;description?:string}) => http.post<LabelActionDefinition>("/iqc/label-actions",data).then(r=>r.data);
+export const updateLabelAction = (id:string,data:{type:string;name:string;description?:string}) => http.put<LabelActionDefinition>(`/iqc/label-actions/${id}`,data).then(r=>r.data);
+export const disableLabelAction = (id:string) => http.post(`/iqc/label-actions/${id}/disable`).then(r=>r.data);
+export const deleteLabelAction = (id:string) => http.delete(`/iqc/label-actions/${id}`).then(r=>r.data);
+export const getLabelActions = (id:string) => http.get<LabelActionSnapshot[]>(`/iqc/labels/${id}/actions`).then(r=>r.data);
+export const replaceLabelActions = (id:string,actionIds:string[]) => http.put<LabelActionSnapshot[]>(`/iqc/labels/${id}/actions`,actionIds).then(r=>r.data);
+
+/** Current rule bindings, filtered and counted under the caller's label data scope. */
+export const listLabelsUsingRule = (ruleId:string,current=1,size=20) => http.get<{records:InsightLabel[];current:number;size:number;total:number}>(`/iqc/labels/using-rule/${ruleId}`,{params:{current,size}}).then(r=>r.data);

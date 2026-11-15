@@ -61,6 +61,62 @@ describe("wizard result presentation", () => {
     expect(root.textContent).toContain("yes：false");
     expect(root.textContent).not.toContain("最终评分");
   });
+  it("shows unified stages and pending policy without a final label or score", async () => {
+    const data = fixture();
+    const config = {enginePlan:{engines:[{operation:"LABELING"}]},unifiedLabels:{labels:[{id:"label1",name:"是否退款"}]}};
+    data.engineResultSet!.taskConfiguration = config;
+    const engine = data.engineResultSet!.engines[0]!;
+    engine.configuration = {schemaVersion:"iqc-unified-tags-v1"};
+    engine.rawOutput = JSON.stringify({metadata:{applicableTagCount:2,pendingTagCount:1,filteredTagCount:1,elapsedMs:5,modelCalled:false}});
+    data.engineResultSet!.engines = [engine];
+    data.processedResult!.output = {labels:[],processingStatus:"PENDING_POLICY",reason:"匹配已保存；正式标签与扣分策略待确认"};
+    vi.mocked(getResultHierarchy).mockResolvedValue(data);
+    mount({task:{...task,ruleSnapshotJson:JSON.stringify(config)}});await settle();
+    expect(root.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("引擎记录");
+    expect(root.textContent).toContain("正式标签与扣分策略待确认");
+    expect(root.textContent).toContain("适用标签 2 个");
+    expect(root.textContent).toContain("已过滤 1 个");
+    expect(root.textContent).not.toContain("最终评分");
+  });
+  it("counts recorded tag statuses per stage without merging disagreements", async () => {
+    const data = fixture();
+    const config = {enginePlan:{engines:[{operation:"LABELING"}]},unifiedLabels:{labels:[]}};
+    data.engineResultSet!.taskConfiguration = config;
+    const regex = data.engineResultSet!.engines[0]!;
+    regex.configuration = {schemaVersion:"iqc-unified-tags-v1"};
+    regex.observations = ["MATCHED","MATCHED","NOT_MATCHED","ERROR","UNKNOWN","SKIPPED"]
+      .map((status,index) => ({targetId:`label${index}`,status,value:null,evidenceIds:[]}));
+    const llm = data.engineResultSet!.engines[1]!;
+    llm.configuration = {schemaVersion:"iqc-unified-tags-v1"};
+    llm.observations = [{targetId:"label0",status:"NOT_MATCHED",value:false,evidenceIds:[]}];
+    vi.mocked(getResultHierarchy).mockResolvedValue(data);
+    mount({task:{...task,ruleSnapshotJson:JSON.stringify(config)}});await settle();
+    const counts = [...root.querySelectorAll(".stage-counts")].map(item => item.textContent);
+    expect(counts).toContain("标签结果：命中 2 个 · 未命中 1 个 · 错误 1 个 · 未知 1 个 · 跳过 1 个");
+    expect(counts).toContain("标签结果：命中 0 个 · 未命中 1 个 · 错误 0 个 · 未知 0 个 · 跳过 0 个");
+    expect(data.engineResultSet!.engines[0]!.observations[0]!.status).toBe("MATCHED");
+    expect(data.engineResultSet!.engines[1]!.observations[0]!.status).toBe("NOT_MATCHED");
+  });
+  it.each([
+    {provider:{model:"reported-model-v2",inputTokens:123,outputTokens:45}, expected:"输入 123 / 输出 45 Token"},
+    {provider:{inputTokens:0,outputTokens:0}, expected:"输入 0 / 输出 0 Token"},
+    {provider:undefined, expected:"输入 未知 / 输出 未知 Token"},
+  ])("shows provider usage without inventing missing counts: $expected", async ({provider,expected}) => {
+    const data = fixture();
+    const config = {enginePlan:{engines:[{operation:"LABELING"}]},unifiedLabels:{labels:[]}};
+    data.engineResultSet!.taskConfiguration = config;
+    const engine = data.engineResultSet!.engines[0]!;
+    engine.engineType = "LLM";
+    engine.configuration = {schemaVersion:"iqc-unified-tags-v1"};
+    engine.rawOutput = JSON.stringify({metadata:{applicableTagCount:2,pendingTagCount:1,
+      filteredTagCount:1,elapsedMs:5,modelCalled:true,provider}});
+    data.engineResultSet!.engines = [engine];
+    vi.mocked(getResultHierarchy).mockResolvedValue(data);
+    mount({task:{...task,ruleSnapshotJson:JSON.stringify(config)}});await settle();
+    expect(root.textContent).toContain(expected);
+    expect(root.textContent).toContain("已过滤 1 个");
+    if (provider?.model) expect(root.textContent).toContain("模型 reported-model-v2");
+  });
   it("switches between old and successful executions through the history selector", async () => {
     const previous = fixture();
     const latest = fixture();

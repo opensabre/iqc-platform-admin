@@ -55,6 +55,8 @@ export interface InspectionTask {
   conversationIdsJson?: string;
   selectionFilterJson?: string;
   scheduledTime?: string;
+  triggerConfigurationJson?: string;
+  enabled?: boolean;
   name: string;
   taskType: "BATCH" | "SCHEDULED" | "SAMPLE";
   concurrencyLimit: number;
@@ -79,7 +81,7 @@ export interface InspectionTask {
 }
 export interface TaskExecutionSummary {
   id: string; attemptNo: number; status: string; processedMessages: number; failedMessages: number;
-  createdTime?: string; current: boolean;
+  createdTime?: string; current: boolean; runId?: string;
 }
 
 export interface ScheduledSelectionFilter { createdFrom?: string; createdTo?: string; fileName?: string; status?: string; ownerGroupId?: string; limit?: number; employeeId?: string; customerExternalId?: string; channel?: string; businessNo?: string; }
@@ -109,6 +111,14 @@ export async function getTask(id: string) {
 }
 export async function listTaskExecutions(id: string) {
   const { data } = await http.get<TaskExecutionSummary[]>(`/iqc/tasks/${id}/executions`);
+  return data;
+}
+export interface TaskExecutionSnapshot {
+  executionId: string; runId: string; attemptNo: number; status: string;
+  configurationSnapshotJson: string; selectionSnapshotJson: string;
+}
+export async function getTaskExecutionSnapshot(taskId: string, executionId: string) {
+  const { data } = await http.get<TaskExecutionSnapshot>(`/iqc/tasks/${taskId}/executions/${executionId}/snapshot`);
   return data;
 }
 export async function createTask(request: CreateTaskRequest) {
@@ -205,7 +215,25 @@ export interface TaskWizardSnapshot {
   schemaVersion: "iqc-task-wizard-v1";
   enginePlan: { schemaVersion: "iqc-task-engine-plan-v1"; engines: {
     operation: "INSPECTION" | "LABELING"; instanceId: string; type: TaskEngine["type"]; sequence: number;
-    configuration: { engineName?: string; targetId: string; ruleId: string; rule: TaskRuleSnapshot; agentSnapshot?: TaskAgentSnapshot & { taskOverrides?: {prompt?:string;temperature?:number;timeoutSeconds?:number} } };
+    configuration: { engineName?: string; targetId?: string; ruleId?: string; rule?: TaskRuleSnapshot; tags?: Array<{tagId:string;name:string;ruleId:string;ruleVersionNo:number}>; agentSnapshot?: TaskAgentSnapshot & { taskOverrides?: {prompt?:string;temperature?:number;timeoutSeconds?:number} } };
   }[] };
-  resultProcessing: { configuration: TaskResultProcessingConfiguration; labelSnapshot: { labels: { id: string; name: string }[] } | null };
+  unifiedLabels?: {labels:Array<{id:string;name:string}>};
+  resultProcessing?: { configuration: TaskResultProcessingConfiguration; labelSnapshot: { labels: { id: string; name: string }[] } | null };
+}
+
+/** Unified matching uses existing published label bindings; no scoring policy is inferred. */
+export interface UnifiedTagConfiguration {
+  engineSequence: Array<"REGEX" | "DLS" | "LLM">;
+  tagSelectionMode: "ALL" | "SELECTED";
+  selectedTagIds: string[];
+  agentId?: string;
+}
+export interface TaskTrigger { type: "IMMEDIATE" | "SCHEDULED" | "PERIODIC"; scheduledAt?: string; cron?: string; enabled: boolean }
+export async function setTaskEnabled(id: string, enabled: boolean) {
+  const { data } = await http.put<InspectionTask>(`/iqc/tasks/${id}/enabled`, { enabled }); return data;
+}
+export async function createUnifiedTask(request: { name: string; dataSelection: TaskDataSelection;
+  configuration: UnifiedTagConfiguration; concurrencyLimit: number; trigger: TaskTrigger }) {
+  const { data } = await http.post<InspectionTask>("/iqc/tasks/unified", request);
+  return data;
 }

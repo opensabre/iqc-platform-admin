@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
-import { message } from "ant-design-vue";
+import { message, Modal } from "ant-design-vue";
+import { isAxiosError } from "axios";
 import {
   approveRule,
   createRule,
   createRuleVersion,
+  disableRule,
+  enableRule,
+  deleteRule,
   importDlsRules,
   listRuleVersions,
   listRules,
@@ -19,6 +23,7 @@ import {
 } from "@/api/config";
 import { dictionaryLabel, getCachedDictionaries, type DictionaryItem } from "@/api/dictionaries";
 import { usePermission } from "@/composables/permission";
+import RuleLabelUsage from "@/components/RuleLabelUsage.vue";
 import DlsDocumentEditor from "./DlsDocumentEditor.vue";
 
 const route = useRoute();
@@ -32,6 +37,8 @@ const testRuleId = ref("");
 const testContent = ref("");
 const testResult = ref<RuleTestResult>();
 const testingDls = computed(() => rules.value.find((rule) => rule.id === testRuleId.value)?.ruleType === "DLS");
+const usageRule = ref<QualityRule>();
+const usageOpen = ref(false);
 const versionOpen = ref(false);
 const versionSaving = ref(false);
 const dlsFileInput = ref<HTMLInputElement>();
@@ -201,6 +208,45 @@ async function reject(id: string) {
   } catch {
     message.error("规则驳回失败");
   }
+}
+function reactivateRule(rule: QualityRule) {
+  Modal.confirm({
+    title: `重新启用规则「${rule.name}」？`,
+    content: "将新建草稿版本，提交并通过审批后才能生效。历史版本保持不变。",
+    okText: "创建草稿", cancelText: "取消",
+    async onOk() {
+      try {
+        await enableRule(rule.id);
+        message.success("已创建新草稿，请提交审批");
+        await refresh();
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : "重新启用失败");
+        throw error;
+      }
+    },
+  });
+}
+function changeRuleLifecycle(rule: QualityRule, remove: boolean) {
+  Modal.confirm({
+    title: `${remove ? "删除" : "停用"}规则「${rule.name}」？`,
+    content: remove ? "仅能删除没有任何引用的规则及其版本，删除后无法恢复。" : "仅能停用没有任何引用的规则，停用后不能再用于新任务或绑定。",
+    okText: remove ? "删除" : "停用",
+    cancelText: "取消",
+    okType: "danger",
+    async onOk() {
+      try {
+        if (remove) await deleteRule(rule.id);
+        else await disableRule(rule.id);
+        message.success(remove ? "规则已删除" : "规则已停用");
+        await refresh();
+      } catch (error) {
+        const body = isAxiosError(error) ? error.response?.data : undefined;
+        const detail = body?.msg || body?.mesg || body?.message;
+        message.error(typeof detail === "string" ? detail : error instanceof Error ? error.message : "操作失败");
+        throw error;
+      }
+    },
+  });
 }
 function startCreate() {
   if (!ruleTypes.value.length) {
@@ -436,6 +482,7 @@ onMounted(async () => {
             @click="openTest(record.id)"
             >测试</a-button
           ><a-button type="link" @click="openVersions(record)">版本</a-button
+          ><a-button v-if="can('iqc:label:view')" type="link" @click="usageRule=record; usageOpen=true">引用标签</a-button
           ><a-button
             v-if="record.status === 'DRAFT' && can('iqc:rule:manage')"
             type="link"
@@ -456,11 +503,20 @@ onMounted(async () => {
             danger
             @click="reject(record.id)"
             >驳回</a-button
+          ><a-button v-if="record.status !== 'DISABLED' && can('iqc:rule:manage')" type="link" danger
+            @click="changeRuleLifecycle(record, false)">停用</a-button
+          ><a-button v-if="record.status === 'DISABLED' && can('iqc:rule:manage')" type="link"
+            @click="reactivateRule(record)">重新启用</a-button
+          ><a-button v-if="can('iqc:rule:manage')" type="link" danger
+            @click="changeRuleLifecycle(record, true)">删除</a-button
           ></template
         ></a-table-column
       ></a-table
     ></a-card
   >
+  <a-modal v-model:open="usageOpen" :title="`引用标签：${usageRule?.name || ''}`" :footer="null">
+    <RuleLabelUsage v-if="usageOpen && usageRule" :key="usageRule.id" :rule-id="usageRule.id" />
+  </a-modal>
   <a-modal v-model:open="dlsImportOpen" title="DLS 导入预检" width="860" :confirm-loading="dlsImporting"
     :ok-button-props="{ disabled: !dlsCanImport }"
     ok-text="创建草稿" @ok="confirmDlsImport">
