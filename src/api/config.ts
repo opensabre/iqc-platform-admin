@@ -51,6 +51,7 @@ export const createRule = (data: Partial<QualityRule>) => http.post<QualityRule>
 export const submitRule = (id: string) => http.post<QualityRule>(`/iqc/config/rules/${id}/submit`).then((response) => response.data);
 export const approveRule = (id: string) => http.post<QualityRule>(`/iqc/config/rules/${id}/approve`).then((response) => response.data);
 export const rejectRule = (id: string) => http.post<QualityRule>(`/iqc/config/rules/${id}/reject`).then((response) => response.data);
+export const enableRule = (id: string) => http.post<QualityRule>(`/iqc/config/rules/${encodeURIComponent(id)}/enable`).then(response => response.data);
 export const disableRule = (id: string) => http.post<QualityRule>(`/iqc/config/rules/${encodeURIComponent(id)}/disable`).then(response => response.data);
 export const deleteRule = (id: string) => http.delete(`/iqc/config/rules/${encodeURIComponent(id)}`).then(() => undefined);
 export const listRuleVersions = (id: string) => http.get<QualityRuleVersion[]>(`/iqc/config/rules/${id}/versions`).then((response) => response.data);

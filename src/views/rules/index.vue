@@ -8,6 +8,7 @@ import {
   createRule,
   createRuleVersion,
   disableRule,
+  enableRule,
   deleteRule,
   importDlsRules,
   listRuleVersions,
@@ -207,6 +208,23 @@ async function reject(id: string) {
   } catch {
     message.error("规则驳回失败");
   }
+}
+function reactivateRule(rule: QualityRule) {
+  Modal.confirm({
+    title: `重新启用规则「${rule.name}」？`,
+    content: "将新建草稿版本，提交并通过审批后才能生效。历史版本保持不变。",
+    okText: "创建草稿", cancelText: "取消",
+    async onOk() {
+      try {
+        await enableRule(rule.id);
+        message.success("已创建新草稿，请提交审批");
+        await refresh();
+      } catch (error) {
+        message.error(error instanceof Error ? error.message : "重新启用失败");
+        throw error;
+      }
+    },
+  });
 }
 function changeRuleLifecycle(rule: QualityRule, remove: boolean) {
   Modal.confirm({
@@ -487,6 +505,8 @@ onMounted(async () => {
             >驳回</a-button
           ><a-button v-if="record.status !== 'DISABLED' && can('iqc:rule:manage')" type="link" danger
             @click="changeRuleLifecycle(record, false)">停用</a-button
+          ><a-button v-if="record.status === 'DISABLED' && can('iqc:rule:manage')" type="link"
+            @click="reactivateRule(record)">重新启用</a-button
           ><a-button v-if="can('iqc:rule:manage')" type="link" danger
             @click="changeRuleLifecycle(record, true)">删除</a-button
           ></template
