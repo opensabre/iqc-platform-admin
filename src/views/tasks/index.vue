@@ -21,11 +21,7 @@ import {
   type ExecutionMode,
 } from "@/api/tasks";
 import {
-  listAgents,
-  listRules,
   listRuleSets,
-  type QualityAgent,
-  type QualityRule,
   type QualityRuleSet,
 } from "@/api/config";
 import { usePermission } from "@/composables/permission";
@@ -42,13 +38,8 @@ import {
   type LabelResult,
   type LabelInsightSummary,
 } from "@/api/results";
-import {
-  getLabelTree,
-  type LabelTree,
-} from "@/api/labels";
 import TaskExecutionSnapshot from "@/components/TaskExecutionSnapshot.vue";
 import TaskWizardResults from "@/components/TaskWizardResults.vue";
-import TaskCreateWizard from "@/components/TaskCreateWizard.vue";
 import LabelValueReviewPanel from "@/components/LabelValueReviewPanel.vue";
 import { countConversationLabelStates, presentEffectiveLabel, presentLabel } from "./label-results";
 
@@ -58,12 +49,8 @@ const page = ref(1);
 const pageSize = ref(20);
 const loading = ref(false);
 const referenceErrors = ref<string[]>([]);
-const modalOpen = ref(false);
 const router = useRouter();
-const agents = ref<QualityAgent[]>([]);
-const rules = ref<QualityRule[]>([]);
 const ruleSets = ref<QualityRuleSet[]>([]);
-const labelTree = ref<LabelTree>({ categories: [], groups: [], labels: [] });
 const detailOpen = ref(false);
 const detail = ref<InspectionTask>();
 const resultOpen = ref(false),
@@ -183,26 +170,20 @@ async function loadDictionaries() {
   }
 }
 
-/** Reference catalog failures must not hide tasks or block the other operation's catalog. */
+/** A rule-set lookup failure must not hide the task list. */
 async function refresh() {
   loading.value = true;
   try {
-    const [taskPage, agentList, ruleList, ruleSetList, taxonomy] = await Promise.allSettled([
+    const [taskPage, ruleSetList] = await Promise.allSettled([
       listTasks({ current: page.value, size: pageSize.value, ...filters.value }),
-      listAgents(), listRules(), listRuleSets(), getLabelTree(),
+      listRuleSets(),
     ]);
     if (taskPage.status === "fulfilled") {
       tasks.value = taskPage.value.records;
       total.value = taskPage.value.total;
     } else message.error("任务列表加载失败");
-    agents.value = agentList.status === "fulfilled" ? agentList.value.filter(item => item.status === "PUBLISHED") : [];
-    rules.value = ruleList.status === "fulfilled" ? ruleList.value.filter(item => item.status === "PUBLISHED") : [];
     ruleSets.value = ruleSetList.status === "fulfilled" ? ruleSetList.value.filter(item => item.status === "PUBLISHED") : [];
-    labelTree.value = taxonomy.status === "fulfilled" ? taxonomy.value : { categories: [], groups: [], labels: [] };
-    referenceErrors.value = [
-      { result: agentList, name: "智能体" }, { result: ruleList, name: "规则" },
-      { result: ruleSetList, name: "规则集" }, { result: taxonomy, name: "标签" },
-    ].filter(item => item.result.status === "rejected").map(item => item.name);
+    referenceErrors.value = ruleSetList.status === "rejected" ? ["规则集"] : [];
   } finally {
     loading.value = false;
   }
@@ -251,13 +232,7 @@ async function showDetail(id: string) {
     message.error("任务详情加载失败");
   }
 }
-function openCreate() { modalOpen.value = true; }
-async function createdTask(task: InspectionTask) {
-  modalOpen.value = false;
-  message.success("任务已创建");
-  await refresh();
-  try { await showDetail(task.id); } catch { message.error("任务已创建，详情加载失败，可从列表重试"); }
-}
+function openCreate() { void router.push("/tasks/create"); }
 function openRelated(path: string) {
   window.open(router.resolve(path).href, "_blank", "noopener,noreferrer");
 }
@@ -587,9 +562,6 @@ onBeforeUnmount(() => {
   <a-alert v-if="referenceErrors.length" type="warning" show-icon
     :message="`${referenceErrors.join('、')}配置加载失败；已加载的任务和其他配置仍可使用。`"
     style="margin-bottom: 16px"><template #action><a-button size="small" :loading="loading" @click="refresh">重试加载</a-button></template></a-alert>
-  <TaskCreateWizard v-if="modalOpen" :agents="agents"
-    :labeling-targets="labelTree.labels.filter(label => label.status === 'PUBLISHED').map(label => ({ value: label.id, label: label.name }))"
-    @cancel="modalOpen = false" @created="createdTask" />
   <a-drawer v-model:open="detailOpen" title="任务详情" width="min(820px, calc(100vw - 24px))"
     ><template v-if="detail"
       ><a-divider orientation="left">任务概况</a-divider

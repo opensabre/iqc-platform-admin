@@ -30,7 +30,7 @@ function mount() {
   host = document.createElement("div"); document.body.append(host);
   app = createApp({ render: () => h(TaskCreateWizard, { agents: [], labelingTargets: [{ value: "label", label: "客户意向" }], onCreated: created }) });
   const pass = defineComponent({ setup(_, { slots }) { return () => h("div", [slots.default?.(), slots.footer?.()]); } });
-  for (const name of ["AModal", "AForm", "AFormItem"]) app.component(name, pass);
+  for (const name of ["ACard", "AForm", "AFormItem"]) app.component(name, pass);
   app.component("AButton", defineComponent({ setup(_, { attrs, slots }) { return () => h("button", attrs, slots.default?.()); } }));
   app.component("ASteps", defineComponent({ props: ["items", "current"], setup(props) {
     return () => h("nav", { "data-step": props.current }, props.items.map((item: { title: string }) => item.title).join(" / "));
