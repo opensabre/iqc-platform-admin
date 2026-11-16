@@ -15,6 +15,7 @@ const routes: RouteRecordRaw[] = [
       { path: "conversations/api", component: () => import("@/views/conversations/api.vue"), meta: { title: "接口对接", permission: "iqc:conversation:view" } },
       { path: "conversations/upload", component: () => import("@/views/conversations/index.vue"), meta: { title: "文本上传", permission: "iqc:conversation:view" } },
       { path: "conversations/list", component: () => import("@/views/conversations/list.vue"), meta: { title: "会话列表", permission: "iqc:conversation:view" } },
+      { path: "tasks/create", component: () => import("@/views/tasks/create.vue"), meta: { title: "创建任务", permission: "iqc:task:create" } },
       { path: "tasks", component: () => import("@/views/tasks/index.vue"), meta: { title: "任务中心", permission: "iqc:task:view" } },
       { path: "labels", redirect: "/labels/tree" },
       { path: "labels/tree", component: () => import("@/views/labels/tree.vue"), meta: { title: "标签树", permission: "iqc:label:view" } },

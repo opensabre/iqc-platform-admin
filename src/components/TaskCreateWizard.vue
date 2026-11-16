@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { isAxiosError } from "axios";
 import { createUnifiedTask, type UnifiedTagConfiguration, type TaskTrigger, type InspectionTask, type TaskDataSelection } from "@/api/tasks";
 import type { QualityAgent } from "@/api/config";
@@ -8,8 +8,9 @@ import TaskTriggerConfiguration from "./TaskTriggerConfiguration.vue";
 import TaskDataSelector from "./TaskDataSelector.vue";
 
 defineProps<{ agents: QualityAgent[]; labelingTargets: { value: string; label: string }[] }>();
-const emit = defineEmits<{ cancel: []; created: [task: InspectionTask] }>();
+const emit = defineEmits<{ cancel: []; created: [task: InspectionTask]; busyChange: [busy: boolean] }>();
 const step = ref(0), name = ref(""), concurrency = ref(1), saving = ref(false), error = ref("");
+watch(saving, value => emit("busyChange", value));
 const submissionUncertain = ref(false);
 const steps = ["数据筛选", "规则与标签", "触发计划", "任务确认"].map(title => ({ title }));
 const selection = ref<TaskDataSelection>({ mode: "BATCH", conversationIds: [] });
@@ -77,8 +78,7 @@ async function submit() {
 }
 </script>
 <template>
-  <a-modal :open="true" title="创建任务" width="min(1040px, calc(100vw - 32px))" :closable="!saving" :mask-closable="false" :keyboard="!saving"
-    :styles="{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto' } }" @cancel="emit('cancel')">
+  <a-card :bordered="false" class="task-create-card">
     <a-steps :current="step" :items="steps" size="small" class="wizard-steps" />
     <div v-show="step === 0"><TaskDataSelector v-model="selection" :disabled="saving" /></div>
     <div v-show="step === 1"><UnifiedTagConfigurationEditor v-model="configuration" :targets="labelingTargets" :agents="agents" :disabled="saving" /></div>
@@ -95,11 +95,12 @@ async function submit() {
       <h3>触发计划</h3><p>{{ triggerSummary }} · {{ trigger.enabled ? '启用' : '停用' }}</p>
     </div>
     <a-alert v-if="error" type="error" show-icon :message="error" role="alert" class="wizard-error" />
-    <template #footer><a-button :disabled="saving" @click="emit('cancel')">取消</a-button><a-button v-if="step > 0" :disabled="saving" @click="step--; error = ''">上一步</a-button>
-      <a-button v-if="step < 3" type="primary" :disabled="saving" @click="next">下一步</a-button><a-button v-else type="primary" :loading="saving" :disabled="submissionUncertain" @click="submit">创建任务</a-button></template>
-  </a-modal>
+    <div class="wizard-actions"><a-button :disabled="saving" @click="emit('cancel')">取消</a-button><a-button v-if="step > 0" :disabled="saving" @click="step--; error = ''">上一步</a-button>
+      <a-button v-if="step < 3" type="primary" :disabled="saving" @click="next">下一步</a-button><a-button v-else type="primary" :loading="saving" :disabled="submissionUncertain" @click="submit">创建任务</a-button></div>
+  </a-card>
 </template>
 <style scoped>
 .wizard-steps { margin-bottom: 24px; }
 .wizard-error { margin-top: 16px; }
+.wizard-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--ant-color-border-secondary, #f0f0f0); }
 </style>
