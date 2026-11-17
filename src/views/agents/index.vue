@@ -5,6 +5,7 @@ import { message } from "ant-design-vue";
 import { useRouter } from "vue-router";
 import { approveAgent, createAgent, createAgentVersion, disableAgent, listAgents, listMcpServers, listModelProfiles, listSkills, rejectAgent, submitAgent, type AgentRuntimeConfig, type IqcMcpServer, type IqcModelProfile, type IqcSkill, type QualityAgent } from "@/api/config";
 import AgentTestChat from "./AgentTestChat.vue";
+import AgentSessions from "./AgentSessions.vue";
 import DictTag from "@/components/DictTag.vue";
 import { usePermission } from "@/composables/permission";
 
@@ -18,10 +19,12 @@ type StepKey = "basic" | "model" | "capabilities" | "prompt" | "confirm";
 const router = useRouter();
 const { can } = usePermission();
 const agents = ref<QualityAgent[]>([]), models = ref<IqcModelProfile[]>([]), mcps = ref<IqcMcpServer[]>([]), skills = ref<IqcSkill[]>([]);
+const sessionsOpen = ref(false), sessionsAgentId = ref(""), sessionsAgentName = ref("");
+function openSessions(agent: QualityAgent) { sessionsAgentId.value = agent.id; sessionsAgentName.value = agent.name; sessionsOpen.value = true; }
 const chatAgentId=ref<string>(), chatVersionNo=ref<number>();
 const chatOpen = ref(false), chatConfig = ref(""), chatTitle = ref("");
 function openChat(config: string, title: string, agentId?:string, versionNo?:number) { chatAgentId.value=agentId;chatVersionNo.value=versionNo; chatConfig.value = config; chatTitle.value = title; chatOpen.value = true; }
-const modalOpen = ref(false), saving = ref(false), assetsLoading = ref(false), legacy = ref(false), currentStep = ref(0);
+const modalOpen = ref(false), saving = ref(false), assetsLoading = ref(false), currentStep = ref(0);
 const selected = ref<QualityAgent>();
 const form = ref({ name: "", code: "", description: "" });
 const runtime = ref<AgentRuntimeConfig>(defaults());
@@ -38,18 +41,15 @@ const activeSteps = computed<{ key: StepKey; title: string; description: string 
   return result;
 });
 const currentStepKey = computed<StepKey>(() => activeSteps.value[currentStep.value]?.key || "basic");
-const modeName = "大模型引擎";
-const modeNames: Record<string, string> = { RULE_ONLY: "普通规则", RULE_THEN_LLM: "规则 + 智能体", LLM_THEN_RULE: "智能提取 + 规则复核", AGENT_LLM: "智能体" };
 
 function parseConfig(value?: string): AgentRuntimeConfig {
   try {
-    const parsed = JSON.parse(value || "{}"); legacy.value = parsed.schemaVersion !== "3.0";
+    const parsed = JSON.parse(value || "{}");
     return { ...defaults(), systemPrompt: parsed.systemPrompt || defaults().systemPrompt,
       primaryModelProfileId: parsed.primaryModelProfileId || "", fallbackModelProfileIds: parsed.fallbackModelProfileIds || [],
       mcpServerIds: parsed.mcpServerIds || [], skillIds: parsed.skillIds || [] };
-  } catch { legacy.value = true; return defaults(); }
+  } catch { return defaults(); }
 }
-function agentModeName(value?: string) { try { const config = JSON.parse(value || "{}"); return config.schemaVersion === "3.0" ? "LLM 能力" : `旧版：${modeNames[config.mode] || "未配置"}`; } catch { return "未配置"; } }
 async function refresh() { try { agents.value = await listAgents(); } catch { message.error("Agent 加载失败"); } }
 async function loadAssets() {
   assetsLoading.value = true;
@@ -62,8 +62,8 @@ async function loadAssets() {
   } catch { message.error("关联资产加载失败"); }
   finally { assetsLoading.value = false; }
 }
-function createNew() { selected.value = undefined; legacy.value = false; currentStep.value = 0; form.value = { name: "", code: "", description: "" }; runtime.value = defaults(); modalOpen.value = true; void loadAssets(); }
-function edit(item: QualityAgent) { selected.value = item; legacy.value = false; currentStep.value = 0; form.value = { name: item.name, code: item.code, description: item.description || "" }; runtime.value = parseConfig(item.configJson); modalOpen.value = true; void loadAssets(); }
+function createNew() { selected.value = undefined; currentStep.value = 0; form.value = { name: "", code: "", description: "" }; runtime.value = defaults(); modalOpen.value = true; void loadAssets(); }
+function edit(item: QualityAgent) { selected.value = item; currentStep.value = 0; form.value = { name: item.name, code: item.code, description: item.description || "" }; runtime.value = parseConfig(item.configJson); modalOpen.value = true; void loadAssets(); }
 function validateStep(step: StepKey) {
   if (step === "basic" && (!form.value.name.trim() || !form.value.code.trim())) { message.warning("请填写 Agent 名称和编码"); return false; }
   if (step === "model" && !runtime.value.primaryModelProfileId) { message.warning("请选择一个已启用的主模型"); return false; }
@@ -77,7 +77,6 @@ async function save() {
   saving.value = true;
   try {
     const config = { ...runtime.value };
-    if (config.schemaVersion === "3.0") { delete config.mode; delete config.ruleSetId; }
     const data = { ...form.value, configJson: JSON.stringify(config) };
     if (selected.value) await createAgentVersion(selected.value.id, data); else await createAgent(data);
     message.success(selected.value ? "已创建 Agent 草稿版本" : "Agent 已创建，可继续提交审批"); modalOpen.value = false; await refresh();
@@ -91,14 +90,13 @@ onMounted(() => void refresh());
 <template>
   <section class="page-intro"><div><span class="section-kicker">AGENT WORKSHOP</span><h2>智能体列表</h2><p>通过向导关联模型、MCP 与 Skill，所有变更纳入版本审批。</p></div><a-button v-if="can('iqc:agent:manage')" type="primary" @click="createNew">创建 Agent</a-button></section>
   <a-space style="margin-bottom:16px" wrap><a-input-search v-model:value="search" allow-clear placeholder="搜索名称、编码、说明"/><a-select v-model:value="statusFilter" style="width:160px"><a-select-option value="">全部状态</a-select-option><a-select-option value="DRAFT">草稿</a-select-option><a-select-option value="PENDING_APPROVAL">待审批</a-select-option><a-select-option value="PUBLISHED">已发布</a-select-option><a-select-option value="DISABLED">停用</a-select-option></a-select></a-space>
-  <a-card :bordered="false"><a-table :data-source="filteredItems" :pagination="{pageSize:10}" row-key="id"><a-table-column title="名称" data-index="name"/><a-table-column title="编码" data-index="code"/><a-table-column title="引擎类型"><template #default="{record}"><a-tag color="blue">{{agentModeName(record.configJson)}}</a-tag></template></a-table-column><a-table-column title="版本" data-index="versionNo"/><a-table-column title="状态" data-index="status"><template #default="{record}"><DictTag code="iqc_agent_status" :value="record.status" :fallback="record.status" tag/></template></a-table-column><a-table-column title="操作" :width="340"><template #default="{record}"><a-button type="link" @click="edit(record)">{{can('iqc:agent:manage') ? '配置新版本' : '查看'}}</a-button><AgentAssetHistory :asset-id="record.id" kind="agent" @changed="refresh"/><a-button v-if="can('iqc:agent:manage')" type="link" @click="openChat(record.configJson || '', `${record.name} · V${record.versionNo}`, record.id, record.versionNo)">测试聊天</a-button><a-button v-if="record.status==='DRAFT'&&can('iqc:agent:submit')" type="link" @click="action(record.id,'submit')">提交</a-button><a-button v-if="record.status==='PENDING_APPROVAL'&&can('iqc:agent:approve')" type="link" @click="action(record.id,'approve')">通过</a-button><a-button v-if="record.status==='PENDING_APPROVAL'&&can('iqc:agent:approve')" type="link" danger @click="action(record.id,'reject')">驳回</a-button><a-button v-if="record.status==='PUBLISHED'&&can('iqc:agent:disable')" type="link" danger @click="action(record.id,'disable')">停用</a-button></template></a-table-column></a-table></a-card>
+  <a-card :bordered="false"><a-table :data-source="filteredItems" :pagination="{pageSize:10}" row-key="id"><a-table-column title="名称" data-index="name"/><a-table-column title="编码" data-index="code"/><a-table-column title="版本" data-index="versionNo"/><a-table-column title="状态" data-index="status"><template #default="{record}"><DictTag code="iqc_agent_status" :value="record.status" :fallback="record.status" tag/></template></a-table-column><a-table-column title="操作" :width="430"><template #default="{record}"><a-button type="link" @click="edit(record)">{{can('iqc:agent:manage') ? '配置' : '查看'}}</a-button><a-button v-if="can('iqc:agent:view')" type="link" @click="openSessions(record)">会话管理</a-button><AgentAssetHistory :asset-id="record.id" kind="agent" @changed="refresh"/><a-button v-if="can('iqc:agent:manage')" type="link" @click="openChat(record.configJson || '', `${record.name} · V${record.versionNo}`, record.id, record.versionNo)">测试聊天</a-button><a-button v-if="record.status==='DRAFT'&&can('iqc:agent:submit')" type="link" @click="action(record.id,'submit')">提交</a-button><a-button v-if="record.status==='PENDING_APPROVAL'&&can('iqc:agent:approve')" type="link" @click="action(record.id,'approve')">通过</a-button><a-button v-if="record.status==='PENDING_APPROVAL'&&can('iqc:agent:approve')" type="link" danger @click="action(record.id,'reject')">驳回</a-button><a-button v-if="record.status==='PUBLISHED'&&can('iqc:agent:disable')" type="link" danger @click="action(record.id,'disable')">停用</a-button></template></a-table-column></a-table></a-card>
 
-  <a-modal v-model:open="modalOpen" :title="selected?`配置新版本：${selected.name}`:'创建 Agent'" width="min(860px, calc(100vw - 32px))" :styles="{body:{maxHeight:'calc(100vh - 190px)',overflowY:'auto',overflowX:'hidden'}}" :confirm-loading="saving">
-    <a-alert v-if="legacy" type="warning" show-icon message="此处创建纯大模型能力的新版本；旧版规则及执行模式不会带入，历史版本保持不变。请确认模型和扩展能力。" style="margin-bottom:16px"/>
+  <a-modal v-model:open="modalOpen" :title="selected?`配置智能体：${selected.name}`:'创建 Agent'" width="min(860px, calc(100vw - 32px))" :styles="{body:{maxHeight:'calc(100vh - 190px)',overflowY:'auto',overflowX:'hidden'}}" :confirm-loading="saving">
     <a-steps :current="currentStep" :items="activeSteps" size="small" class="agent-wizard-steps"/>
     <a-spin :spinning="assetsLoading"><div class="agent-wizard-body">
       <a-form :disabled="!can('iqc:agent:manage')" v-show="currentStepKey==='basic'" layout="vertical">
-        <a-alert type="info" show-icon message="智能体负责模型、提示词和工具能力。质检执行策略在任务中选择；纯规则任务无需智能体。" style="margin-bottom:16px"/>
+        <a-alert type="info" show-icon message="智能体负责模型、提示词和工具能力。" style="margin-bottom:16px"/>
         <a-row :gutter="16"><a-col :span="12"><a-form-item label="Agent 名称" required><a-input v-model:value="form.name" placeholder="例如：客服服务质量质检 Agent"/></a-form-item></a-col><a-col :span="12"><a-form-item label="唯一编码" required><a-input v-model:value="form.code" :disabled="Boolean(selected)" placeholder="例如：service_quality_agent"/></a-form-item></a-col></a-row>
         <a-form-item label="用途说明"><a-textarea v-model:value="form.description" :rows="4" placeholder="说明适用业务、质检目标和使用边界"/></a-form-item>
       </a-form>
@@ -110,11 +108,10 @@ onMounted(() => void refresh());
       <a-form :disabled="!can('iqc:agent:manage')" v-show="currentStepKey==='prompt'" layout="vertical"><div class="wizard-heading"><div><h3>设置智能体行为</h3><p>定义智能体的身份、判断边界和输出要求。</p></div></div><a-form-item label="默认提示词" required><a-textarea v-model:value="runtime.systemPrompt" :rows="7" :maxlength="8000" show-count/></a-form-item></a-form>
 
       <a-form :disabled="!can('iqc:agent:manage')" v-show="currentStepKey==='confirm'" layout="vertical">
-        <div class="wizard-heading"><div><h3>确认配置</h3><p>检查智能体能力；新智能体的执行策略由任务指定。</p></div></div>
+        <div class="wizard-heading"><div><h3>确认配置</h3><p>检查模型、提示词和扩展能力。</p></div></div>
         <a-card size="small" title="配置摘要" class="wizard-summary">
           <a-descriptions :column="2" size="small">
             <a-descriptions-item label="名称">{{form.name}}</a-descriptions-item>
-            <a-descriptions-item label="配置类型">{{modeName}}</a-descriptions-item>
             <template>
               <a-descriptions-item label="主模型">{{primaryModel?.name||'未选择'}}</a-descriptions-item>
               <a-descriptions-item label="备用模型">{{selectedFallbackModels.map(x=>x.name).join('、')||'无'}}</a-descriptions-item>
@@ -129,6 +126,7 @@ onMounted(() => void refresh());
     </div></a-spin>
     <template #footer><a-button v-if="can('iqc:agent:manage')" @click="openChat(JSON.stringify(runtime), '当前配置（未保存）')">测试聊天</a-button><a-button @click="modalOpen=false">取消</a-button><a-button v-if="currentStep>0" @click="currentStep--">上一步</a-button><a-button v-if="currentStep<activeSteps.length-1" type="primary" @click="next">下一步</a-button><a-button v-else-if="can('iqc:agent:manage')" type="primary" :loading="saving" @click="save">{{selected?'创建草稿版本':'创建 Agent'}}</a-button></template>
   </a-modal>
+<AgentSessions v-model:open="sessionsOpen" :agent-id="sessionsAgentId" :agent-name="sessionsAgentName"/>
 <AgentTestChat v-model:open="chatOpen" :config-json="chatConfig" :title="chatTitle" :agent-id="chatAgentId" :version-no="chatVersionNo"/>
 </template>
 
