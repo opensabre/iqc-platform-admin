@@ -5,17 +5,19 @@ const props = defineProps<{ open: boolean; configJson: string; title: string; ag
 const emit = defineEmits<{ 'update:open': [boolean] }>();
 type Turn = { role: "user" | "assistant"; content: string };
 const turns = ref<Turn[]>([]), input = ref(""), busy = ref(false), error = ref(""), info = ref("");
+const sessionId = ref<string>();
 let generation = 0;
-function reset() { generation++; turns.value=[]; input.value=""; error.value=""; info.value=""; busy.value=false; }
-watch(() => [props.open, props.configJson], reset);
+function reset() { generation++; sessionId.value=undefined; turns.value=[]; input.value=""; error.value=""; info.value=""; busy.value=false; }
+watch(() => [props.open, props.configJson, props.agentId, props.versionNo], reset);
 async function send() {
   if (!input.value.trim() || busy.value) return;
   const content=input.value.trim(), token=generation;
   const history: Turn[]=[...turns.value, { role: "user", content }];
   busy.value=true; error.value="";
   try {
-    const response=await http.post<{content:string; latencyMillis:number; model:string;calledTools:string[]}>("/iqc/config/agents/test-chat", {configJson:props.configJson, messages:history,agentId:props.agentId,versionNo:props.versionNo}, {timeout:300000});
+    const response=await http.post<{content:string; latencyMillis:number; model:string;calledTools:string[];sessionId?:string}>("/iqc/config/agents/test-chat", {configJson:props.configJson, messages:history,agentId:props.agentId,versionNo:props.versionNo,sessionId:sessionId.value}, {timeout:300000});
     if (token !== generation) return;
+    sessionId.value=response.data.sessionId;
     turns.value=[...history, {role:"assistant",content:response.data.content}]; input.value="";
     info.value=`${response.data.model || "当前模型"} · ${response.data.latencyMillis} ms${response.data.calledTools?.length ? " · 工具："+response.data.calledTools.join("、") : ""}`;
   } catch (failure) { if (token === generation) error.value=failure instanceof Error ? `测试失败：${failure.message}` : "测试失败，请检查模型与 MCP 连接、配置及权限后重试。"; }
@@ -24,7 +26,7 @@ async function send() {
 </script>
 <template>
   <a-modal :open="open" :title="`测试聊天 · ${title}`" width="min(800px, calc(100vw - 32px))" :footer="null" @cancel="emit('update:open', false)">
-    <a-alert type="info" show-icon message="使用当前配置进行真实模型与工具调用；不会保存配置或创建质检任务。"/>
+    <a-alert type="info" show-icon :message="agentId ? '成功问答自动保存至该智能体的会话历史；使用真实模型与工具。' : '当前为未保存配置测试，会话不保存；使用真实模型与工具。'"/>
     <div class="chat-log" aria-live="polite">
       <a-empty v-if="!turns.length" description="发送消息，验证智能体的回答是否符合预期"/>
       <div v-for="(turn,index) in turns" :key="index" class="chat-turn"><strong>{{turn.role==='user'?'你':'智能体'}}</strong><p>{{turn.content}}</p></div>

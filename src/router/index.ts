@@ -24,6 +24,7 @@ const routes: RouteRecordRaw[] = [
       { path: "results", component: () => import("@/views/results/index.vue"), meta: { title: "结果中心", permission: "iqc:result:view" } },
       { path: "quality-operations", component: () => import("@/views/quality-operations/index.vue"), meta: { title: "质量运营", permission: "iqc:review:view" } },
       { path: "agents", component: () => import("@/views/agents/index.vue"), meta: { title: "智能体列表", permission: "iqc:agent:view" } },
+      { path: "agent-sessions", component: () => import("@/views/agent-sessions/index.vue"), meta: { title: "会话查询", permission: "iqc:agent:view" } },
       { path: "agent-skills", component: () => import("@/views/agent-skills/index.vue"), meta: { title: "Skills 管理", permission: "iqc:skill:view" } },
       { path: "agent-mcps", component: () => import("@/views/agent-mcps/index.vue"), meta: { title: "MCP 工具管理", permission: "iqc:mcp:view" } },
       { path: "agent-models", component: () => import("@/views/agent-models/index.vue"), meta: { title: "模型管理", permission: "iqc:model:view" } },
