@@ -14,9 +14,9 @@ export interface AgentSessionFilters {
   current: number; size: number; agentId?: string; title?: string; owner?: string; startedFrom?: string; startedTo?: string;
 }
 export const listAgentSessions = (agentId: string, params: AgentSessionFilters) =>
-  http.get<AgentSessionPage>(`/iqc/config/agents/${agentId}/sessions`, { params }).then(response => response.data);
+  http.get<AgentSessionPage>(`/iac/config/agents/${agentId}/sessions`, { params }).then(response => response.data);
 export const getAgentSession = (agentId: string, sessionId: string) =>
-  http.get<AgentSessionDetail>(`/iqc/config/agents/${agentId}/sessions/${sessionId}`).then(response => response.data);
+  http.get<AgentSessionDetail>(`/iac/config/agents/${agentId}/sessions/${sessionId}`).then(response => response.data);
 
 export const queryAgentSessions = (params: AgentSessionFilters) =>
-  http.get<AgentSessionPage>("/iqc/config/agent-sessions", { params }).then(response => response.data);
+  http.get<AgentSessionPage>("/iac/config/agent-sessions", { params }).then(response => response.data);

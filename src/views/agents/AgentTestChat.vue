@@ -15,7 +15,7 @@ async function send() {
   const history: Turn[]=[...turns.value, { role: "user", content }];
   busy.value=true; error.value="";
   try {
-    const response=await http.post<{content:string; latencyMillis:number; model:string;calledTools:string[];sessionId?:string}>("/iqc/config/agents/test-chat", {configJson:props.configJson, messages:history,agentId:props.agentId,versionNo:props.versionNo,sessionId:sessionId.value}, {timeout:300000});
+    const response=await http.post<{content:string; latencyMillis:number; model:string;calledTools:string[];sessionId?:string}>("/iac/config/agents/test-chat", {configJson:props.configJson, messages:history,agentId:props.agentId,versionNo:props.versionNo,sessionId:sessionId.value}, {timeout:300000});
     if (token !== generation) return;
     sessionId.value=response.data.sessionId;
     turns.value=[...history, {role:"assistant",content:response.data.content}]; input.value="";

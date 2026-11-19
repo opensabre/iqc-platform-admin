@@ -9,7 +9,7 @@ import { usePermission } from "@/composables/permission";
 
 const selectedToolNames = computed<string[]>(()=>{try{const value=JSON.parse(form.value.allowedToolsJson || "[]");return Array.isArray(value)?value:[];}catch{return [];}});
 const discovered = ref<{name:string;description:string}[]>([]), discoveryOpen=ref(false), discovering=ref(false);
-async function discover(item:IqcMcpServer){discovering.value=true;try{discovered.value=(await http.post(`/iqc/agent-assets/mcps/${item.id}/discover-tools`,{}, {timeout:300000})).data;edit(item);discoveryOpen.value=true;}catch{message.error('MCP 连接或工具发现失败');}finally{discovering.value=false;}}
+async function discover(item:IqcMcpServer){discovering.value=true;try{discovered.value=(await http.post(`/iac/agent-assets/mcps/${item.id}/discover-tools`,{}, {timeout:300000})).data;edit(item);discoveryOpen.value=true;}catch{message.error('MCP 连接或工具发现失败');}finally{discovering.value=false;}}
 function applyTools(names:unknown[]){form.value.allowedToolsJson=JSON.stringify(names.filter(name=>typeof name==="string"));}
 const search = ref("");
 const statusFilter = ref("");
@@ -22,7 +22,7 @@ const authTypes = ref<DictionaryItem[]>([{ value: "NONE", label: "无认证" }, 
 const emptyForm = (): IqcMcpServerRequest => ({ name: "", code: "", description: "", transport: "STREAMABLE_HTTP", endpoint: "", authType: "NONE", secretRef: "", timeoutSeconds: 30, allowedToolsJson: "[]" });
 const form = ref<IqcMcpServerRequest>(emptyForm()); const { can } = usePermission();
 async function refresh() { loading.value = true; try { mcps.value = await listMcpServers(); } catch { message.error("MCP 加载失败"); } finally { loading.value = false; } }
-async function dictionaries() { try { const data = await getCachedDictionaries(["iqc_mcp_transport", "iqc_mcp_auth_type"]); if (data.iqc_mcp_transport?.length) transports.value = data.iqc_mcp_transport; if (data.iqc_mcp_auth_type?.length) authTypes.value = data.iqc_mcp_auth_type; } catch { /* 使用安全的本地兜底选项。 */ } }
+async function dictionaries() { try { const data = await getCachedDictionaries(["iac_mcp_transport", "iac_mcp_auth_type"]); if (data.iac_mcp_transport?.length) transports.value = data.iac_mcp_transport; if (data.iac_mcp_auth_type?.length) authTypes.value = data.iac_mcp_auth_type; } catch { /* 使用安全的本地兜底选项。 */ } }
 function createNew() { discoveryOpen.value=false;discovered.value=[]; selected.value = undefined; form.value = emptyForm(); modalOpen.value = true; }
 function edit(item: IqcMcpServer) { discoveryOpen.value=false; selected.value = item; form.value = { name:item.name, code:item.code, description:item.description || "", transport:item.transport, endpoint:item.endpoint, authType:item.authType, secretRef:item.secretRef || "", timeoutSeconds:item.timeoutSeconds, allowedToolsJson:item.allowedToolsJson || "[]" }; modalOpen.value = true; }
 async function save() { if (!form.value.name || !form.value.code || !form.value.endpoint) { message.warning("请填写名称、编码和地址"); return; } if (form.value.authType !== "NONE" && !form.value.secretRef) { message.warning("认证配置只能填写平台密钥引用，不能为空"); return; } try { const tools = JSON.parse(form.value.allowedToolsJson || "[]"); if (!Array.isArray(tools)) throw new Error(); } catch { message.warning("工具白名单必须是 JSON 数组"); return; }
