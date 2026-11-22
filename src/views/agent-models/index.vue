@@ -16,7 +16,7 @@ const testingId=ref<string>();
 const providers=ref<DictionaryItem[]>([{value:"SPRING_AI",label:"Spring AI / OpenAI 兼容"},{value:"OPENAI",label:"OpenAI"},{value:"DASHSCOPE",label:"阿里云百炼"},{value:"OLLAMA",label:"Ollama 本地模型"}]);
 const emptyForm=():IqcModelProfileRequest=>({name:"",code:"",description:"",provider:"SPRING_AI",modelName:"",endpoint:"",secretRef:"",temperature:0.1,timeoutSeconds:60,maxRetries:0}); const form=ref(emptyForm()); const {can}=usePermission();
 async function refresh(){loading.value=true;try{profiles.value=await listModelProfiles();}catch{message.error("模型配置加载失败");}finally{loading.value=false;}}
-async function loadDictionaries(){try{const data=await getCachedDictionaries(["iqc_model_provider"]);if(data.iqc_model_provider?.length)providers.value=data.iqc_model_provider;}catch{/* 使用本地兜底。 */}}
+async function loadDictionaries(){try{const data=await getCachedDictionaries(["iac_model_provider"]);if(data.iac_model_provider?.length)providers.value=data.iac_model_provider;}catch{/* 使用本地兜底。 */}}
 function createNew(){selected.value=undefined;form.value=emptyForm();modalOpen.value=true;}
 function edit(item:IqcModelProfile){selected.value=item;form.value={name:item.name,code:item.code,description:item.description||"",provider:item.provider,modelName:item.modelName,endpoint:item.endpoint||"",secretRef:"",temperature:item.temperature,timeoutSeconds:item.timeoutSeconds,maxRetries:item.maxRetries};modalOpen.value=true;}
 async function save(){
