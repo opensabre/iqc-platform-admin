@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp, defineComponent, h, nextTick, ref, computed, provide, inject, type Ref, type App } from "vue";
 import AgentSessions from "./AgentSessions.vue";
-import { listAgentSessions, getAgentSession, queryAgentSessions } from "@/api/agent-sessions";
-vi.mock("@/api/agent-sessions", () => ({ listAgentSessions: vi.fn(), getAgentSession: vi.fn(), queryAgentSessions: vi.fn() }));
+import { listAgentSessions, getAgentSession, queryAgentSessions, queryAgentExecutions } from "@/api/agent-sessions";
+vi.mock("@/api/agent-sessions", () => ({ listAgentSessions: vi.fn(), getAgentSession: vi.fn(), queryAgentSessions: vi.fn(), queryAgentExecutions: vi.fn() }));
 vi.mock("@/api/config", () => ({ listAgents: vi.fn().mockResolvedValue([{id:"agent-1", name:"客服助手"}, {id:"agent-2", name:"审核助手"}]) }));
 vi.mock("ant-design-vue", () => ({ message: { error: vi.fn(), warning: vi.fn() } }));
 let app: App, host: HTMLDivElement;
@@ -13,8 +13,16 @@ async function settle() { for (let i = 0; i < 10; i++) { await Promise.resolve()
 function mount() {
   host = document.createElement("div"); document.body.append(host);
   app = createApp({ setup: () => () => h(AgentSessions, { open: open.value, agentId: agentId.value, agentName: "助手", embedded: embedded.value }) });
-  for (const name of ["ADrawer", "ASpace", "ATag", "AModal", "ASpin"]) app.component(name, pass);
+  for (const name of ["ADrawer", "ASpace", "ATag", "AModal", "ASpin", "AInputNumber", "ACollapse", "ACollapsePanel", "AEmpty", "APagination", "ADescriptions", "ADescriptionsItem", "AList", "AListItem"]) app.component(name, pass);
   app.component("AButton", defineComponent({ setup(_, { slots, attrs }) { return () => h("button", attrs, slots.default?.()); } }));
+  app.component("ARadioGroup", defineComponent({ setup(_, { slots, emit }) {
+    provide("selectView", (view: string) => emit("update:value", view));
+    return () => h("div", slots.default?.());
+  }, emits: ["update:value"] }));
+  app.component("ARadioButton", defineComponent({ props: ["value"], setup(props, { slots }) {
+    const select = inject<(value: string) => void>("selectView");
+    return () => h("button", { onClick: () => select?.(props.value) }, slots.default?.());
+  } }));
   app.component("AInput", defineComponent({ props: ["value"], emits: ["update:value"], setup(props, { attrs, emit }) { return () => h("input", { ...attrs, value: props.value, onInput: (e: Event) => emit("update:value", (e.target as HTMLInputElement).value) }); } }));
   app.component("ATable", defineComponent({ props: ["dataSource"], setup(props, { slots }) {
     provide("rows", computed(() => props.dataSource || []));
@@ -89,4 +97,22 @@ describe("agent session history", () => {
     expect(getAgentSession).toHaveBeenCalledWith("agent-2", "session-2");
   });
 
+  it("looks up IQC task executions from the same session menu without opening a conversation", async () => {
+    embedded.value = true;
+    vi.mocked(queryAgentSessions).mockResolvedValue({ records: [], current: 1, size: 10, total: 0 });
+    vi.mocked(queryAgentExecutions).mockResolvedValue({ current: 1, size: 10, total: 1, records: [{
+      requestId: "request-1", source: "INTERNAL", caller: "iqc-platform", businessReference: "task-123",
+      status: "SUCCEEDED", startedTime: "2026-11-17T10:00:00", steps: [],
+    }] });
+    mount(); open.value = true; await settle();
+    [...host.querySelectorAll("button")].find(button => button.textContent === "按标识查询执行")!.click();
+    await settle();
+    const task = host.querySelector<HTMLInputElement>('input[placeholder="任务标识"]')!;
+    task.value = "task-123"; task.dispatchEvent(new Event("input"));
+    [...host.querySelectorAll("button")].find(button => button.textContent === "查询")!.click();
+    await settle();
+    expect(queryAgentExecutions).toHaveBeenCalledWith(expect.objectContaining({ businessReference: "task-123", current: 1 }));
+    expect(host.textContent).toContain("request-1");
+    expect(getAgentSession).not.toHaveBeenCalled();
+  });
 });

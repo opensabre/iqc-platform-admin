@@ -15,11 +15,11 @@ async function send() {
   const history: Turn[]=[...turns.value, { role: "user", content }];
   busy.value=true; error.value="";
   try {
-    const response=await http.post<{content:string; latencyMillis:number; model:string;calledTools:string[];sessionId?:string}>("/iac/config/agents/test-chat", {configJson:props.configJson, messages:history,agentId:props.agentId,versionNo:props.versionNo,sessionId:sessionId.value}, {timeout:300000});
+    const response=await http.post<{content:string; latencyMillis:number; model:string;calledTools:string[];sessionId?:string;requestId?:string}>("/iac/config/agents/test-chat", {configJson:props.configJson, messages:history,agentId:props.agentId,versionNo:props.versionNo,sessionId:sessionId.value}, {timeout:300000});
     if (token !== generation) return;
     sessionId.value=response.data.sessionId;
     turns.value=[...history, {role:"assistant",content:response.data.content}]; input.value="";
-    info.value=`${response.data.model || "当前模型"} · ${response.data.latencyMillis} ms${response.data.calledTools?.length ? " · 工具："+response.data.calledTools.join("、") : ""}`;
+    info.value=`${response.data.model || "当前模型"} · ${response.data.latencyMillis} ms${response.data.calledTools?.length ? " · 工具："+response.data.calledTools.join("、") : ""}${response.data.requestId ? " · 请求 ID " + response.data.requestId : ""}`;
   } catch (failure) { if (token === generation) error.value=failure instanceof Error ? `测试失败：${failure.message}` : "测试失败，请检查模型与 MCP 连接、配置及权限后重试。"; }
   finally { if (token === generation) busy.value=false; }
 }

@@ -39,7 +39,8 @@ const menuItems: MenuItem[] = [
   { key: "quality-operations", path: "/quality-operations", label: "质量运营", icon: CheckCircleOutlined, permission: "iqc:review:view" },
   { key: "agents", label: "智能体管理", icon: ClusterOutlined, children: [
     { key: "agents-list", path: "/agents", label: "智能体列表", permission: "iqc:agent:view" },
-    { key: "agent-sessions", path: "/agent-sessions", label: "会话查询", permission: "iqc:agent:view" },
+    { key: "agent-applications", path: "/agent-applications", label: "接入应用", permission: "iac:consumer:list" },
+    { key: "agent-sessions", path: "/agent-sessions", label: "智能体会话", permission: "iqc:agent:view" },
     { key: "agent-skills", path: "/agent-skills", label: "Skills 管理", permission: "iqc:skill:view" },
     { key: "agent-models", path: "/agent-models", label: "模型管理", permission: "iqc:model:view" },
     { key: "agent-mcps", path: "/agent-mcps", label: "MCP 工具管理", permission: "iqc:mcp:view" },
@@ -60,7 +61,7 @@ const routePaths = new Set(router.getRoutes().map((record) => `/${String(record.
 const canonicalLabels: Record<string, string> = {
   "/dashboard": "睿检总览", "/profile": "个人中心", "/conversations/api": "接口对接", "/conversations/list": "会话列表", "/conversations/upload": "文本上传",
   "/tasks": "任务中心", "/labels/tree": "标签树", "/labels/collections": "标签集合", "/labels/candidates": "候选标签", "/results": "结果中心", "/agents": "智能体列表", "/agent-models": "模型配置",
-  "/agent-sessions": "会话查询",
+  "/agent-sessions": "智能体会话", "/agent-applications": "接入应用",
   "/agent-mcps": "MCP 工具管理", "/agent-skills": "Skills 管理", "/rules/library": "规则库", "/rules/conversation": "会话规则",
   "/rules/sets": "规则集", "/rules/test-center": "测试中心", "/rules/approvals": "审批与发布",
   "/templates": "模板中心", "/settings": "系统设置", "/audit-logs": "操作日志",
@@ -83,11 +84,12 @@ function fromAuthorized(item: AuthorizedMenu): MenuItem | null {
   const path = localPath(item.href);
   const isMenu = item.type === "MENU" || children.length > 0;
   if (!isMenu || (!path && children.length === 0)) return null;
-  if (children.some(child => ["/agents", "/agent-sessions", "/agent-skills", "/agent-models", "/agent-mcps"].includes(child.path || ""))) {
-    const order = ["/agents", "/agent-sessions", "/agent-skills", "/agent-models", "/agent-mcps"];
-    children.sort((a,b) => (order.indexOf(a.path || "") < 0 ? 99 : order.indexOf(a.path || "")) - (order.indexOf(b.path || "") < 0 ? 99 : order.indexOf(b.path || "")));
+  const agentPaths = ["/agents", "/agent-sessions", "/agent-applications", "/agent-models", "/agent-mcps", "/agent-skills"];
+  const agentMenu = children.some(child => agentPaths.includes(child.path || ""));
+  if (agentMenu) {
+    children.sort((a, b) => (agentPaths.indexOf(a.path || "") + 1 || 99) - (agentPaths.indexOf(b.path || "") + 1 || 99));
   }
-  return { key: String(item.id ?? item.href ?? item.name), path, label: (children.some(child => ["/agents", "/agent-sessions", "/agent-skills", "/agent-models", "/agent-mcps"].includes(child.path || "")) ? "智能体管理" : undefined) || (path && canonicalLabels[path]) || item.name || "未命名菜单", icon: iconMap[item.icon || ""], permission: menuPermission(item), children: children.length ? children : undefined };
+  return { key: String(item.id ?? item.href ?? item.name), path, label: (agentMenu ? "智能体管理" : undefined) || (path && canonicalLabels[path]) || item.name || "未命名菜单", icon: iconMap[item.icon || ""], permission: menuPermission(item), children: children.length ? children : undefined };
 }
 function dynamicMenuItems() {
   const iqcRoot = auth.menus.find((item) => item.href === "/iqc" || item.name === "IQC 质检平台");
