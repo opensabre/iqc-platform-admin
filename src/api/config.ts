@@ -14,7 +14,7 @@ export interface IqcMcpServer { id: string; name: string; code: string; descript
 export type IqcMcpServerRequest = Omit<IqcMcpServer, "id" | "status" | "healthStatus" | "versionNo">;
 export interface IqcModelProfile { id:string; name:string; code:string; description?:string; provider:string; modelName:string; endpoint?:string; secretRef?:string; secretConfigured?:boolean; temperature:number; timeoutSeconds:number; maxRetries:number; status:"ENABLED"|"DISABLED"; versionNo:number; }
 export type IqcModelProfileRequest = Omit<IqcModelProfile, "id"|"status"|"versionNo">;
-export interface ModelConnectionTestResult { success:boolean; message:string; latencyMillis:number; provider:string; modelName:string; }
+export interface ModelConnectionTestResult { success:boolean; message:string; latencyMillis:number; provider:string; modelName:string; code?:string; }
 export interface QualityRule { id: string; name: string; code: string; category?: string; ruleType: string; targetRole?: string; expression?: string; description?: string; deduction?: number; riskLevel?: string; veto?: boolean; versionNo?: number; status: string; }
 export interface QualityRuleVersion { id: string; ruleId: string; versionNo: number; name: string; code: string; category?: string; ruleType: string; targetRole?: string; expression?: string; description?: string; deduction?: number; riskLevel?: string; veto?: boolean; status: string; createdTime?: string; }
 export interface QualityRuleSet { id:string; name:string; code:string; description?:string; ruleIdsJson:string; aggregationMode:"ALL"|"ANY"; versionNo:number; status:string; }
